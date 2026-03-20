@@ -19,6 +19,7 @@ import abc
 import dataclasses as dc
 import typing as t
 
+import openrouter
 import openrouter.components as or_comp
 
 OpenRouterMessage = (
@@ -126,13 +127,22 @@ class AssistantMessage(Message):
 
 
 class Session:
-    def __init__(self) -> None:
+    def __init__(self, openrouter_client: openrouter.OpenRouter) -> None:
+        self._openrouter_client = openrouter_client
         self._messages = []
 
-    def append(self, message: Message) -> None:
-        self._messages.append(message)
+    async def process_user_message(self,
+                                   user_message_content: str) -> list[Message]:
+        self._messages.append(UserMessage(user_message_content))
+        event_stream = await self._openrouter_client.chat.send_async(
+            messages=self._as_openrouter_message_list(),
+            model="stepfun/step-3.5-flash:free", stream=True)
+        assistant_message = await AssistantMessage.from_event_stream(
+            event_stream)
+        self._messages.append(assistant_message)
+        return [assistant_message]
 
-    def as_openrouter_message_list(self) -> list[OpenRouterMessage]:
+    def _as_openrouter_message_list(self) -> list[OpenRouterMessage]:
         openrouter_messages = []
         for message in self._messages:
             if message.role == "assistant":

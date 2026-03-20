@@ -53,39 +53,34 @@ async def ainput() -> str:
         None, sys.stdin.readline)
 
 
-async def do_chat(or_client: openrouter.OpenRouter):
-    session = msg.Session()
+async def do_chat(openrouter_client: openrouter.OpenRouter):
+    session = msg.Session(openrouter_client)
     while True:
         try:
-            await run_turn(or_client, session)
+            await run_turn(session)
         except asyncio.CancelledError:
             return
         except Exception:
             logger.exception("Error running chat turn.")
 
 
-async def run_turn(or_client: openrouter.OpenRouter, session: msg.Session):
+async def run_turn(session: msg.Session):
     user_message_content = await ainput()
     print("---")
-    session.append(msg.UserMessage(user_message_content))
-    event_stream = await or_client.chat.send_async(
-        messages=session.as_openrouter_message_list(),
-        model="stepfun/step-3.5-flash:free", stream=True)
-    assistant_message = await msg.AssistantMessage.from_event_stream(
-        event_stream)
-    print(assistant_message.content)
-    print("---")
-    session.append(assistant_message)
+    new_messages = await session.process_user_message(user_message_content)
+    for message in new_messages:
+        print(message.content)
+        print("---")
 
 
 async def main():
     shutdown_event = asyncio.Event()
     asyncio.get_running_loop().add_signal_handler(
         signal.SIGTERM, shutdown, shutdown_event)
-    or_client = openrouter.OpenRouter(api_key=OPENROUTER_API_KEY)
+    openrouter_client = openrouter.OpenRouter(api_key=OPENROUTER_API_KEY)
     async with contextlib.AsyncExitStack() as stack:
-        await stack.enter_async_context(or_client)
-        chat_task = asyncio.create_task(do_chat(or_client))
+        await stack.enter_async_context(openrouter_client)
+        chat_task = asyncio.create_task(do_chat(openrouter_client))
         await shutdown_event.wait()
         chat_task.cancel()
         await chat_task
