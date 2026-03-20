@@ -49,7 +49,7 @@ def shutdown(shutdown_event: asyncio.Event):
 
 
 async def ainput() -> str:
-    return await asyncio.get_event_loop().run_in_executor(
+    return await asyncio.get_running_loop().run_in_executor(
         None, sys.stdin.readline)
 
 
