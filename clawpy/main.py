@@ -19,6 +19,7 @@ import asyncio
 import contextlib
 import os
 import signal
+import sys
 
 import message as msg
 import openrouter
@@ -30,6 +31,31 @@ def shutdown(shutdown_event: asyncio.Event):
     shutdown_event.set()
 
 
+async def ainput() -> str:
+    return await asyncio.get_event_loop().run_in_executor(
+        None, sys.stdin.readline)
+
+
+async def do_chat(or_client: openrouter.OpenRouter):
+    # TODO system/tool messages+++++++
+    session = msg.Session()
+    try:
+        while True:
+            user_message_content = await ainput()
+            print("---")
+            session.append(msg.UserMessage(user_message_content))
+            event_stream = await or_client.chat.send_async(
+                messages=session.as_openrouter_message_list(),
+                model="stepfun/step-3.5-flash:free", stream=True)
+            assistant_message = await msg.AssistantMessage.from_event_stream(
+                event_stream)
+            print(assistant_message.content)
+            print("---")
+            session.append(assistant_message)
+    except asyncio.CancelledError:
+        return
+
+
 async def main():
     shutdown_event = asyncio.Event()
     asyncio.get_running_loop().add_signal_handler(
@@ -37,7 +63,10 @@ async def main():
     or_client = openrouter.OpenRouter(api_key=OPENROUTER_API_KEY)
     async with contextlib.AsyncExitStack() as stack:
         await stack.enter_async_context(or_client)
+        chat_task = asyncio.create_task(do_chat(or_client))
         await shutdown_event.wait()
+        chat_task.cancel()
+        await chat_task
 
 
 if __name__ == "__main__":
