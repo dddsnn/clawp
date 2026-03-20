@@ -17,6 +17,8 @@
 
 import asyncio
 import contextlib
+import logging
+import logging.config
 import os
 import signal
 import sys
@@ -25,6 +27,21 @@ import message as msg
 import openrouter
 
 OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
+
+logger = None
+
+
+def setup_logging():
+    fmt = "%(asctime)s|%(module)s|%(name)s|%(levelname)s: %(message)s"
+    logging.config.dictConfig({
+        "version": 1,
+        "formatters": {"simple": {"format": fmt}},
+        "handlers": {
+            "stream_handler": {
+                "class": "logging.StreamHandler", "formatter": "simple"}},
+        "root": {"level": "DEBUG", "handlers": ["stream_handler"]},
+        "loggers": {
+            "httpcore": {"level": "INFO", "handlers": ["stream_handler"]}},})
 
 
 def shutdown(shutdown_event: asyncio.Event):
@@ -37,23 +54,28 @@ async def ainput() -> str:
 
 
 async def do_chat(or_client: openrouter.OpenRouter):
-    # TODO system/tool messages+++++++
     session = msg.Session()
-    try:
-        while True:
-            user_message_content = await ainput()
-            print("---")
-            session.append(msg.UserMessage(user_message_content))
-            event_stream = await or_client.chat.send_async(
-                messages=session.as_openrouter_message_list(),
-                model="stepfun/step-3.5-flash:free", stream=True)
-            assistant_message = await msg.AssistantMessage.from_event_stream(
-                event_stream)
-            print(assistant_message.content)
-            print("---")
-            session.append(assistant_message)
-    except asyncio.CancelledError:
-        return
+    while True:
+        try:
+            await run_turn(or_client, session)
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception("Error running chat turn.")
+
+
+async def run_turn(or_client: openrouter.OpenRouter, session: msg.Session):
+    user_message_content = await ainput()
+    print("---")
+    session.append(msg.UserMessage(user_message_content))
+    event_stream = await or_client.chat.send_async(
+        messages=session.as_openrouter_message_list(),
+        model="stepfun/step-3.5-flash:free", stream=True)
+    assistant_message = await msg.AssistantMessage.from_event_stream(
+        event_stream)
+    print(assistant_message.content)
+    print("---")
+    session.append(assistant_message)
 
 
 async def main():
@@ -70,4 +92,6 @@ async def main():
 
 
 if __name__ == "__main__":
+    setup_logging()
+    logger = logging.getLogger(__name__)
     asyncio.run(main())
