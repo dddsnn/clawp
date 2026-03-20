@@ -1,0 +1,15 @@
+[build-system] 
+requires = ["setuptools", "wheel"]
+
+[project]
+name = "clawpy"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "openrouter>=0.7.11",
+]
+
+[project.optional-dependencies]
+dev = [
+    "yapf>=0.43.0",
+]
