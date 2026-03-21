@@ -112,8 +112,7 @@ class AssistantMessage(Message):
     async def from_event_stream(
             stream: or_comp.EventStreamAsync) -> AssistantMessage:
         parts, tool_calls = [], []
-        current_content_type = None
-        current_content = ""
+        current_part = None
         async for chunk in stream:
             if not isinstance(chunk, or_comp.ChatStreamingResponseChunk):
                 raise ValueError(
@@ -140,19 +139,16 @@ class AssistantMessage(Message):
                     tool_calls.append(tool_call)
             if not delta.content and not delta.reasoning:
                 continue
-            content_type = "content" if delta.content else "reasoning"
-            content = delta.content or delta.reasoning
-            if current_content_type and current_content_type != content_type:
-                parts.append(
-                    AssistantMessagePart(
-                        type=current_content_type, text=current_content))
-                current_content = ""
-            current_content_type = content_type
-            current_content += content
-        if current_content:
-            parts.append(
-                AssistantMessagePart(
-                    type=current_content_type, text=current_content))
+            this_type = "content" if delta.content else "reasoning"
+            text = delta.content or delta.reasoning
+            if current_part and current_part.type != this_type:
+                parts.append(current_part)
+                current_part = None
+            current_part = current_part or AssistantMessagePart(
+                type=this_type, text="")
+            current_part.text += text
+        if current_part:
+            parts.append(current_part)
         return AssistantMessage(parts, tool_calls)
 
 
