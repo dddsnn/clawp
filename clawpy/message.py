@@ -17,6 +17,7 @@
 
 import abc
 import dataclasses as dc
+import logging
 import typing as t
 
 import openrouter
@@ -66,6 +67,16 @@ class UserMessage(SimpleMessage):
         super().__init__("user", content)
 
 
+class ToolMessage(SimpleMessage):
+    def __init__(self, content: str, tool_call_id: str) -> None:
+        super().__init__("system", content)
+        self._tool_call_id = tool_call_id
+
+    @property
+    def tool_call_id(self) -> str:
+        return self._tool_call_id
+
+
 @dc.dataclass
 class AssistantMessagePart:
     type: t.Literal["content", "reasoning"]
@@ -73,8 +84,11 @@ class AssistantMessagePart:
 
 
 class AssistantMessage(Message):
-    def __init__(self, parts: list[AssistantMessagePart]) -> None:
+    def __init__(
+            self, parts: list[AssistantMessagePart],
+            tool_calls: list[or_comp.ChatStreamingMessageToolCall]) -> None:
         self._parts = parts
+        self._tool_calls = tool_calls
 
     @property
     def role(self) -> t.Literal["assistant"]:
@@ -85,10 +99,14 @@ class AssistantMessage(Message):
         return "\n".join(
             part.content for part in self._parts if part.type == "content")
 
+    @property
+    def tool_calls(self) -> list[or_comp.ChatStreamingMessageToolCall]:
+        return self._tool_calls
+
     @staticmethod
     async def from_event_stream(
             stream: or_comp.EventStreamAsync) -> AssistantMessage:
-        parts = []
+        parts, tool_calls = [], []
         current_content_type = None
         current_content = ""
         async for chunk in stream:
@@ -108,6 +126,13 @@ class AssistantMessage(Message):
                     "Assistant message contains both content "
                     f"('{delta.content}') and reasoning ('{delta.reasoning}')."
                 )
+            if delta.tool_calls:
+                for tool_call in delta.tool_calls:
+                    if not tool_call.id:
+                        # Chunks may contain null tool calls.
+                        assert tool_call.type is None
+                        continue
+                    tool_calls.append(tool_call)
             if not delta.content and not delta.reasoning:
                 continue
             content_type = "content" if delta.content else "reasoning"
@@ -123,38 +148,61 @@ class AssistantMessage(Message):
             parts.append(
                 AssistantMessagePart(
                     type=current_content_type, content=current_content))
-        return AssistantMessage(parts)
+        return AssistantMessage(parts, tool_calls)
 
 
 class Session:
     def __init__(self, openrouter_client: openrouter.OpenRouter) -> None:
+        self._logger = logging.getLogger(type(self).__name__)
         self._openrouter_client = openrouter_client
         self._messages = []
+        self._tools = [
+            or_comp.ToolDefinitionJSON(
+                type="function", function=or_comp.ToolDefinitionJSONFunction(
+                    name="ls", description="list current directory",
+                    parameters={}, strict=True))]
 
     async def process_user_message(self,
                                    user_message_content: str) -> list[Message]:
+        new_messages = []
         self._messages.append(UserMessage(user_message_content))
-        event_stream = await self._openrouter_client.chat.send_async(
+        while True:
+            assistant_message = await AssistantMessage.from_event_stream(
+                await self._request_stream())
+            self._messages.append(assistant_message)
+            new_messages.append(assistant_message)
+            if not assistant_message.tool_calls:
+                return new_messages
+            for tool_call in assistant_message.tool_calls:
+                self._logger.debug(f"Handling tool call {tool_call}.")
+                assert tool_call.function.name == "ls"
+                self._messages.append(
+                    or_comp.ToolResponseMessage(
+                        role="tool", tool_call_id=tool_call.id,
+                        content="asd\nsdf"))
+
+    async def _request_stream(self):
+        self._logger.debug(f"sending {self._as_openrouter_message_list()}")
+        return await self._openrouter_client.chat.send_async(
             messages=self._as_openrouter_message_list(),
-            model="stepfun/step-3.5-flash:free", stream=True)
-        assistant_message = await AssistantMessage.from_event_stream(
-            event_stream)
-        self._messages.append(assistant_message)
-        return [assistant_message]
+            model="stepfun/step-3.5-flash:free", tools=self._tools,
+            stream=True)
 
     def _as_openrouter_message_list(self) -> list[OpenRouterMessage]:
         openrouter_messages = []
         for message in self._messages:
+            message_kwargs = {"role": message.role, "content": message.content}
             if message.role == "assistant":
+                message_kwargs["tool_calls"] = message.tool_calls
                 message_class = or_comp.AssistantMessage
             elif message.role == "system":
                 message_class = or_comp.SystemMessage
             elif message.role == "tool":
                 message_class = or_comp.ToolResponseMessage
+                message_kwargs["tool_call_id"] = message.tool_call_id
             elif message.role == "user":
                 message_class = or_comp.UserMessage
             else:
                 raise ValueError(f"Invalid message role {message.role}.")
-            openrouter_messages.append(
-                message_class(role=message.role, content=message.content))
+            openrouter_messages.append(message_class(**message_kwargs))
         return openrouter_messages

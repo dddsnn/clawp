@@ -69,6 +69,8 @@ async def run_turn(session: msg.Session):
     print("---")
     new_messages = await session.process_user_message(user_message_content)
     for message in new_messages:
+        if not message.content:
+            continue
         print(message.content)
         print("---")
 
