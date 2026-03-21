@@ -80,7 +80,7 @@ class ToolMessage(SimpleMessage):
 @dc.dataclass
 class AssistantMessagePart:
     type: t.Literal["content", "reasoning"]
-    content: str
+    text: str
 
 
 class AssistantMessage(Message):
@@ -97,7 +97,12 @@ class AssistantMessage(Message):
     @property
     def content(self) -> str:
         return "\n".join(
-            part.content for part in self._parts if part.type == "content")
+            part.text for part in self._parts if part.type == "content")
+
+    @property
+    def reasoning(self) -> str:
+        return "\n".join(
+            part.text for part in self._parts if part.type == "reasoning")
 
     @property
     def tool_calls(self) -> list[or_comp.ChatStreamingMessageToolCall]:
@@ -140,14 +145,14 @@ class AssistantMessage(Message):
             if current_content_type and current_content_type != content_type:
                 parts.append(
                     AssistantMessagePart(
-                        type=current_content_type, content=current_content))
+                        type=current_content_type, text=current_content))
                 current_content = ""
             current_content_type = content_type
             current_content += content
         if current_content:
             parts.append(
                 AssistantMessagePart(
-                    type=current_content_type, content=current_content))
+                    type=current_content_type, text=current_content))
         return AssistantMessage(parts, tool_calls)
 
 
@@ -182,7 +187,6 @@ class Session:
                         content="asd\nsdf"))
 
     async def _request_stream(self):
-        self._logger.debug(f"sending {self._as_openrouter_message_list()}")
         return await self._openrouter_client.chat.send_async(
             messages=self._as_openrouter_message_list(),
             model="stepfun/step-3.5-flash:free", tools=self._tools,
@@ -191,18 +195,37 @@ class Session:
     def _as_openrouter_message_list(self) -> list[OpenRouterMessage]:
         openrouter_messages = []
         for message in self._messages:
-            message_kwargs = {"role": message.role, "content": message.content}
             if message.role == "assistant":
-                message_kwargs["tool_calls"] = message.tool_calls
-                message_class = or_comp.AssistantMessage
+                openrouter_message = self._create_openrouter_assistant_message(
+                    message)
             elif message.role == "system":
-                message_class = or_comp.SystemMessage
+                openrouter_message = or_comp.SystemMessage(
+                    role=message.role, content=message.content)
             elif message.role == "tool":
-                message_class = or_comp.ToolResponseMessage
-                message_kwargs["tool_call_id"] = message.tool_call_id
+                openrouter_message = or_comp.ToolResponseMessage(
+                    role=message.role, content=message.content,
+                    tool_call_id=message.tool_call_id)
             elif message.role == "user":
-                message_class = or_comp.UserMessage
+                openrouter_message = or_comp.UserMessage(
+                    role=message.role, content=message.content)
             else:
                 raise ValueError(f"Invalid message role {message.role}.")
-            openrouter_messages.append(message_class(**message_kwargs))
+            openrouter_messages.append(openrouter_message)
         return openrouter_messages
+
+    @staticmethod
+    def _create_openrouter_assistant_message(
+            message: AssistantMessage) -> or_comp.AssistantMessage:
+        tool_calls = []
+        for stc in message.tool_calls:
+            if not all([stc.id, stc.type, stc.function, stc.function.name,
+                        stc.function.arguments]):
+                continue
+            function = or_comp.ChatMessageToolCallFunction(
+                name=stc.function.name, arguments=stc.function.arguments)
+            tool_calls.append(
+                or_comp.ChatMessageToolCall(
+                    id=stc.id, type=stc.type, function=function))
+        return or_comp.AssistantMessage(
+            role=message.role, content=message.content,
+            reasoning=message.reasoning, tool_calls=tool_calls)
