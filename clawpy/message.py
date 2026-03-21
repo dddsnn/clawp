@@ -17,11 +17,13 @@
 
 import abc
 import dataclasses as dc
+import json
 import logging
 import typing as t
 
 import openrouter
 import openrouter.components as or_comp
+import tool
 
 OpenRouterMessage = (
     or_comp.AssistantMessage | or_comp.SystemMessage
@@ -83,10 +85,22 @@ class AssistantMessagePart:
     text: str
 
 
+@dc.dataclass
+class ToolCallFunction:
+    name: str = ""
+    arguments: str = ""
+
+
+@dc.dataclass
+class ToolCall:
+    id: str
+    function: ToolCallFunction = dc.field(default_factory=ToolCallFunction)
+
+
 class AssistantMessage(Message):
     def __init__(
             self, parts: list[AssistantMessagePart],
-            tool_calls: list[or_comp.ChatStreamingMessageToolCall]) -> None:
+            tool_calls: list[ToolCall]) -> None:
         self._parts = parts
         self._tool_calls = tool_calls
 
@@ -105,13 +119,13 @@ class AssistantMessage(Message):
             part.text for part in self._parts if part.type == "reasoning")
 
     @property
-    def tool_calls(self) -> list[or_comp.ChatStreamingMessageToolCall]:
+    def tool_calls(self) -> list[ToolCall]:
         return self._tool_calls
 
     @staticmethod
     async def from_event_stream(
             stream: or_comp.EventStreamAsync) -> AssistantMessage:
-        parts, tool_calls = [], []
+        parts, tool_calls, tool_calls_kwargs = [], [], {}
         current_part = None
         async for chunk in stream:
             if not isinstance(chunk, or_comp.ChatStreamingResponseChunk):
@@ -130,13 +144,16 @@ class AssistantMessage(Message):
                     "Assistant message contains both content "
                     f"('{delta.content}') and reasoning ('{delta.reasoning}')."
                 )
-            if delta.tool_calls:
-                for tool_call in delta.tool_calls:
-                    if not tool_call.id:
-                        # Chunks may contain null tool calls.
-                        assert tool_call.type is None
-                        continue
-                    tool_calls.append(tool_call)
+            for tool_call in delta.tool_calls or []:
+                tool_call_kwargs = tool_calls_kwargs.setdefault(
+                    tool_call.index, {})
+                tool_call_kwargs.setdefault("id", "")
+                tool_call_kwargs.setdefault("name", "")
+                tool_call_kwargs.setdefault("arguments", "")
+                tool_call_kwargs["id"] += tool_call.id or ""
+                tool_call_kwargs["name"] += tool_call.function.name or ""
+                tool_call_kwargs["arguments"] += (
+                    tool_call.function.arguments or "")
             if not delta.content and not delta.reasoning:
                 continue
             this_type = "content" if delta.content else "reasoning"
@@ -149,19 +166,32 @@ class AssistantMessage(Message):
             current_part.text += text
         if current_part:
             parts.append(current_part)
+        for _, tool_call_kwargs in sorted(tool_calls_kwargs.items()):
+            function = ToolCallFunction(
+                name=tool_call_kwargs["name"],
+                arguments=tool_call_kwargs["arguments"])
+            tool_calls.append(
+                ToolCall(id=tool_call_kwargs["id"], function=function))
         return AssistantMessage(parts, tool_calls)
 
 
 class Session:
-    def __init__(self, openrouter_client: openrouter.OpenRouter) -> None:
+    def __init__(
+            self, openrouter_client: openrouter.OpenRouter,
+            mcp_client: tool.Client) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._openrouter_client = openrouter_client
         self._messages = []
-        self._tools = [
+        self._mcp_client = mcp_client
+
+    @property
+    def tools(self) -> list[or_comp.ToolDefinitionJSON]:
+        return [
             or_comp.ToolDefinitionJSON(
                 type="function", function=or_comp.ToolDefinitionJSONFunction(
-                    name="ls", description="list current directory",
-                    parameters={}, strict=True))]
+                    name=t.name, description=t.description,
+                    parameters=t.inputSchema, strict=True))
+            for t in self._mcp_client.tools.values()]
 
     async def process_user_message(self,
                                    user_message_content: str) -> list[Message]:
@@ -176,17 +206,25 @@ class Session:
                 return new_messages
             for tool_call in assistant_message.tool_calls:
                 self._logger.debug(f"Handling tool call {tool_call}.")
-                assert tool_call.function.name == "ls"
-                self._messages.append(
-                    or_comp.ToolResponseMessage(
-                        role="tool", tool_call_id=tool_call.id,
-                        content="asd\nsdf"))
+                try:
+                    arguments_dict = json.loads(tool_call.function.arguments)
+                    result = await self._mcp_client.call_tool(
+                        tool_call.function.name, arguments_dict)
+                    self._messages.append(
+                        or_comp.ToolResponseMessage(
+                            role="tool", tool_call_id=tool_call.id,
+                            content=str(result.data)))
+                except Exception as e:
+                    self._messages.append(
+                        or_comp.ToolResponseMessage(
+                            role="tool", tool_call_id=tool_call.id,
+                            content="Error in tool call: " + str(e)))
+                    self._logger.exception("Error in tool call.")
 
     async def _request_stream(self):
         return await self._openrouter_client.chat.send_async(
             messages=self._as_openrouter_message_list(),
-            model="stepfun/step-3.5-flash:free", tools=self._tools,
-            stream=True)
+            model="stepfun/step-3.5-flash:free", tools=self.tools, stream=True)
 
     def _as_openrouter_message_list(self) -> list[OpenRouterMessage]:
         openrouter_messages = []
@@ -213,15 +251,12 @@ class Session:
     def _create_openrouter_assistant_message(
             message: AssistantMessage) -> or_comp.AssistantMessage:
         tool_calls = []
-        for stc in message.tool_calls:
-            if not all([stc.id, stc.type, stc.function, stc.function.name,
-                        stc.function.arguments]):
-                continue
+        for tc in message.tool_calls:
             function = or_comp.ChatMessageToolCallFunction(
-                name=stc.function.name, arguments=stc.function.arguments)
+                name=tc.function.name, arguments=tc.function.arguments)
             tool_calls.append(
                 or_comp.ChatMessageToolCall(
-                    id=stc.id, type=stc.type, function=function))
+                    id=tc.id, type="function", function=function))
         return or_comp.AssistantMessage(
             role=message.role, content=message.content,
             reasoning=message.reasoning, tool_calls=tool_calls)
