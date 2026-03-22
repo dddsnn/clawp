@@ -206,14 +206,13 @@ class Session:
 
     async def process_user_message(self,
                                    user_message_content: str) -> list[Message]:
-        new_messages = []
         self._messages.append(UserMessage(user_message_content))
         while True:
             assistant_message = AssistantMessage(await self._request_stream())
             self._messages.append(assistant_message)
-            new_messages.append(assistant_message)
+            yield assistant_message
             if not await assistant_message.tool_calls:
-                return new_messages
+                return
             for tool_call in await assistant_message.tool_calls:
                 self._logger.debug(f"Handling tool call {tool_call}.")
                 try:

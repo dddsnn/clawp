@@ -69,11 +69,13 @@ async def do_chat(
 async def run_turn(session: msg.Session):
     user_message_content = await ainput()
     print("---")
-    new_messages = await session.process_user_message(user_message_content)
-    for message in new_messages:
-        if not await message.content:
+    async for message in session.process_user_message(user_message_content):
+        if not isinstance(message, msg.AssistantMessage):
+            logger.warning(f"Got non-assistant message {message} as response.")
+        message_str = await message.content
+        if not message_str:
             continue
-        print(await message.content)
+        print(message_str)
         print("---")
 
 
