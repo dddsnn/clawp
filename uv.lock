@@ -130,7 +130,7 @@ wheels = [
 ]
 
 [[package]]
-name = "clawpy"
+name = "clawp"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

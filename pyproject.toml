@@ -1,8 +1,8 @@
-[build-system] 
+[build-system]
 requires = ["setuptools", "wheel"]
 
 [project]
-name = "clawpy"
+name = "clawp"
 version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = [

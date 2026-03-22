@@ -3,7 +3,7 @@ import collections.abc as cl_abc
 import fastmcp
 import fastmcp.tools
 
-mcp_server = fastmcp.FastMCP(name="clawpy MCP server")
+mcp_server = fastmcp.FastMCP(name="Clawp MCP server")
 
 
 @mcp_server.tool
