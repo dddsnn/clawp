@@ -26,9 +26,9 @@ import openrouter.components as or_comp
 import tool
 
 OpenRouterMessage = (
-    or_comp.AssistantMessage | or_comp.SystemMessage
+    or_comp.AssistantMessage | or_comp.DeveloperMessage | or_comp.SystemMessage
     | or_comp.ToolResponseMessage | or_comp.UserMessage)
-MessageRole = t.Literal["assistant", "system", "tool", "user"]
+MessageRole = t.Literal["assistant", "developer", "system", "tool", "user"]
 
 
 class Message(abc.ABC):
@@ -62,6 +62,11 @@ class SimpleMessage(Message):
 class SystemMessage(SimpleMessage):
     def __init__(self, content: str) -> None:
         super().__init__("system", content)
+
+
+class DeveloperMessage(SimpleMessage):
+    def __init__(self, content: str) -> None:
+        super().__init__("developer", content)
 
 
 class UserMessage(SimpleMessage):
@@ -232,6 +237,9 @@ class Session:
             if message.role == "assistant":
                 openrouter_message = (
                     await self._create_openrouter_assistant_message(message))
+            elif message.role == "developer":
+                openrouter_message = or_comp.DeveloperMessage(
+                    role=message.role, content=await message.content)
             elif message.role == "system":
                 openrouter_message = or_comp.SystemMessage(
                     role=message.role, content=await message.content)
