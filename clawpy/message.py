@@ -17,6 +17,7 @@
 
 import abc
 import asyncio
+import collections.abc as cl_abc
 import dataclasses as dc
 import json
 import logging
@@ -85,6 +86,56 @@ class ToolMessage(SimpleMessage):
         return self._tool_call_id
 
 
+class StreamableList:
+    def __init__(self):
+        self._list = []
+        self._stream_condition = asyncio.Condition()
+        self._finalized_event = asyncio.Event()
+        self._finalized_wait_task = asyncio.create_task(
+            self._finalized_event.wait())
+
+    def __bool__(self) -> bool:
+        return bool(self._list)
+
+    def __getitem__(self, index):
+        return self._list[index]
+
+    def __iter__(self) -> cl_abc.Iterator:
+        return iter(self._list)
+
+    async def append(self, item) -> None:
+        if self._finalized_event.is_set():
+            raise ValueError("StreamableList has already been finalized.")
+        self._list.append(item)
+        async with self._stream_condition:
+            self._stream_condition.notify_all()
+
+    def finalize(self) -> None:
+        self._finalized_event.set()
+
+    async def wait_finalized(self) -> None:
+        await self._finalized_wait_task
+
+    async def stream(self) -> cl_abc.AsyncGenerator:
+        i = 0
+        while True:
+            if i < len(self._list):
+                yield self._list[i]
+                i += 1
+                continue
+            elif self._finalized_event.is_set():
+                return
+            condition_wait_task = asyncio.create_task(
+                self._wait_for_condition())
+            await asyncio.wait(
+                {condition_wait_task, self._finalized_wait_task},
+                return_when=asyncio.FIRST_COMPLETED)
+
+    async def _wait_for_condition(self):
+        async with self._stream_condition:
+            await self._stream_condition.wait()
+
+
 @dc.dataclass
 class ToolCallFunction:
     name: str = ""
@@ -105,7 +156,7 @@ class AssistantMessagePart:
 
 class AssistantMessage(Message):
     def __init__(self, stream: or_comp.EventStreamAsync) -> None:
-        self._parts: AssistantMessagePart = []
+        self._parts = StreamableList()
         self._tool_calls = []
         self._read_stream_task = asyncio.create_task(self._read_stream(stream))
 
@@ -115,13 +166,13 @@ class AssistantMessage(Message):
 
     @property
     async def content(self) -> t.Awaitable[str]:
-        await self._read_stream_task
+        await self._parts.wait_finalized()
         return "\n".join(
             part.text for part in self._parts if part.type == "content")
 
     @property
     async def reasoning(self) -> t.Awaitable[str]:
-        await self._read_stream_task
+        await self._parts.wait_finalized()
         return "\n".join(
             part.text for part in self._parts if part.type == "reasoning")
 
@@ -135,6 +186,11 @@ class AssistantMessage(Message):
         """
         await self._read_stream_task
         return self._tool_calls
+
+    async def stream_parts(
+            self) -> cl_abc.AsyncGenerator[AssistantMessagePart]:
+        async for part in self._parts.stream():
+            yield part
 
     async def _read_stream(self, stream: or_comp.EventStreamAsync) -> None:
         tool_calls_kwargs = {}
@@ -170,7 +226,7 @@ class AssistantMessage(Message):
             part_type = "content" if delta.content else "reasoning"
             text = delta.content or delta.reasoning
             if not self._parts or self._parts[-1].type != part_type:
-                self._parts.append(AssistantMessagePart(type=part_type))
+                await self._parts.append(AssistantMessagePart(type=part_type))
             self._parts[-1].text += text
         for _, tool_call_kwargs in sorted(tool_calls_kwargs.items()):
             function = ToolCallFunction(
@@ -178,6 +234,7 @@ class AssistantMessage(Message):
                 arguments=tool_call_kwargs["arguments"])
             self._tool_calls.append(
                 ToolCall(id=tool_call_kwargs["id"], function=function))
+        self._parts.finalize()
 
 
 class Session:
