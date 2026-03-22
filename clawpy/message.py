@@ -71,7 +71,7 @@ class UserMessage(SimpleMessage):
 
 class ToolMessage(SimpleMessage):
     def __init__(self, content: str, tool_call_id: str) -> None:
-        super().__init__("system", content)
+        super().__init__("tool", content)
         self._tool_call_id = tool_call_id
 
     @property
@@ -181,7 +181,7 @@ class Session:
             mcp_client: tool.Client) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._openrouter_client = openrouter_client
-        self._messages = []
+        self._messages: list[Message] = []
         self._mcp_client = mcp_client
 
     @property
@@ -211,14 +211,14 @@ class Session:
                     result = await self._mcp_client.call_tool(
                         tool_call.function.name, arguments_dict)
                     self._messages.append(
-                        or_comp.ToolResponseMessage(
-                            role="tool", tool_call_id=tool_call.id,
-                            content=str(result.data)))
+                        ToolMessage(
+                            content=str(result.data),
+                            tool_call_id=tool_call.id))
                 except Exception as e:
                     self._messages.append(
-                        or_comp.ToolResponseMessage(
-                            role="tool", tool_call_id=tool_call.id,
-                            content="Error in tool call: " + str(e)))
+                        ToolMessage(
+                            content="Error in tool call: " + str(e),
+                            tool_call_id=tool_call.id))
                     self._logger.exception("Error in tool call.")
 
     async def _request_stream(self):
