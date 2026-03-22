@@ -16,6 +16,7 @@
 # with clawpy. If not, see <https://www.gnu.org/licenses/>.
 
 import abc
+import asyncio
 import dataclasses as dc
 import json
 import logging
@@ -39,7 +40,7 @@ class Message(abc.ABC):
 
     @property
     @abc.abstractmethod
-    async def content(self) -> str:
+    async def content(self) -> t.Awaitable[str]:
         return self._content
 
 
@@ -55,7 +56,7 @@ class SimpleMessage(Message):
         return self._role
 
     @property
-    async def content(self) -> str:
+    async def content(self) -> t.Awaitable[str]:
         return self._content
 
 
@@ -85,12 +86,6 @@ class ToolMessage(SimpleMessage):
 
 
 @dc.dataclass
-class AssistantMessagePart:
-    type: t.Literal["content", "reasoning"]
-    text: str
-
-
-@dc.dataclass
 class ToolCallFunction:
     name: str = ""
     arguments: str = ""
@@ -102,35 +97,47 @@ class ToolCall:
     function: ToolCallFunction = dc.field(default_factory=ToolCallFunction)
 
 
+@dc.dataclass
+class AssistantMessagePart:
+    type: t.Literal["content", "reasoning"]
+    text: str
+
+
 class AssistantMessage(Message):
-    def __init__(
-            self, parts: list[AssistantMessagePart],
-            tool_calls: list[ToolCall]) -> None:
-        self._parts = parts
-        self._tool_calls = tool_calls
+    def __init__(self, stream: or_comp.EventStreamAsync) -> None:
+        self._parts = []
+        self._tool_calls = []
+        self._read_stream_task = asyncio.create_task(self._read_stream(stream))
 
     @property
     def role(self) -> t.Literal["assistant"]:
         return "assistant"
 
     @property
-    async def content(self) -> str:
+    async def content(self) -> t.Awaitable[str]:
+        await self._read_stream_task
         return "\n".join(
             part.text for part in self._parts if part.type == "content")
 
     @property
-    async def reasoning(self) -> str:
+    async def reasoning(self) -> t.Awaitable[str]:
+        await self._read_stream_task
         return "\n".join(
             part.text for part in self._parts if part.type == "reasoning")
 
     @property
-    def tool_calls(self) -> list[ToolCall]:
+    async def tool_calls(self) -> t.Awaitable[list[ToolCall]]:
+        """
+        Tool calls made in this message.
+
+        These are not streamed and will only be available once the entire
+        message has arrived.
+        """
+        await self._read_stream_task
         return self._tool_calls
 
-    @staticmethod
-    async def from_event_stream(
-            stream: or_comp.EventStreamAsync) -> AssistantMessage:
-        parts, tool_calls, tool_calls_kwargs = [], [], {}
+    async def _read_stream(self, stream: or_comp.EventStreamAsync) -> None:
+        tool_calls_kwargs = {}
         current_part = None
         async for chunk in stream:
             if not isinstance(chunk, or_comp.ChatStreamingResponseChunk):
@@ -164,20 +171,19 @@ class AssistantMessage(Message):
             this_type = "content" if delta.content else "reasoning"
             text = delta.content or delta.reasoning
             if current_part and current_part.type != this_type:
-                parts.append(current_part)
+                self._parts.append(current_part)
                 current_part = None
             current_part = current_part or AssistantMessagePart(
                 type=this_type, text="")
             current_part.text += text
         if current_part:
-            parts.append(current_part)
+            self._parts.append(current_part)
         for _, tool_call_kwargs in sorted(tool_calls_kwargs.items()):
             function = ToolCallFunction(
                 name=tool_call_kwargs["name"],
                 arguments=tool_call_kwargs["arguments"])
-            tool_calls.append(
+            self._tool_calls.append(
                 ToolCall(id=tool_call_kwargs["id"], function=function))
-        return AssistantMessage(parts, tool_calls)
 
 
 class Session:
@@ -203,13 +209,12 @@ class Session:
         new_messages = []
         self._messages.append(UserMessage(user_message_content))
         while True:
-            assistant_message = await AssistantMessage.from_event_stream(
-                await self._request_stream())
+            assistant_message = AssistantMessage(await self._request_stream())
             self._messages.append(assistant_message)
             new_messages.append(assistant_message)
-            if not assistant_message.tool_calls:
+            if not await assistant_message.tool_calls:
                 return new_messages
-            for tool_call in assistant_message.tool_calls:
+            for tool_call in await assistant_message.tool_calls:
                 self._logger.debug(f"Handling tool call {tool_call}.")
                 try:
                     arguments_dict = json.loads(tool_call.function.arguments)
@@ -259,7 +264,7 @@ class Session:
     async def _create_openrouter_assistant_message(
             message: AssistantMessage) -> or_comp.AssistantMessage:
         tool_calls = []
-        for tc in message.tool_calls:
+        for tc in await message.tool_calls:
             function = or_comp.ChatMessageToolCallFunction(
                 name=tc.function.name, arguments=tc.function.arguments)
             tool_calls.append(
