@@ -100,12 +100,12 @@ class ToolCall:
 @dc.dataclass
 class AssistantMessagePart:
     type: t.Literal["content", "reasoning"]
-    text: str
+    text: str = ""
 
 
 class AssistantMessage(Message):
     def __init__(self, stream: or_comp.EventStreamAsync) -> None:
-        self._parts = []
+        self._parts: AssistantMessagePart = []
         self._tool_calls = []
         self._read_stream_task = asyncio.create_task(self._read_stream(stream))
 
@@ -138,7 +138,6 @@ class AssistantMessage(Message):
 
     async def _read_stream(self, stream: or_comp.EventStreamAsync) -> None:
         tool_calls_kwargs = {}
-        current_part = None
         async for chunk in stream:
             if not isinstance(chunk, or_comp.ChatStreamingResponseChunk):
                 raise ValueError(
@@ -168,16 +167,11 @@ class AssistantMessage(Message):
                     tool_call.function.arguments or "")
             if not delta.content and not delta.reasoning:
                 continue
-            this_type = "content" if delta.content else "reasoning"
+            part_type = "content" if delta.content else "reasoning"
             text = delta.content or delta.reasoning
-            if current_part and current_part.type != this_type:
-                self._parts.append(current_part)
-                current_part = None
-            current_part = current_part or AssistantMessagePart(
-                type=this_type, text="")
-            current_part.text += text
-        if current_part:
-            self._parts.append(current_part)
+            if not self._parts or self._parts[-1].type != part_type:
+                self._parts.append(AssistantMessagePart(type=part_type))
+            self._parts[-1].text += text
         for _, tool_call_kwargs in sorted(tool_calls_kwargs.items()):
             function = ToolCallFunction(
                 name=tool_call_kwargs["name"],
