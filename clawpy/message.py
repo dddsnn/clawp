@@ -39,7 +39,7 @@ class Message(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def content(self) -> str:
+    async def content(self) -> str:
         return self._content
 
 
@@ -55,7 +55,7 @@ class SimpleMessage(Message):
         return self._role
 
     @property
-    def content(self) -> str:
+    async def content(self) -> str:
         return self._content
 
 
@@ -109,12 +109,12 @@ class AssistantMessage(Message):
         return "assistant"
 
     @property
-    def content(self) -> str:
+    async def content(self) -> str:
         return "\n".join(
             part.text for part in self._parts if part.type == "content")
 
     @property
-    def reasoning(self) -> str:
+    async def reasoning(self) -> str:
         return "\n".join(
             part.text for part in self._parts if part.type == "reasoning")
 
@@ -223,32 +223,32 @@ class Session:
 
     async def _request_stream(self):
         return await self._openrouter_client.chat.send_async(
-            messages=self._as_openrouter_message_list(),
+            messages=await self._as_openrouter_message_list(),
             model="stepfun/step-3.5-flash:free", tools=self.tools, stream=True)
 
-    def _as_openrouter_message_list(self) -> list[OpenRouterMessage]:
+    async def _as_openrouter_message_list(self) -> list[OpenRouterMessage]:
         openrouter_messages = []
         for message in self._messages:
             if message.role == "assistant":
-                openrouter_message = self._create_openrouter_assistant_message(
-                    message)
+                openrouter_message = (
+                    await self._create_openrouter_assistant_message(message))
             elif message.role == "system":
                 openrouter_message = or_comp.SystemMessage(
-                    role=message.role, content=message.content)
+                    role=message.role, content=await message.content)
             elif message.role == "tool":
                 openrouter_message = or_comp.ToolResponseMessage(
-                    role=message.role, content=message.content,
+                    role=message.role, content=await message.content,
                     tool_call_id=message.tool_call_id)
             elif message.role == "user":
                 openrouter_message = or_comp.UserMessage(
-                    role=message.role, content=message.content)
+                    role=message.role, content=await message.content)
             else:
                 raise ValueError(f"Invalid message role {message.role}.")
             openrouter_messages.append(openrouter_message)
         return openrouter_messages
 
     @staticmethod
-    def _create_openrouter_assistant_message(
+    async def _create_openrouter_assistant_message(
             message: AssistantMessage) -> or_comp.AssistantMessage:
         tool_calls = []
         for tc in message.tool_calls:
@@ -258,5 +258,5 @@ class Session:
                 or_comp.ChatMessageToolCall(
                     id=tc.id, type="function", function=function))
         return or_comp.AssistantMessage(
-            role=message.role, content=message.content,
-            reasoning=message.reasoning, tool_calls=tool_calls)
+            role=message.role, content=await message.content, reasoning=await
+            message.reasoning, tool_calls=tool_calls)
