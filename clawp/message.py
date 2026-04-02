@@ -28,8 +28,9 @@ import openrouter.components as or_comp
 import tool
 
 OpenRouterMessage = (
-    or_comp.AssistantMessage | or_comp.DeveloperMessage | or_comp.SystemMessage
-    | or_comp.ToolResponseMessage | or_comp.UserMessage)
+    or_comp.ChatAssistantMessage | or_comp.ChatDeveloperMessage
+    | or_comp.ChatSystemMessage
+    | or_comp.ChatToolMessage | or_comp.ChatUserMessage)
 MessageRole = t.Literal["assistant", "developer", "system", "tool", "user"]
 
 
@@ -195,7 +196,7 @@ class AssistantMessage(Message):
     async def _read_stream(self, stream: or_comp.EventStreamAsync) -> None:
         tool_calls_kwargs = {}
         async for chunk in stream:
-            if not isinstance(chunk, or_comp.ChatStreamingResponseChunk):
+            if not isinstance(chunk, or_comp.ChatStreamChunk):
                 raise ValueError(
                     f"Unexpected chunk type {type(chunk)} in stream.")
             if len(chunk.choices) != 1:
@@ -247,10 +248,11 @@ class Session:
         self._mcp_client = mcp_client
 
     @property
-    def tools(self) -> list[or_comp.ToolDefinitionJSON]:
+    def tools(self) -> list[or_comp.ChatFunctionToolFunction]:
         return [
-            or_comp.ToolDefinitionJSON(
-                type="function", function=or_comp.ToolDefinitionJSONFunction(
+            or_comp.ChatFunctionToolFunction(
+                type="function",
+                function=or_comp.ChatFunctionToolFunctionFunction(
                     name=t.name, description=t.description,
                     parameters=t.inputSchema, strict=True))
             for t in self._mcp_client.tools.values()]
@@ -293,17 +295,17 @@ class Session:
                 openrouter_message = (
                     await self._create_openrouter_assistant_message(message))
             elif message.role == "developer":
-                openrouter_message = or_comp.DeveloperMessage(
+                openrouter_message = or_comp.ChatDeveloperMessage(
                     role=message.role, content=await message.content)
             elif message.role == "system":
-                openrouter_message = or_comp.SystemMessage(
+                openrouter_message = or_comp.ChatSystemMessage(
                     role=message.role, content=await message.content)
             elif message.role == "tool":
-                openrouter_message = or_comp.ToolResponseMessage(
+                openrouter_message = or_comp.ChatToolMessage(
                     role=message.role, content=await message.content,
                     tool_call_id=message.tool_call_id)
             elif message.role == "user":
-                openrouter_message = or_comp.UserMessage(
+                openrouter_message = or_comp.ChatUserMessage(
                     role=message.role, content=await message.content)
             else:
                 raise ValueError(f"Invalid message role {message.role}.")
@@ -315,11 +317,11 @@ class Session:
             message: AssistantMessage) -> or_comp.AssistantMessage:
         tool_calls = []
         for tc in await message.tool_calls:
-            function = or_comp.ChatMessageToolCallFunction(
+            function = or_comp.ChatToolCallFunction(
                 name=tc.function.name, arguments=tc.function.arguments)
             tool_calls.append(
-                or_comp.ChatMessageToolCall(
+                or_comp.ChatToolCall(
                     id=tc.id, type="function", function=function))
-        return or_comp.AssistantMessage(
+        return or_comp.ChatAssistantMessage(
             role=message.role, content=await message.content, reasoning=await
             message.reasoning, tool_calls=tool_calls)
