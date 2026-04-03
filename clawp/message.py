@@ -23,14 +23,11 @@ import json
 import logging
 import typing as t
 
-import openrouter
-import openrouter.components as or_comp
 import tool
 
-OpenRouterMessage = (
-    or_comp.ChatAssistantMessage | or_comp.ChatDeveloperMessage
-    | or_comp.ChatSystemMessage
-    | or_comp.ChatToolMessage | or_comp.ChatUserMessage)
+if t.TYPE_CHECKING:
+    import provider as prov
+
 MessageRole = t.Literal["assistant", "developer", "system", "tool", "user"]
 
 
@@ -206,9 +203,8 @@ class AssistantMessageToolPart(AssistantMessagePart):
 
 
 class AssistantMessage(Message):
-    def __init__(self, stream: or_comp.EventStreamAsync) -> None:
-        self._parts = StreamableList()
-        asyncio.create_task(self._read_stream(stream))
+    def __init__(self, parts: StreamableList) -> None:
+        self._parts = parts
 
     @property
     def role(self) -> t.Literal["assistant"]:
@@ -258,88 +254,21 @@ class AssistantMessage(Message):
         async for part in self._parts.stream():
             yield part
 
-    async def _read_stream(self, stream: or_comp.EventStreamAsync) -> None:
-        tool_calls_kwargs = {}
-        async for chunk in stream:
-            if not isinstance(chunk, or_comp.ChatStreamChunk):
-                raise ValueError(
-                    f"Unexpected chunk type {type(chunk)} in stream.")
-            if len(chunk.choices) != 1:
-                raise ValueError(
-                    f"Unexpected number of choices ({len(chunk.choices)}) in "
-                    "chunk.")
-            delta = chunk.choices[0].delta
-            if delta.role != "assistant":
-                raise ValueError(
-                    f"Unexpected role {delta.role} in assistant message.")
-            if delta.content and delta.reasoning:
-                raise ValueError(
-                    "Assistant message contains both content "
-                    f"('{delta.content}') and reasoning ('{delta.reasoning}')."
-                )
-            for tool_call in delta.tool_calls or []:
-                tool_call_kwargs = tool_calls_kwargs.setdefault(
-                    tool_call.index, {})
-                tool_call_kwargs.setdefault("id", "")
-                tool_call_kwargs.setdefault("name", "")
-                tool_call_kwargs.setdefault("arguments", "")
-                tool_call_kwargs["id"] += tool_call.id or ""
-                tool_call_kwargs["name"] += tool_call.function.name or ""
-                tool_call_kwargs["arguments"] += (
-                    tool_call.function.arguments or "")
-            if not delta.content and not delta.reasoning:
-                continue
-            part_type = "content" if delta.content else "reasoning"
-            text = delta.content or delta.reasoning
-            try:
-                if self._parts[-1].type != part_type:
-                    self._parts[-1].finalize()
-                    await self._parts.append(
-                        AssistantMessageTextPart(part_type))
-            except IndexError:
-                await self._parts.append(AssistantMessageTextPart(part_type))
-            await self._parts[-1].append(text)
-        try:
-            # All parts have been parsed, now also finalize the last one.
-            self._parts[-1].finalize()
-        except IndexError:
-            pass
-        if tool_calls_kwargs:
-            await self._parts.append(AssistantMessageToolPart())
-            for _, tool_call_kwargs in sorted(tool_calls_kwargs.items()):
-                function = ToolCallFunction(
-                    name=tool_call_kwargs["name"],
-                    arguments=tool_call_kwargs["arguments"])
-                await self._parts[-1].append(
-                    ToolCall(id=tool_call_kwargs["id"], function=function))
-            self._parts[-1].finalize()
-        self._parts.finalize()
-
 
 class Session:
     def __init__(
-            self, openrouter_client: openrouter.OpenRouter,
-            mcp_client: tool.Client) -> None:
+            self, provider: "prov.Provider", mcp_client: tool.Client) -> None:
         self._logger = logging.getLogger(type(self).__name__)
-        self._openrouter_client = openrouter_client
-        self._messages: list[Message] = []
+        self._provider = provider
         self._mcp_client = mcp_client
-
-    @property
-    def tools(self) -> list[or_comp.ChatFunctionToolFunction]:
-        return [
-            or_comp.ChatFunctionToolFunction(
-                type="function",
-                function=or_comp.ChatFunctionToolFunctionFunction(
-                    name=t.name, description=t.description,
-                    parameters=t.inputSchema, strict=True))
-            for t in self._mcp_client.tools.values()]
+        self._messages: list[Message] = []
 
     async def process_user_message(self,
                                    user_message_content: str) -> list[Message]:
         self._messages.append(UserMessage(user_message_content))
         while True:
-            assistant_message = AssistantMessage(await self._request_stream())
+            assistant_message = await self._provider.request_assistant_message(
+                self._messages, self._mcp_client.tools.values())
             self._messages.append(assistant_message)
             yield assistant_message
             if not await assistant_message.tool_calls:
@@ -361,45 +290,3 @@ class Session:
                             tool_call_id=tool_call.id))
                     self._logger.exception("Error in tool call.")
 
-    async def _request_stream(self):
-        return await self._openrouter_client.chat.send_async(
-            messages=await self._as_openrouter_message_list(),
-            model="stepfun/step-3.5-flash:free", tools=self.tools, stream=True)
-
-    async def _as_openrouter_message_list(self) -> list[OpenRouterMessage]:
-        openrouter_messages = []
-        for message in self._messages:
-            if message.role == "assistant":
-                openrouter_message = (
-                    await self._create_openrouter_assistant_message(message))
-            elif message.role == "developer":
-                openrouter_message = or_comp.ChatDeveloperMessage(
-                    role=message.role, content=await message.content)
-            elif message.role == "system":
-                openrouter_message = or_comp.ChatSystemMessage(
-                    role=message.role, content=await message.content)
-            elif message.role == "tool":
-                openrouter_message = or_comp.ChatToolMessage(
-                    role=message.role, content=await message.content,
-                    tool_call_id=message.tool_call_id)
-            elif message.role == "user":
-                openrouter_message = or_comp.ChatUserMessage(
-                    role=message.role, content=await message.content)
-            else:
-                raise ValueError(f"Invalid message role {message.role}.")
-            openrouter_messages.append(openrouter_message)
-        return openrouter_messages
-
-    @staticmethod
-    async def _create_openrouter_assistant_message(
-            message: AssistantMessage) -> or_comp.AssistantMessage:
-        tool_calls = []
-        for tc in await message.tool_calls:
-            function = or_comp.ChatToolCallFunction(
-                name=tc.function.name, arguments=tc.function.arguments)
-            tool_calls.append(
-                or_comp.ChatToolCall(
-                    id=tc.id, type="function", function=function))
-        return or_comp.ChatAssistantMessage(
-            role=message.role, content=await message.content, reasoning=await
-            message.reasoning, tool_calls=tool_calls)
