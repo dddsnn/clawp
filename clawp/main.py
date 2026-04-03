@@ -77,11 +77,13 @@ async def run_turn(session: msg.Session):
             print(await message.content, flush=True)
         else:
             async for message_part in message.stream_parts():
+                if not isinstance(message_part, msg.AssistantMessageTextPart):
+                    continue
                 print(f"{message_part.type}: ", end="")
                 async for fragment in message_part.stream_fragments():
                     print(fragment, end="", flush=True)
                 print(flush=True)
-        print("--- end of agent message ---")
+    print("--- end of agent message ---")
 
 
 async def main():

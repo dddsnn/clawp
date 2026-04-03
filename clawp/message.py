@@ -151,22 +151,22 @@ class ToolCall:
 
 
 class AssistantMessagePart:
-    VALID_TYPES = t.Literal["content", "reasoning"]
+    VALID_TYPES = t.Literal["content", "reasoning", "tool"]
 
-    def __init__(self, type: VALID_TYPES):
-        if type not in t.get_args(self.VALID_TYPES):
-            raise ValueError(f"Invalid type {type}.")
-        self._type = type
+    def __init__(self, part_type: VALID_TYPES):
+        if part_type not in t.get_args(self.VALID_TYPES):
+            raise ValueError(f"Invalid type {part_type}.")
+        self._type = part_type
         self._fragments = StreamableList()
 
     @property
     def type(self) -> VALID_TYPES:
         return self._type
 
-    async def append(self, text: str) -> None:
-        await self._fragments.append(text)
+    async def append(self, fragment: str | ToolCall) -> None:
+        await self._fragments.append(fragment)
 
-    async def stream_fragments(self) -> cl_abc.AsyncGenerator[str]:
+    async def stream_fragments(self) -> cl_abc.AsyncGenerator[str | ToolCall]:
         async for fragment in self._fragments.stream():
             yield fragment
 
@@ -174,11 +174,41 @@ class AssistantMessagePart:
         self._fragments.finalize()
 
 
+class AssistantMessageTextPart(AssistantMessagePart):
+    VALID_TYPES = t.Literal["content", "reasoning"]
+
+    def __init__(self, part_type: VALID_TYPES):
+        super().__init__(part_type)
+
+    async def append(self, text: str) -> None:
+        await super().append(text)
+
+    async def stream_fragments(self) -> cl_abc.AsyncGenerator[str]:
+        async for fragment in self._fragments.stream():
+            yield fragment
+
+    def finalize(self) -> None:
+        super().finalize()
+
+
+class AssistantMessageToolPart(AssistantMessagePart):
+    VALID_TYPES = t.Literal["tool"]
+
+    def __init__(self):
+        super().__init__("tool")
+
+    async def append(self, tool_call: ToolCall) -> None:
+        await super().append(tool_call)
+
+    async def stream_fragments(self) -> cl_abc.AsyncGenerator[ToolCall]:
+        async for fragment in super().stream_fragments():
+            yield fragment
+
+
 class AssistantMessage(Message):
     def __init__(self, stream: or_comp.EventStreamAsync) -> None:
         self._parts = StreamableList()
-        self._tool_calls = []
-        self._read_stream_task = asyncio.create_task(self._read_stream(stream))
+        asyncio.create_task(self._read_stream(stream))
 
     @property
     def role(self) -> t.Literal["assistant"]:
@@ -193,7 +223,7 @@ class AssistantMessage(Message):
         return await self._concat_part_text("reasoning")
 
     async def _concat_part_text(
-            self, part_type: AssistantMessagePart.VALID_TYPES):
+            self, part_type: AssistantMessageTextPart.VALID_TYPES):
         await self._parts.wait_finalized()
         prepend_newline = False
         text = ""
@@ -214,8 +244,14 @@ class AssistantMessage(Message):
         These are not streamed and will only be available once the entire
         message has arrived.
         """
-        await self._read_stream_task
-        return self._tool_calls
+        await self._parts.wait_finalized()
+        tool_calls = []
+        for part in self._parts:
+            if part.type != "tool":
+                continue
+            async for tool_call in part.stream_fragments():
+                tool_calls.append(tool_call)
+        return tool_calls
 
     async def stream_parts(
             self) -> cl_abc.AsyncGenerator[AssistantMessagePart]:
@@ -259,21 +295,24 @@ class AssistantMessage(Message):
                 if self._parts[-1].type != part_type:
                     self._parts[-1].finalize()
                     await self._parts.append(
-                        AssistantMessagePart(type=part_type))
+                        AssistantMessageTextPart(part_type))
             except IndexError:
-                await self._parts.append(AssistantMessagePart(type=part_type))
+                await self._parts.append(AssistantMessageTextPart(part_type))
             await self._parts[-1].append(text)
         try:
             # All parts have been parsed, now also finalize the last one.
             self._parts[-1].finalize()
         except IndexError:
             pass
-        for _, tool_call_kwargs in sorted(tool_calls_kwargs.items()):
-            function = ToolCallFunction(
-                name=tool_call_kwargs["name"],
-                arguments=tool_call_kwargs["arguments"])
-            self._tool_calls.append(
-                ToolCall(id=tool_call_kwargs["id"], function=function))
+        if tool_calls_kwargs:
+            await self._parts.append(AssistantMessageToolPart())
+            for _, tool_call_kwargs in sorted(tool_calls_kwargs.items()):
+                function = ToolCallFunction(
+                    name=tool_call_kwargs["name"],
+                    arguments=tool_call_kwargs["arguments"])
+                await self._parts[-1].append(
+                    ToolCall(id=tool_call_kwargs["id"], function=function))
+            self._parts[-1].finalize()
         self._parts.finalize()
 
 
