@@ -44,9 +44,8 @@ class OpenrouterProvider(Provider):
             messages=await self._as_openrouter_messages(messages),
             model="stepfun/step-3.5-flash:free",
             tools=self._as_openrouter_tools(tools), stream=True)
-        parts = msg.StreamableList()
-        asyncio.create_task(self._read_stream(stream, parts))
-        return msg.AssistantMessage(parts)
+        stream_reader = OpenrouterStreamReader(stream)
+        return stream_reader.read_message()
 
     async def _as_openrouter_messages(
             self, messages: list[msg.Message]) -> list[OpenRouterMessage]:
@@ -97,19 +96,27 @@ class OpenrouterProvider(Provider):
                     name=t.name, description=t.description,
                     parameters=t.inputSchema, strict=True)) for t in tools]
 
-    async def _read_stream(
-            self, stream: or_stream.EventStreamAsync,
-            parts: msg.StreamableList) -> None:
+
+class OpenrouterStreamReader:
+    def __init__(self, stream: or_stream.EventStreamAsync):
+        self._stream = stream
+        self._parts = msg.StreamableList()
+        self._assistant_message = msg.AssistantMessage(self._parts)
+
+    def read_message(self) -> msg.AssistantMessage:
+        asyncio.create_task(self._read_stream())
+        return self._assistant_message
+
+    async def _read_stream(self) -> None:
         tool_calls_kwargs = {}
-        async for chunk in stream:
+        async for chunk in self._stream:
             part_type, text = self._parse_chunk(chunk, tool_calls_kwargs)
             if not part_type:
                 continue
-            current_part = await self._ensure_current_text_part(
-                parts, part_type)
+            current_part = await self._ensure_current_text_part(part_type)
             await current_part.append(text)
         if tool_calls_kwargs:
-            tool_part = await self._ensure_current_tool_part(parts)
+            tool_part = await self._ensure_current_tool_part()
             for _, tool_call_kwargs in sorted(tool_calls_kwargs.items()):
                 function = msg.ToolCallFunction(
                     name=tool_call_kwargs["name"],
@@ -117,10 +124,10 @@ class OpenrouterProvider(Provider):
                 await tool_part.append(
                     msg.ToolCall(id=tool_call_kwargs["id"], function=function))
         try:
-            parts[-1].finalize()  # Make sure the last part is finalized.
+            self._parts[-1].finalize()  # Make sure the last part is finalized.
         except IndexError:
             pass
-        parts.finalize()
+        self._parts.finalize()
 
     def _parse_chunk(self, chunk, tool_calls_kwargs: dict[int, dict]):
         if not isinstance(chunk, or_comp.ChatStreamChunk):
@@ -153,22 +160,21 @@ class OpenrouterProvider(Provider):
         text = delta.content or delta.reasoning
         return part_type, text
 
-    async def _ensure_current_text_part(self, parts, part_type):
+    async def _ensure_current_text_part(self, part_type):
         return await self._ensure_current_part(
-            parts, lambda part: part.type == part_type,
+            lambda part: part.type == part_type,
             ft.partial(msg.AssistantMessageTextPart, part_type))
 
-    async def _ensure_current_tool_part(self, parts):
+    async def _ensure_current_tool_part(self):
         return await self._ensure_current_part(
-            parts, lambda part: isinstance(part, msg.AssistantMessageToolPart),
+            lambda part: isinstance(part, msg.AssistantMessageToolPart),
             msg.AssistantMessageToolPart)
 
-    async def _ensure_current_part(
-            self, parts, part_is_correct_type, part_factory):
+    async def _ensure_current_part(self, part_is_correct_type, part_factory):
         try:
-            if not part_is_correct_type(parts[-1]):
-                parts[-1].finalize()
-                await parts.append(part_factory())
+            if not part_is_correct_type(self._parts[-1]):
+                self._parts[-1].finalize()
+                await self._parts.append(part_factory())
         except IndexError:
-            await parts.append(part_factory())
-        return parts[-1]
+            await self._parts.append(part_factory())
+        return self._parts[-1]
