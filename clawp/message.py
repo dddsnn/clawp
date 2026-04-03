@@ -131,6 +131,7 @@ class StreamableList:
             await asyncio.wait(
                 {condition_wait_task, self._finalized_wait_task},
                 return_when=asyncio.FIRST_COMPLETED)
+            condition_wait_task.cancel()
 
     async def _wait_for_condition(self):
         async with self._stream_condition:
@@ -149,10 +150,28 @@ class ToolCall:
     function: ToolCallFunction = dc.field(default_factory=ToolCallFunction)
 
 
-@dc.dataclass
 class AssistantMessagePart:
-    type: t.Literal["content", "reasoning"]
-    text: str = ""
+    VALID_TYPES = t.Literal["content", "reasoning"]
+
+    def __init__(self, type: VALID_TYPES):
+        if type not in t.get_args(self.VALID_TYPES):
+            raise ValueError(f"Invalid type {type}.")
+        self._type = type
+        self._fragments = StreamableList()
+
+    @property
+    def type(self) -> VALID_TYPES:
+        return self._type
+
+    async def append(self, text: str) -> None:
+        await self._fragments.append(text)
+
+    async def stream_fragments(self) -> cl_abc.AsyncGenerator[str]:
+        async for fragment in self._fragments.stream():
+            yield fragment
+
+    def finalize(self) -> None:
+        self._fragments.finalize()
 
 
 class AssistantMessage(Message):
@@ -167,15 +186,25 @@ class AssistantMessage(Message):
 
     @property
     async def content(self) -> t.Awaitable[str]:
-        await self._parts.wait_finalized()
-        return "\n".join(
-            part.text for part in self._parts if part.type == "content")
+        return await self._concat_part_text("content")
 
     @property
     async def reasoning(self) -> t.Awaitable[str]:
+        return await self._concat_part_text("reasoning")
+
+    async def _concat_part_text(
+            self, part_type: AssistantMessagePart.VALID_TYPES):
         await self._parts.wait_finalized()
-        return "\n".join(
-            part.text for part in self._parts if part.type == "reasoning")
+        prepend_newline = False
+        text = ""
+        for part in self._parts:
+            if part.type != part_type:
+                continue
+            if prepend_newline:
+                text += "\n"
+            prepend_newline = True
+            async for fragment in part.stream_fragments():
+                text += fragment
 
     @property
     async def tool_calls(self) -> t.Awaitable[list[ToolCall]]:
@@ -226,9 +255,19 @@ class AssistantMessage(Message):
                 continue
             part_type = "content" if delta.content else "reasoning"
             text = delta.content or delta.reasoning
-            if not self._parts or self._parts[-1].type != part_type:
+            try:
+                if self._parts[-1].type != part_type:
+                    self._parts[-1].finalize()
+                    await self._parts.append(
+                        AssistantMessagePart(type=part_type))
+            except IndexError:
                 await self._parts.append(AssistantMessagePart(type=part_type))
-            self._parts[-1].text += text
+            await self._parts[-1].append(text)
+        try:
+            # All parts have been parsed, now also finalize the last one.
+            self._parts[-1].finalize()
+        except IndexError:
+            pass
         for _, tool_call_kwargs in sorted(tool_calls_kwargs.items()):
             function = ToolCallFunction(
                 name=tool_call_kwargs["name"],

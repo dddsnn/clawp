@@ -68,15 +68,20 @@ async def do_chat(
 
 async def run_turn(session: msg.Session):
     user_message_content = await ainput()
-    print("---")
+    print("--- message sent, waiting for agent response ---")
     async for message in session.process_user_message(user_message_content):
         if not isinstance(message, msg.AssistantMessage):
             logger.warning(f"Got non-assistant message {message} as response.")
-        message_str = await message.content
-        if not message_str:
-            continue
-        print(message_str)
-        print("---")
+            if not await message.content:
+                continue
+            print(await message.content, flush=True)
+        else:
+            async for message_part in message.stream_parts():
+                print(f"{message_part.type}: ", end="")
+                async for fragment in message_part.stream_fragments():
+                    print(fragment, end="", flush=True)
+                print(flush=True)
+        print("--- end of agent message ---")
 
 
 async def main():
