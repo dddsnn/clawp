@@ -1,11 +1,13 @@
 import abc
 import asyncio
 import collections.abc as cl_abc
+import functools as ft
 
 import fastmcp.tools
 import message as msg
 import openrouter
 import openrouter.components as or_comp
+import openrouter.utils.eventstreaming as or_stream
 
 
 class Provider(abc.ABC):
@@ -96,59 +98,77 @@ class OpenrouterProvider(Provider):
                     parameters=t.inputSchema, strict=True)) for t in tools]
 
     async def _read_stream(
-            self, stream: or_comp.EventStreamAsync,
+            self, stream: or_stream.EventStreamAsync,
             parts: msg.StreamableList) -> None:
         tool_calls_kwargs = {}
         async for chunk in stream:
-            if not isinstance(chunk, or_comp.ChatStreamChunk):
-                raise ValueError(
-                    f"Unexpected chunk type {type(chunk)} in stream.")
-            if len(chunk.choices) != 1:
-                raise ValueError(
-                    f"Unexpected number of choices ({len(chunk.choices)}) in "
-                    "chunk.")
-            delta = chunk.choices[0].delta
-            if delta.role != "assistant":
-                raise ValueError(
-                    f"Unexpected role {delta.role} in assistant message.")
-            if delta.content and delta.reasoning:
-                raise ValueError(
-                    "Assistant message contains both content "
-                    f"('{delta.content}') and reasoning ('{delta.reasoning}')."
-                )
-            for tool_call in delta.tool_calls or []:
-                tool_call_kwargs = tool_calls_kwargs.setdefault(
-                    tool_call.index, {})
-                tool_call_kwargs.setdefault("id", "")
-                tool_call_kwargs.setdefault("name", "")
-                tool_call_kwargs.setdefault("arguments", "")
-                tool_call_kwargs["id"] += tool_call.id or ""
-                tool_call_kwargs["name"] += tool_call.function.name or ""
-                tool_call_kwargs["arguments"] += (
-                    tool_call.function.arguments or "")
-            if not delta.content and not delta.reasoning:
+            part_type, text = self._parse_chunk(chunk, tool_calls_kwargs)
+            if not part_type:
                 continue
-            part_type = "content" if delta.content else "reasoning"
-            text = delta.content or delta.reasoning
-            try:
-                if parts[-1].type != part_type:
-                    parts[-1].finalize()
-                    await parts.append(msg.AssistantMessageTextPart(part_type))
-            except IndexError:
-                await parts.append(msg.AssistantMessageTextPart(part_type))
-            await parts[-1].append(text)
-        try:
-            # All parts have been parsed, now also finalize the last one.
-            parts[-1].finalize()
-        except IndexError:
-            pass
+            current_part = await self._ensure_current_text_part(
+                parts, part_type)
+            await current_part.append(text)
         if tool_calls_kwargs:
-            await parts.append(msg.AssistantMessageToolPart())
+            tool_part = await self._ensure_current_tool_part(parts)
             for _, tool_call_kwargs in sorted(tool_calls_kwargs.items()):
                 function = msg.ToolCallFunction(
                     name=tool_call_kwargs["name"],
                     arguments=tool_call_kwargs["arguments"])
-                await parts[-1].append(
+                await tool_part.append(
                     msg.ToolCall(id=tool_call_kwargs["id"], function=function))
-            parts[-1].finalize()
+        try:
+            parts[-1].finalize()  # Make sure the last part is finalized.
+        except IndexError:
+            pass
         parts.finalize()
+
+    def _parse_chunk(self, chunk, tool_calls_kwargs: dict[int, dict]):
+        if not isinstance(chunk, or_comp.ChatStreamChunk):
+            raise ValueError(f"Unexpected chunk type {type(chunk)} in stream.")
+        if len(chunk.choices) != 1:
+            raise ValueError(
+                f"Unexpected number of choices ({len(chunk.choices)}) in "
+                "chunk.")
+        delta = chunk.choices[0].delta
+        if delta.role != "assistant":
+            raise ValueError(
+                f"Unexpected role {delta.role} in assistant message.")
+        if delta.content and delta.reasoning:
+            raise ValueError(
+                "Assistant message contains both content "
+                f"('{delta.content}') and reasoning ('{delta.reasoning}').")
+        for tool_call in delta.tool_calls or []:
+            tool_call_kwargs = tool_calls_kwargs.setdefault(
+                tool_call.index, {})
+            tool_call_kwargs.setdefault("id", "")
+            tool_call_kwargs.setdefault("name", "")
+            tool_call_kwargs.setdefault("arguments", "")
+            tool_call_kwargs["id"] += tool_call.id or ""
+            tool_call_kwargs["name"] += tool_call.function.name or ""
+            tool_call_kwargs["arguments"] += (
+                tool_call.function.arguments or "")
+        if not delta.content and not delta.reasoning:
+            return None, None
+        part_type = "content" if delta.content else "reasoning"
+        text = delta.content or delta.reasoning
+        return part_type, text
+
+    async def _ensure_current_text_part(self, parts, part_type):
+        return await self._ensure_current_part(
+            parts, lambda part: part.type == part_type,
+            ft.partial(msg.AssistantMessageTextPart, part_type))
+
+    async def _ensure_current_tool_part(self, parts):
+        return await self._ensure_current_part(
+            parts, lambda part: isinstance(part, msg.AssistantMessageToolPart),
+            msg.AssistantMessageToolPart)
+
+    async def _ensure_current_part(
+            self, parts, part_is_correct_type, part_factory):
+        try:
+            if not part_is_correct_type(parts[-1]):
+                parts[-1].finalize()
+                await parts.append(part_factory())
+        except IndexError:
+            await parts.append(part_factory())
+        return parts[-1]
