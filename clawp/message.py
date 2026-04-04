@@ -148,7 +148,7 @@ class ToolCall:
 
 
 class AssistantMessagePart:
-    VALID_TYPES = t.Literal["content", "reasoning", "tool"]
+    VALID_TYPES = t.Literal["content", "error", "reasoning", "tool"]
 
     def __init__(self, part_type: VALID_TYPES):
         if part_type not in t.get_args(self.VALID_TYPES):
@@ -198,6 +198,20 @@ class AssistantMessageToolPart(AssistantMessagePart):
         await super().append(tool_call)
 
     async def stream_fragments(self) -> cl_abc.AsyncGenerator[ToolCall]:
+        async for fragment in super().stream_fragments():
+            yield fragment
+
+
+class AssistantMessageErrorPart(AssistantMessagePart):
+    VALID_TYPES = t.Literal["error"]
+
+    def __init__(self):
+        super().__init__("error")
+
+    async def append(self, error: Exception) -> None:
+        await super().append(error)
+
+    async def stream_fragments(self) -> cl_abc.AsyncGenerator[Exception]:
         async for fragment in super().stream_fragments():
             yield fragment
 

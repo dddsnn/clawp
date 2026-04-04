@@ -76,13 +76,24 @@ async def run_turn(session: msg.Session):
             print(await message.content, flush=True)
         else:
             async for message_part in message.stream_parts():
-                if not isinstance(message_part, msg.AssistantMessageTextPart):
+                if isinstance(message_part, msg.AssistantMessageTextPart):
+                    await print_text_part(message_part)
                     continue
-                print(f"{message_part.type}: ", end="")
-                async for fragment in message_part.stream_fragments():
-                    print(fragment, end="", flush=True)
-                print(flush=True)
+                elif isinstance(message_part, msg.AssistantMessageErrorPart):
+                    await print_error_part(message_part)
     print("--- end of agent message ---")
+
+
+async def print_text_part(message_part: msg.AssistantMessageTextPart):
+    print(f"{message_part.type}: ", end="")
+    async for fragment in message_part.stream_fragments():
+        print(fragment, end="", flush=True)
+    print(flush=True)
+
+
+async def print_error_part(message_part: msg.AssistantMessageErrorPart):
+    async for exc in message_part.stream_fragments():
+        logger.error(f"An error occurred when receiving the message: {exc}.")
 
 
 async def main():

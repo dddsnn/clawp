@@ -127,9 +127,11 @@ class OpenrouterStreamReader:
                     await tool_part.append(
                         msg.ToolCall(
                             id=tool_call_kwargs["id"], function=function))
-        except Exception:
+        except Exception as e:
             self._logger.exception(
                 "Error reading assistant message from stream.")
+            error_part = await self._ensure_current_error_part()
+            await error_part.append(e)
         finally:
             try:
                 # Make sure the last part is finalized.
@@ -178,6 +180,11 @@ class OpenrouterStreamReader:
         return await self._ensure_current_part(
             lambda part: isinstance(part, msg.AssistantMessageToolPart),
             msg.AssistantMessageToolPart)
+
+    async def _ensure_current_error_part(self):
+        return await self._ensure_current_part(
+            lambda part: isinstance(part, msg.AssistantMessageErrorPart),
+            msg.AssistantMessageErrorPart)
 
     async def _ensure_current_part(self, part_is_correct_type, part_factory):
         try:
