@@ -315,16 +315,13 @@ class AssistantMessage(Message):
     async def _concat_part_text(
             self, part_type: AssistantMessageTextPart.VALID_TYPES):
         await self._parts.wait_finalized()
-        prepend_newline = False
         text = ""
         for part in self._parts:
             if part.type != part_type:
                 continue
-            if prepend_newline:
-                text += "\n"
-            prepend_newline = True
             async for fragment in part.stream_fragments():
                 text += fragment
+        return text
 
     @property
     async def tool_calls(self) -> t.Awaitable[list[ToolCall]]:
