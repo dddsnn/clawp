@@ -29,6 +29,16 @@ import openrouter.utils.eventstreaming as or_stream
 
 
 class Provider(abc.ABC):
+    """
+    Provider of LLM chat completions.
+
+    Abstract provider capable of generating an AssistantMessage in response to
+    a list of messages.
+
+    :param messages: The list of messages containing the current context.
+    :param tools: An iterable of tools that should be made available to the
+        assistant.
+    """
     @abc.abstractmethod
     async def request_assistant_message(
             self, messages: list[msg.Message],

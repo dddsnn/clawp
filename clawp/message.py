@@ -40,6 +40,7 @@ class Message(abc.ABC):
     @property
     @abc.abstractmethod
     async def content(self) -> t.Awaitable[str]:
+        """The full content of the message."""
         return self._content
 
 
@@ -70,11 +71,13 @@ class DeveloperMessage(SimpleMessage):
 
 
 class UserMessage(SimpleMessage):
+    """Message sent by the user."""
     def __init__(self, content: str) -> None:
         super().__init__("user", content)
 
 
 class ToolMessage(SimpleMessage):
+    """Message sent by the system in response to a tool call."""
     def __init__(self, content: str, tool_call_id: str) -> None:
         super().__init__("tool", content)
         self._tool_call_id = tool_call_id
@@ -85,6 +88,18 @@ class ToolMessage(SimpleMessage):
 
 
 class StreamableList:
+    """
+    A list that can be streamed asynchronously.
+
+    __bool__, __getitem__, and __iter__ work on the underlying list.
+
+    The stream() generator can be asynchronously iterated over, yielding
+    elements as they are added via append(). The generator keeps waiting for
+    new elements until finalize() is called.
+
+    After finalize() is called, no more elements can be added. finalize() must
+    be called eventually so that the task waiting for it can finish.
+    """
     def __init__(self):
         self._list = []
         self._new_element_condition = asyncio.Condition()
@@ -104,6 +119,11 @@ class StreamableList:
         return iter(self._list)
 
     async def append(self, item) -> None:
+        """
+        Append an element.
+
+        The list must not be finalized, or a ValueError is raised.
+        """
         if self._finalized_event.is_set():
             raise ValueError("StreamableList has already been finalized")
         self._list.append(item)
@@ -111,7 +131,17 @@ class StreamableList:
             self._new_element_condition.notify_all()
 
     async def finalize(self, compact=None) -> None:
+        """
+        Finalize the list.
 
+        This puts the stream into a read-only state (any appends() will now
+        raise exceptions), and stops the iteration of any asynchronous streams
+        (via stream()).
+
+        :param compact: An optional function to make the list more compact
+            (e.g. by concatenating strings). This will be given the underlying
+            list and must return the compacted list.
+        """
         self._finalized_event.set()
         if compact:
             async with self._num_readers_condition:
@@ -120,10 +150,21 @@ class StreamableList:
                 self._list = compact(self._list)
 
     async def wait_finalized(self) -> None:
+        """
+        Wait until the list has been finalized.
+
+        When the list is finalized, no new elements can be added.
+        """
         await self._finalized_wait_task
 
     async def stream(self) -> cl_abc.AsyncGenerator:
+        """
+        Asynchronously stream list elements.
 
+        Existing elements are yielded, as well as new ones added via append().
+        Once the list is finalized and no more elements can be added, the
+        generator exits.
+        """
         try:
             self._num_readers += 1
             i = 0
@@ -153,17 +194,25 @@ class StreamableList:
 
 @dc.dataclass
 class ToolCallFunction:
+    """A named function used in the assistant's tool call."""
     name: str = ""
     arguments: str = ""
 
 
 @dc.dataclass
 class ToolCall:
+    """A tool call requested by the assistant."""
     id: str
     function: ToolCallFunction = dc.field(default_factory=ToolCallFunction)
 
 
 class AssistantMessagePart:
+    """
+    One part of an AssistantMessage.
+
+    AssistantMessageParts consist of fragments that can be streamed. The type
+    of these fragments depends on the type of part.
+    """
     VALID_TYPES = t.Literal["content", "error", "reasoning", "tool"]
 
     def __init__(self, part_type: VALID_TYPES):
@@ -233,6 +282,19 @@ class AssistantMessageErrorPart(AssistantMessagePart):
 
 
 class AssistantMessage(Message):
+    """
+    A message returned by the assistant.
+
+    AssistantMessages are more complex than those by the system or the user. In
+    addition to content, they also contain reasoning and tool calls (with which
+    the assistant requests that we execute something for them). These different
+    types of content are represented as AssistantMessageParts.
+
+    Additionally, AssistantMessages are streamed so we can work with them
+    before the full output has arrived from the provider. First, parts are
+    streamed as they arrive. Then, the fragments of the parts themselves can be
+    streamed.
+    """
     def __init__(self, parts: StreamableList) -> None:
         self._parts = parts
 
@@ -242,10 +304,12 @@ class AssistantMessage(Message):
 
     @property
     async def content(self) -> t.Awaitable[str]:
+        """The final content of the message (the one that "counts")."""
         return await self._concat_part_text("content")
 
     @property
     async def reasoning(self) -> t.Awaitable[str]:
+        """The reasoning of the assistant in producing the content."""
         return await self._concat_part_text("reasoning")
 
     async def _concat_part_text(
@@ -281,11 +345,19 @@ class AssistantMessage(Message):
 
     async def stream_parts(
             self) -> cl_abc.AsyncGenerator[AssistantMessagePart]:
+        """Asynchronously iterate over parts as they arrive."""
         async for part in self._parts.stream():
             yield part
 
 
 class Session:
+    """
+    Session with an assistant.
+
+    The session essentially encapsulates the assistant's context window. It can
+    generate responses to new user messages using it's provider, and also
+    manages which tools the assistant has available via the MCP client.
+    """
     def __init__(
             self, provider: "prov.Provider", mcp_client: tool.Client) -> None:
         self._logger = logging.getLogger(type(self).__name__)
@@ -293,8 +365,16 @@ class Session:
         self._mcp_client = mcp_client
         self._messages: list[Message] = []
 
-    async def process_user_message(self,
-                                   user_message_content: str) -> list[Message]:
+    async def process_user_message(
+            self, user_message_content: str
+    ) -> cl_abc.AsyncGenerator[AssistantMessage]:
+        """
+        Process and respond to a user message.
+
+        This prepares the context with the new user message and calls the
+        provider to generate one or more AssistantMessages in response. Handles
+        any tool calls the assistant makes.
+        """
         self._messages.append(UserMessage(user_message_content))
         while True:
             assistant_message = await self._provider.request_assistant_message(

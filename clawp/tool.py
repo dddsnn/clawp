@@ -30,6 +30,7 @@ def add(a: int, b: int) -> int:
 
 
 class Client:
+    """A client providing tools via MCP servers."""
     def __init__(self):
         self._client = fastmcp.Client(mcp_server)
         self._tools = None
