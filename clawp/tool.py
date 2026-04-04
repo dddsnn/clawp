@@ -30,12 +30,12 @@ class Client:
     @property
     def tools(self) -> dict[str, fastmcp.tools.Tool]:
         if self._tools is None:
-            raise ValueError("Client not initialized.")
+            raise ValueError("client not initialized")
         return self._tools
 
     async def call_tool(
             self, name: str, *args,
             **kwargs) -> cl_abc.Awaitable[fastmcp.tools.CallToolResult]:
         if name not in self._tools:
-            raise ValueError(f"Unknown tool {name}.")
+            raise ValueError(f"unknown tool {name}")
         return await self._client.call_tool(name, *args, **kwargs)

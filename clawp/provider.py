@@ -69,7 +69,7 @@ class OpenrouterProvider(Provider):
                 openrouter_message = or_comp.ChatUserMessage(
                     role=message.role, content=await message.content)
             else:
-                raise ValueError(f"Invalid message role {message.role}.")
+                raise ValueError(f"invalid message role {message.role}")
             openrouter_messages.append(openrouter_message)
         return openrouter_messages
 
@@ -142,19 +142,19 @@ class OpenrouterStreamReader:
 
     def _parse_chunk(self, chunk, tool_calls_kwargs: dict[int, dict]):
         if not isinstance(chunk, or_comp.ChatStreamChunk):
-            raise ValueError(f"Unexpected chunk type {type(chunk)} in stream.")
+            raise ValueError(f"unexpected chunk type {type(chunk)} in stream")
         if len(chunk.choices) != 1:
             raise ValueError(
-                f"Unexpected number of choices ({len(chunk.choices)}) in "
-                "chunk.")
+                f"unexpected number of choices ({len(chunk.choices)}) in "
+                "chunk")
         delta = chunk.choices[0].delta
         if delta.role != "assistant":
             raise ValueError(
-                f"Unexpected role {delta.role} in assistant message.")
+                f"unexpected role {delta.role} in assistant message")
         if delta.content and delta.reasoning:
             raise ValueError(
-                "Assistant message contains both content "
-                f"('{delta.content}') and reasoning ('{delta.reasoning}').")
+                "assistant message contains both content "
+                f"('{delta.content}') and reasoning ('{delta.reasoning}')")
         for tool_call in delta.tool_calls or []:
             tool_call_kwargs = tool_calls_kwargs.setdefault(
                 tool_call.index, {})

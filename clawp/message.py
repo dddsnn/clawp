@@ -46,7 +46,7 @@ class Message(abc.ABC):
 class SimpleMessage(Message):
     def __init__(self, role: MessageRole, content: str) -> None:
         if role not in t.get_args(MessageRole):
-            raise ValueError(f"Invalid role {role}.")
+            raise ValueError(f"invalid role {role}")
         self._role = role
         self._content = content
 
@@ -103,7 +103,7 @@ class StreamableList:
 
     async def append(self, item) -> None:
         if self._finalized_event.is_set():
-            raise ValueError("StreamableList has already been finalized.")
+            raise ValueError("StreamableList has already been finalized")
         self._list.append(item)
         async with self._stream_condition:
             self._stream_condition.notify_all()
@@ -152,7 +152,7 @@ class AssistantMessagePart:
 
     def __init__(self, part_type: VALID_TYPES):
         if part_type not in t.get_args(self.VALID_TYPES):
-            raise ValueError(f"Invalid type {part_type}.")
+            raise ValueError(f"invalid type {part_type}")
         self._type = part_type
         self._fragments = StreamableList()
 
