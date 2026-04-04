@@ -155,10 +155,10 @@ class OpenrouterStreamReader:
         finally:
             try:
                 # Make sure the last part is finalized.
-                self._parts[-1].finalize()
+                await self._parts[-1].finalize()
             except IndexError:
                 pass
-            self._parts.finalize()
+            await self._parts.finalize()
 
     def _parse_chunk(self, chunk, tool_calls_kwargs: dict[int, dict]):
         if not isinstance(chunk, or_comp.ChatStreamChunk):
@@ -209,7 +209,7 @@ class OpenrouterStreamReader:
     async def _ensure_current_part(self, part_is_correct_type, part_factory):
         try:
             if not part_is_correct_type(self._parts[-1]):
-                self._parts[-1].finalize()
+                await self._parts[-1].finalize()
                 await self._parts.append(part_factory())
         except IndexError:
             await self._parts.append(part_factory())

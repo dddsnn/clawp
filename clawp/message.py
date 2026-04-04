@@ -87,7 +87,9 @@ class ToolMessage(SimpleMessage):
 class StreamableList:
     def __init__(self):
         self._list = []
-        self._stream_condition = asyncio.Condition()
+        self._new_element_condition = asyncio.Condition()
+        self._num_readers = 0
+        self._num_readers_condition = asyncio.Condition()
         self._finalized_event = asyncio.Event()
         self._finalized_wait_task = asyncio.create_task(
             self._finalized_event.wait())
@@ -105,34 +107,48 @@ class StreamableList:
         if self._finalized_event.is_set():
             raise ValueError("StreamableList has already been finalized")
         self._list.append(item)
-        async with self._stream_condition:
-            self._stream_condition.notify_all()
+        async with self._new_element_condition:
+            self._new_element_condition.notify_all()
 
-    def finalize(self) -> None:
+    async def finalize(self, compact=None) -> None:
+
         self._finalized_event.set()
+        if compact:
+            async with self._num_readers_condition:
+                await self._num_readers_condition.wait_for(
+                    lambda: self._num_readers == 0)
+                self._list = compact(self._list)
 
     async def wait_finalized(self) -> None:
         await self._finalized_wait_task
 
     async def stream(self) -> cl_abc.AsyncGenerator:
-        i = 0
-        while True:
-            if i < len(self._list):
-                yield self._list[i]
-                i += 1
-                continue
-            elif self._finalized_event.is_set():
-                return
-            condition_wait_task = asyncio.create_task(
-                self._wait_for_condition())
-            await asyncio.wait(
-                {condition_wait_task, self._finalized_wait_task},
-                return_when=asyncio.FIRST_COMPLETED)
-            condition_wait_task.cancel()
 
-    async def _wait_for_condition(self):
-        async with self._stream_condition:
-            await self._stream_condition.wait()
+        try:
+            self._num_readers += 1
+            i = 0
+            while True:
+                if i < len(self._list):
+                    yield self._list[i]
+                    i += 1
+                    continue
+                elif self._finalized_event.is_set():
+                    return
+                new_element_wait_task = asyncio.create_task(
+                    self._wait_for_new_element())
+                await asyncio.wait(
+                    {new_element_wait_task, self._finalized_wait_task},
+                    return_when=asyncio.FIRST_COMPLETED)
+                new_element_wait_task.cancel()
+        finally:
+            self._num_readers -= 1
+            assert self._num_readers >= 0
+            async with self._num_readers_condition:
+                self._num_readers_condition.notify_all()
+
+    async def _wait_for_new_element(self):
+        async with self._new_element_condition:
+            await self._new_element_condition.wait()
 
 
 @dc.dataclass
@@ -167,8 +183,8 @@ class AssistantMessagePart:
         async for fragment in self._fragments.stream():
             yield fragment
 
-    def finalize(self) -> None:
-        self._fragments.finalize()
+    async def finalize(self) -> None:
+        await self._fragments.finalize()
 
 
 class AssistantMessageTextPart(AssistantMessagePart):
@@ -184,8 +200,8 @@ class AssistantMessageTextPart(AssistantMessagePart):
         async for fragment in self._fragments.stream():
             yield fragment
 
-    def finalize(self) -> None:
-        super().finalize()
+    async def finalize(self) -> None:
+        await self._fragments.finalize(compact=lambda list_: ["".join(list_)])
 
 
 class AssistantMessageToolPart(AssistantMessagePart):
