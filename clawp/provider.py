@@ -2,6 +2,7 @@ import abc
 import asyncio
 import collections.abc as cl_abc
 import functools as ft
+import logging
 
 import fastmcp.tools
 import message as msg
@@ -99,6 +100,7 @@ class OpenrouterProvider(Provider):
 
 class OpenrouterStreamReader:
     def __init__(self, stream: or_stream.EventStreamAsync):
+        self._logger = logging.getLogger(type(self).__name__)
         self._stream = stream
         self._parts = msg.StreamableList()
         self._assistant_message = msg.AssistantMessage(self._parts)
@@ -108,26 +110,33 @@ class OpenrouterStreamReader:
         return self._assistant_message
 
     async def _read_stream(self) -> None:
-        tool_calls_kwargs = {}
-        async for chunk in self._stream:
-            part_type, text = self._parse_chunk(chunk, tool_calls_kwargs)
-            if not part_type:
-                continue
-            current_part = await self._ensure_current_text_part(part_type)
-            await current_part.append(text)
-        if tool_calls_kwargs:
-            tool_part = await self._ensure_current_tool_part()
-            for _, tool_call_kwargs in sorted(tool_calls_kwargs.items()):
-                function = msg.ToolCallFunction(
-                    name=tool_call_kwargs["name"],
-                    arguments=tool_call_kwargs["arguments"])
-                await tool_part.append(
-                    msg.ToolCall(id=tool_call_kwargs["id"], function=function))
         try:
-            self._parts[-1].finalize()  # Make sure the last part is finalized.
-        except IndexError:
-            pass
-        self._parts.finalize()
+            tool_calls_kwargs = {}
+            async for chunk in self._stream:
+                part_type, text = self._parse_chunk(chunk, tool_calls_kwargs)
+                if not part_type:
+                    continue
+                current_part = await self._ensure_current_text_part(part_type)
+                await current_part.append(text)
+            if tool_calls_kwargs:
+                tool_part = await self._ensure_current_tool_part()
+                for _, tool_call_kwargs in sorted(tool_calls_kwargs.items()):
+                    function = msg.ToolCallFunction(
+                        name=tool_call_kwargs["name"],
+                        arguments=tool_call_kwargs["arguments"])
+                    await tool_part.append(
+                        msg.ToolCall(
+                            id=tool_call_kwargs["id"], function=function))
+        except Exception:
+            self._logger.exception(
+                "Error reading assistant message from stream.")
+        finally:
+            try:
+                # Make sure the last part is finalized.
+                self._parts[-1].finalize()
+            except IndexError:
+                pass
+            self._parts.finalize()
 
     def _parse_chunk(self, chunk, tool_calls_kwargs: dict[int, dict]):
         if not isinstance(chunk, or_comp.ChatStreamChunk):
