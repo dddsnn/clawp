@@ -99,6 +99,8 @@ class OpenrouterProvider(Provider):
 
 
 class OpenrouterStreamReader:
+    TIMEOUT = 120
+
     def __init__(self, stream: or_stream.EventStreamAsync):
         self._logger = logging.getLogger(type(self).__name__)
         self._stream = stream
@@ -106,7 +108,8 @@ class OpenrouterStreamReader:
         self._assistant_message = msg.AssistantMessage(self._parts)
 
     def read_message(self) -> msg.AssistantMessage:
-        asyncio.create_task(self._read_stream())
+        asyncio.create_task(
+            asyncio.wait_for(self._read_stream(), timeout=self.TIMEOUT))
         return self._assistant_message
 
     async def _read_stream(self) -> None:
@@ -127,7 +130,7 @@ class OpenrouterStreamReader:
                     await tool_part.append(
                         msg.ToolCall(
                             id=tool_call_kwargs["id"], function=function))
-        except Exception as e:
+        except (Exception, asyncio.CancelledError) as e:
             self._logger.exception(
                 "Error reading assistant message from stream.")
             error_part = await self._ensure_current_error_part()

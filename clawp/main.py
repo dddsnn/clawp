@@ -93,7 +93,11 @@ async def print_text_part(message_part: msg.AssistantMessageTextPart):
 
 async def print_error_part(message_part: msg.AssistantMessageErrorPart):
     async for exc in message_part.stream_fragments():
-        logger.error(f"An error occurred when receiving the message: {exc}.")
+        msg = f"A {type(exc).__name__} occurred when receiving the message"
+        if str(exc):
+            msg += f": {exc}"
+        msg += "."
+        logger.error(msg)
 
 
 async def main():
