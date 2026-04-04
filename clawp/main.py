@@ -104,7 +104,8 @@ async def main():
     shutdown_event = asyncio.Event()
     asyncio.get_running_loop().add_signal_handler(
         signal.SIGTERM, shutdown, shutdown_event)
-    openrouter_provider = prov.OpenrouterProvider(OPENROUTER_API_KEY)
+    openrouter_provider = prov.OpenrouterProvider(
+        OPENROUTER_API_KEY, "stepfun/step-3.5-flash:free")
     mcp_client = tool.Client()
     async with contextlib.AsyncExitStack() as stack:
         await stack.enter_async_context(openrouter_provider)

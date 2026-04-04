@@ -54,8 +54,9 @@ OpenRouterMessage = (
 
 
 class OpenrouterProvider(Provider):
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, model: str):
         self._openrouter_client = openrouter.OpenRouter(api_key=api_key)
+        self.model = model
 
     async def __aenter__(self):
         await self._openrouter_client.__aenter__()
@@ -70,8 +71,8 @@ class OpenrouterProvider(Provider):
     ) -> msg.AssistantMessage:
         stream = await self._openrouter_client.chat.send_async(
             messages=await self._as_openrouter_messages(messages),
-            model="stepfun/step-3.5-flash:free",
-            tools=self._as_openrouter_tools(tools), stream=True)
+            model=self.model, tools=self._as_openrouter_tools(tools),
+            stream=True)
         stream_reader = OpenrouterStreamReader(stream)
         return stream_reader.read_message()
 
