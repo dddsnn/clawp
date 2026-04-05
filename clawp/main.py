@@ -23,11 +23,16 @@ import os
 import signal
 import sys
 
+import api
 import message as msg
 import provider as prov
 import tool
 
 OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
+
+API_HOST = "0.0.0.0"
+API_PORT = 8000
+API_LOG_LEVEL = "info"
 
 logger = None
 
@@ -54,8 +59,7 @@ async def ainput() -> str:
         None, sys.stdin.readline)
 
 
-async def do_chat(provider: prov.Provider, mcp_client: tool.Client):
-    session = msg.Session(provider, mcp_client)
+async def do_chat(session: msg.Session):
     while True:
         try:
             await run_turn(session)
@@ -107,11 +111,13 @@ async def main():
     openrouter_provider = prov.OpenrouterProvider(
         OPENROUTER_API_KEY, "stepfun/step-3.5-flash:free")
     mcp_client = tool.Client()
+    session = msg.Session(openrouter_provider, mcp_client)
+    clawp_api = api.Api(session, API_HOST, API_PORT, API_LOG_LEVEL)
     async with contextlib.AsyncExitStack() as stack:
         await stack.enter_async_context(openrouter_provider)
         await stack.enter_async_context(mcp_client)
-        chat_task = asyncio.create_task(
-            do_chat(openrouter_provider, mcp_client))
+        await stack.enter_async_context(clawp_api)
+        chat_task = asyncio.create_task(do_chat(session))
         await shutdown_event.wait()
         chat_task.cancel()
         await chat_task
