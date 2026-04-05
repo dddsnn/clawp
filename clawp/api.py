@@ -20,9 +20,35 @@ import contextlib
 import typing as t
 
 import fastapi
+import message as msg
 import uvicorn
 
 router = fastapi.APIRouter(prefix="/api/v1")
+
+
+def get_session_from_request(request: fastapi.Request) -> msg.Session:
+    try:
+        session = request.app.state.session
+        assert isinstance(session, msg.Session)
+    except (AttributeError, AssertionError) as e:
+        raise fastapi.HTTPException(
+            status_code=500, detail="Session is not available") from e
+    return session
+
+
+def get_session_from_websocket(websocket: fastapi.WebSocket) -> msg.Session:
+    try:
+        session = websocket.app.state.session
+        assert isinstance(session, msg.Session)
+    except (AttributeError, AssertionError) as e:
+        raise RuntimeError("Session is not available") from e
+    return session
+
+
+SessionDep = t.Annotated[msg.Session,
+                         fastapi.Depends(get_session_from_request)]
+SessionDepWs = t.Annotated[msg.Session,
+                           fastapi.Depends(get_session_from_websocket)]
 
 
 @router.get("/healthz")
@@ -31,14 +57,15 @@ async def healthz() -> dict[str, str]:
 
 
 @router.get("/stub")
-async def stub_json() -> dict[str, t.Any]:
+async def stub_json(session: SessionDep) -> dict[str, t.Any]:
     return {
         "message": "stub response",
         "version": "v1",}
 
 
 @router.websocket("/ws")
-async def websocket_endpoint(websocket: fastapi.WebSocket) -> None:
+async def websocket_endpoint(
+        websocket: fastapi.WebSocket, session: SessionDepWs) -> None:
     await websocket.accept()
     try:
         while True:
@@ -50,9 +77,10 @@ async def websocket_endpoint(websocket: fastapi.WebSocket) -> None:
 
 class Api:
     def __init__(
-            self, host: str = "127.0.0.1", port: int = 8000,
-            log_level: str = "info") -> None:
+            self, session: msg.Session, host: str = "127.0.0.1",
+            port: int = 8000, log_level: str = "info") -> None:
         app = fastapi.FastAPI()
+        app.state.session = session
         app.include_router(router)
         config = uvicorn.Config(
             app=app, host=host, port=port, log_level=log_level)
