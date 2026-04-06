@@ -116,6 +116,7 @@ async def main():
     async with contextlib.AsyncExitStack() as stack:
         await stack.enter_async_context(openrouter_provider)
         await stack.enter_async_context(mcp_client)
+        await stack.enter_async_context(session)
         await stack.enter_async_context(clawp_api)
         chat_task = asyncio.create_task(do_chat(session))
         await shutdown_event.wait()

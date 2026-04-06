@@ -10,6 +10,7 @@ dependencies = [
     "fastapi>=0.135.3",
     "openrouter>=0.7.11",
     "uvicorn[standard]>=0.42.0",
+    "whenever>=0.10.0",
 ]
 
 [project.optional-dependencies]

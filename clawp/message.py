@@ -24,6 +24,7 @@ import logging
 import typing as t
 
 import tool
+import whenever as we
 
 if t.TYPE_CHECKING:
     import provider as prov
@@ -34,22 +35,33 @@ MessageRole = t.Literal["assistant", "developer", "system", "tool", "user"]
 class Message(abc.ABC):
     @property
     @abc.abstractmethod
+    async def time(self) -> t.Awaitable[we.Instant]:
+        """The time the message was fully received."""
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
     def role(self) -> MessageRole:
-        return self._role
+        raise NotImplementedError
 
     @property
     @abc.abstractmethod
     async def content(self) -> t.Awaitable[str]:
         """The full content of the message."""
-        return self._content
+        raise NotImplementedError
 
 
 class SimpleMessage(Message):
     def __init__(self, role: MessageRole, content: str) -> None:
         if role not in t.get_args(MessageRole):
             raise ValueError(f"invalid role {role}")
+        self._time = we.Instant.now()
         self._role = role
         self._content = content
+
+    @property
+    async def time(self) -> t.Awaitable[we.Instant]:
+        return self._time
 
     @property
     def role(self) -> MessageRole:
@@ -294,9 +306,26 @@ class AssistantMessage(Message):
     before the full output has arrived from the provider. First, parts are
     streamed as they arrive. Then, the fragments of the parts themselves can be
     streamed.
+
+    Since the time property should show the time the messages has fully
+    arrived, a task is started on construction that waits for the final part to
+    arrive and then sets the time. The property will block until then.
     """
     def __init__(self, parts: StreamableList) -> None:
         self._parts = parts
+        self._time = None
+        self._set_time_task = asyncio.create_task(self._set_time())
+
+    async def _set_time(self):
+        await self._parts.wait_finalized()
+        self._time = we.Instant.now()
+        self._set_time_task = None
+
+    @property
+    async def time(self) -> t.Awaitable[we.Instant]:
+        if self._set_time_task:
+            await self._set_time_task
+        return self._time
 
     @property
     def role(self) -> t.Literal["assistant"]:
@@ -354,6 +383,9 @@ class Session:
     The session essentially encapsulates the assistant's context window. It can
     generate responses to new user messages using it's provider, and also
     manages which tools the assistant has available via the MCP client.
+
+    The session is an asynchronous context manager that ensures all assistant
+    messages have finished streaming when it shuts down.
     """
     def __init__(
             self, provider: "prov.Provider", mcp_client: tool.Client) -> None:
@@ -361,6 +393,29 @@ class Session:
         self._provider = provider
         self._mcp_client = mcp_client
         self._messages: list[Message] = []
+        self._is_shut_down = False
+        self._num_incomplete_messages = 0
+        self._message_wait_condition = asyncio.Condition()
+        self._lock = asyncio.Lock()
+
+    async def __aenter__(self) -> "Session":
+        return self
+
+    async def __aexit__(self, *_) -> bool:
+        async with self._lock:
+            self._is_shut_down = True
+            if self._num_incomplete_messages:
+                self._logger.info(
+                    f"Waiting for {self._num_incomplete_messages} messages to "
+                    "finish streaming before shutdown.")
+            try:
+                async with asyncio.timeout(120), self._message_wait_condition:
+                    await self._message_wait_condition.wait_for(
+                        lambda: self._num_incomplete_messages == 0)
+            except asyncio.TimeoutError:
+                self._logger.warning(
+                    "Timeout waiting for incomplete messages.")
+        return False
 
     async def process_user_message(
             self, user_message_content: str
@@ -372,10 +427,19 @@ class Session:
         provider to generate one or more AssistantMessages in response. Handles
         any tool calls the assistant makes.
         """
-        self._messages.append(UserMessage(user_message_content))
+        async with self._lock:
+            if self._is_shut_down:
+                raise RuntimeError("shut down, can't process more messages")
+            self._messages.append(UserMessage(user_message_content))
+            async for assistant_message in self._request_assistant_messages():
+                yield assistant_message
+
+    async def _request_assistant_messages(self):
         while True:
             assistant_message = await self._provider.request_assistant_message(
                 self._messages, self._mcp_client.tools.values())
+            self._num_incomplete_messages += 1
+            asyncio.create_task(self._wait_for_message_time(assistant_message))
             self._messages.append(assistant_message)
             yield assistant_message
             if not await assistant_message.tool_calls:
@@ -397,3 +461,10 @@ class Session:
                             tool_call_id=tool_call.id))
                     self._logger.exception("Error in tool call.")
 
+    async def _wait_for_message_time(self, message):
+        # Wait for the message to finish streaming, at which point it get its
+        # time property set.
+        await message.time
+        self._num_incomplete_messages -= 1
+        async with self._message_wait_condition:
+            self._message_wait_condition.notify()
