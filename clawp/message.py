@@ -19,8 +19,10 @@ import abc
 import asyncio
 import collections.abc as cl_abc
 import dataclasses as dc
+import functools as ft
 import json
 import logging
+import pathlib
 import textwrap
 import typing as t
 
@@ -459,9 +461,21 @@ class Session:
                     "Timeout waiting for incomplete messages.")
         return False
 
+    async def add_system_message(self, message_content: str) -> None:
+        """
+        Add a system message to the session.
+
+        This only adds the message, it doesn't make any API calls or return
+        anything.
+        """
+        async with self._lock:
+            if self._is_shut_down:
+                raise RuntimeError("shut down, can't process more messages")
+            self._append_message(SystemMessage, message_content)
+
     async def process_user_message(
-            self, user_message_content: str
-    ) -> cl_abc.AsyncGenerator[AssistantMessage]:
+            self,
+            message_content: str) -> cl_abc.AsyncGenerator[AssistantMessage]:
         """
         Process and respond to a user message.
 
@@ -472,7 +486,7 @@ class Session:
         async with self._lock:
             if self._is_shut_down:
                 raise RuntimeError("shut down, can't process more messages")
-            self._append_message(UserMessage, user_message_content)
+            self._append_message(UserMessage, message_content)
             async for assistant_message in self._request_assistant_messages():
                 yield assistant_message
 
@@ -545,21 +559,42 @@ class Consciousness:
     """
     def __init__(
             self, provider: "prov.Provider", mcp_client: tool.Client) -> None:
+        self._session_factory = ft.partial(Session, provider, mcp_client)
         self._lock = asyncio.Lock()
-        self._sessions = [Session(provider, mcp_client)]
+        self._sessions = []
 
-    async def __aenter__(self) -> "Session":
-        await self._sessions[0].__aenter__()
-        return self
+    async def __aenter__(self) -> "Consciousness":
+        async with self._lock:
+            await self._start_new_session()
+            return self
 
     async def __aexit__(self, *args) -> bool:
-        return await self._sessions[0].__aexit__(*args)
+        async with self._lock:
+            return await self._sessions[-1].__aexit__(*args)
+
+    async def _start_new_session(self):
+        try:
+            return await self._sessions[-1].__aexit__(None, None, None)
+        except IndexError:
+            pass
+        session = self._session_factory()
+        self._sessions.append(session)
+        await session.__aenter__()
+        await session.add_system_message(
+            self._read_message_file("init_system.md"))
+
+    def _read_message_file(self, file_name: str) -> str:
+        messages_dir = pathlib.Path(__file__).parent.parent / "messages"
+        file_path = messages_dir / file_name
+        with file_path.open() as f:
+            return f.read()
 
     async def process_user_message(
-            self, user_message_content: str
-    ) -> cl_abc.AsyncGenerator[AssistantMessage]:
+            self,
+            message_content: str) -> cl_abc.AsyncGenerator[AssistantMessage]:
         """Process and respond to a user message in the current session."""
         async with self._lock:
-            async for assistant_message in self._sessions[
-                    0].process_user_message(user_message_content):
+            assistant_messages = self._sessions[0].process_user_message(
+                message_content)
+            async for assistant_message in assistant_messages:
                 yield assistant_message

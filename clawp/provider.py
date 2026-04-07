@@ -37,7 +37,7 @@ class Provider(abc.ABC):
     @abc.abstractmethod
     async def stream_assistant_message(
             self, message_parts: msg.StreamableList,
-            messages: list[msg.Message],
+            messages: cl_abc.Iterable[msg.Message],
             tools: cl_abc.Iterable[fastmcp.tools.Tool]) -> asyncio.Task[None]:
         """
         Stream an assistant response.
@@ -75,7 +75,7 @@ class OpenrouterProvider(Provider):
 
     async def stream_assistant_message(
             self, message_parts: msg.StreamableList,
-            messages: list[msg.Message],
+            messages: cl_abc.Iterable[msg.Message],
             tools: cl_abc.Iterable[fastmcp.tools.Tool]) -> asyncio.Task[None]:
         stream = await self._openrouter_client.chat.send_async(
             messages=await self._as_openrouter_messages(messages),
@@ -85,7 +85,8 @@ class OpenrouterProvider(Provider):
         return stream_reader.read_message()
 
     async def _as_openrouter_messages(
-            self, messages: list[msg.Message]) -> list[OpenRouterMessage]:
+            self,
+            messages: cl_abc.Iterable[msg.Message]) -> list[OpenRouterMessage]:
         openrouter_messages = []
         for message in messages:
             if message.role == "assistant":
