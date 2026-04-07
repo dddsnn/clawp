@@ -26,29 +26,32 @@ import uvicorn
 router = fastapi.APIRouter(prefix="/api/v1")
 
 
-def get_session_from_request(request: fastapi.Request) -> msg.Session:
+def get_consciousness_from_request(
+        request: fastapi.Request) -> msg.Consciousness:
     try:
-        session = request.app.state.session
-        assert isinstance(session, msg.Session)
+        consciousness = request.app.state.consciousness
+        assert isinstance(consciousness, msg.Consciousness)
     except (AttributeError, AssertionError) as e:
         raise fastapi.HTTPException(
-            status_code=500, detail="Session is not available") from e
-    return session
+            status_code=500, detail="Consciousness is not available") from e
+    return consciousness
 
 
-def get_session_from_websocket(websocket: fastapi.WebSocket) -> msg.Session:
+def get_consciousness_from_websocket(
+        websocket: fastapi.WebSocket) -> msg.Consciousness:
     try:
-        session = websocket.app.state.session
-        assert isinstance(session, msg.Session)
+        consciousness = websocket.app.state.consciousness
+        assert isinstance(consciousness, msg.Consciousness)
     except (AttributeError, AssertionError) as e:
-        raise RuntimeError("Session is not available") from e
-    return session
+        raise RuntimeError("Consciousness is not available") from e
+    return consciousness
 
 
-SessionDep = t.Annotated[msg.Session,
-                         fastapi.Depends(get_session_from_request)]
-SessionDepWs = t.Annotated[msg.Session,
-                           fastapi.Depends(get_session_from_websocket)]
+ConsciousnessDep = t.Annotated[msg.Consciousness,
+                               fastapi.Depends(get_consciousness_from_request)]
+ConsciousnessDepWs = t.Annotated[
+    msg.Consciousness,
+    fastapi.Depends(get_consciousness_from_websocket)]
 
 
 @router.get("/healthz")
@@ -57,7 +60,7 @@ async def healthz() -> dict[str, str]:
 
 
 @router.get("/stub")
-async def stub_json(session: SessionDep) -> dict[str, t.Any]:
+async def stub_json(consciousness: ConsciousnessDep) -> dict[str, t.Any]:
     return {
         "message": "stub response",
         "version": "v1",}
@@ -65,7 +68,8 @@ async def stub_json(session: SessionDep) -> dict[str, t.Any]:
 
 @router.websocket("/ws")
 async def websocket_endpoint(
-        websocket: fastapi.WebSocket, session: SessionDepWs) -> None:
+        websocket: fastapi.WebSocket,
+        consciousness: ConsciousnessDepWs) -> None:
     await websocket.accept()
     try:
         while True:
@@ -77,10 +81,10 @@ async def websocket_endpoint(
 
 class Api:
     def __init__(
-            self, session: msg.Session, host: str = "127.0.0.1",
+            self, consciousness: msg.Consciousness, host: str = "127.0.0.1",
             port: int = 8000, log_level: str = "info") -> None:
         app = fastapi.FastAPI()
-        app.state.session = session
+        app.state.consciousness = consciousness
         app.include_router(router)
         config = uvicorn.Config(
             app=app, host=host, port=port, log_level=log_level)
@@ -99,7 +103,7 @@ class Api:
 
         return self
 
-    async def __aexit__(self, *_) -> None:
+    async def __aexit__(self, *_) -> bool:
         self._server.should_exit = True
         with contextlib.suppress(asyncio.CancelledError):
             await self._serve_task

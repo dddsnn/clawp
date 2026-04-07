@@ -513,3 +513,35 @@ class Session:
             self._num_incomplete_messages -= 1
             async with self._message_wait_condition:
                 self._message_wait_condition.notify()
+
+
+class Consciousness:
+    """
+    A consciousness of an assistant.
+
+    A consiousness consists of the active session as well as a history of past
+    sessions.
+
+    A consciousness is an asynchronous context manager that ensures sessions
+    are properly opened and closed.
+    """
+    def __init__(
+            self, provider: "prov.Provider", mcp_client: tool.Client) -> None:
+        self._lock = asyncio.Lock()
+        self._sessions = [Session(provider, mcp_client)]
+
+    async def __aenter__(self) -> "Session":
+        await self._sessions[0].__aenter__()
+        return self
+
+    async def __aexit__(self, *args) -> bool:
+        return await self._sessions[0].__aexit__(*args)
+
+    async def process_user_message(
+            self, user_message_content: str
+    ) -> cl_abc.AsyncGenerator[AssistantMessage]:
+        """Process and respond to a user message in the current session."""
+        async with self._lock:
+            async for assistant_message in self._sessions[
+                    0].process_user_message(user_message_content):
+                yield assistant_message
