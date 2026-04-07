@@ -21,6 +21,7 @@ import collections.abc as cl_abc
 import dataclasses as dc
 import json
 import logging
+import textwrap
 import typing as t
 
 import tool
@@ -51,8 +52,25 @@ class Message(abc.ABC):
         return self._metadata
 
     @property
+    async def content_with_header(self) -> cl_abc.Awaitable[str]:
+        """
+        The content of the message with a metadata header.
+
+        The metadata prefix is meant to be served to the assistant, giving it
+        some information about the message (most notable the time).
+        """
+        header_dict = dc.asdict(self.metadata)
+        header_dict["time"] = (await self.time).format_iso(unit="millisecond")
+        return textwrap.dedent(
+            f"""
+            --- start message metadata ---
+            {json.dumps(header_dict)}
+            --- end message metadata ---
+            {await self.content}""")
+
+    @property
     @abc.abstractmethod
-    async def time(self) -> t.Awaitable[we.Instant]:
+    async def time(self) -> cl_abc.Awaitable[we.Instant]:
         """The time the message was fully received."""
         raise NotImplementedError
 
@@ -63,7 +81,7 @@ class Message(abc.ABC):
 
     @property
     @abc.abstractmethod
-    async def content(self) -> t.Awaitable[str]:
+    async def content(self) -> cl_abc.Awaitable[str]:
         """The full content of the message."""
         raise NotImplementedError
 
@@ -80,7 +98,7 @@ class SimpleMessage(Message):
         self._content = content
 
     @property
-    async def time(self) -> t.Awaitable[we.Instant]:
+    async def time(self) -> cl_abc.Awaitable[we.Instant]:
         return self._time
 
     @property
@@ -88,7 +106,7 @@ class SimpleMessage(Message):
         return self._role
 
     @property
-    async def content(self) -> t.Awaitable[str]:
+    async def content(self) -> cl_abc.Awaitable[str]:
         return self._content
 
 
@@ -346,7 +364,7 @@ class AssistantMessage(Message):
         self._set_time_task = None
 
     @property
-    async def time(self) -> t.Awaitable[we.Instant]:
+    async def time(self) -> cl_abc.Awaitable[we.Instant]:
         if self._set_time_task:
             await self._set_time_task
         return self._time
@@ -356,12 +374,12 @@ class AssistantMessage(Message):
         return "assistant"
 
     @property
-    async def content(self) -> t.Awaitable[str]:
+    async def content(self) -> cl_abc.Awaitable[str]:
         """The final content of the message (the one that "counts")."""
         return await self._concat_part_text("content")
 
     @property
-    async def reasoning(self) -> t.Awaitable[str]:
+    async def reasoning(self) -> cl_abc.Awaitable[str]:
         """The reasoning of the assistant in producing the content."""
         return await self._concat_part_text("reasoning")
 
@@ -377,7 +395,7 @@ class AssistantMessage(Message):
         return text
 
     @property
-    async def tool_calls(self) -> t.Awaitable[list[ToolCall]]:
+    async def tool_calls(self) -> cl_abc.Awaitable[list[ToolCall]]:
         """
         Tool calls made in this message.
 

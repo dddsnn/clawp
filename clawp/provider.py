@@ -93,17 +93,21 @@ class OpenrouterProvider(Provider):
                     await self._create_openrouter_assistant_message(message))
             elif message.role == "developer":
                 openrouter_message = or_comp.ChatDeveloperMessage(
-                    role=message.role, content=await message.content)
+                    role=message.role, content=await
+                    message.content_with_header)
             elif message.role == "system":
                 openrouter_message = or_comp.ChatSystemMessage(
-                    role=message.role, content=await message.content)
+                    role=message.role, content=await
+                    message.content_with_header)
             elif message.role == "tool":
                 openrouter_message = or_comp.ChatToolMessage(
-                    role=message.role, content=await message.content,
+                    role=message.role, content=await
+                    message.content_with_header,
                     tool_call_id=message.tool_call_id)
             elif message.role == "user":
                 openrouter_message = or_comp.ChatUserMessage(
-                    role=message.role, content=await message.content)
+                    role=message.role, content=await
+                    message.content_with_header)
             else:
                 raise ValueError(f"invalid message role {message.role}")
             openrouter_messages.append(openrouter_message)
@@ -120,8 +124,8 @@ class OpenrouterProvider(Provider):
                 or_comp.ChatToolCall(
                     id=tc.id, type="function", function=function))
         return or_comp.ChatAssistantMessage(
-            role=message.role, content=await message.content, reasoning=await
-            message.reasoning, tool_calls=tool_calls)
+            role=message.role, content=await message.content_with_header,
+            reasoning=await message.reasoning, tool_calls=tool_calls)
 
     def _as_openrouter_tools(
         self, tools: cl_abc.Iterable[fastmcp.tools.Tool]
