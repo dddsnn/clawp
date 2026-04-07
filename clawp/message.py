@@ -32,7 +32,24 @@ if t.TYPE_CHECKING:
 MessageRole = t.Literal["assistant", "developer", "system", "tool", "user"]
 
 
+@dc.dataclass
+class MessageMetadata:
+    seq_in_session: t.Optional[int]
+    """
+    The message's sequence number in its session.
+
+    A None value means the message is transient and will disappear again.
+    """
+
+
 class Message(abc.ABC):
+    def __init__(self, metadata: MessageMetadata) -> None:
+        self._metadata = metadata
+
+    @property
+    def metadata(self) -> MessageMetadata:
+        return self._metadata
+
     @property
     @abc.abstractmethod
     async def time(self) -> t.Awaitable[we.Instant]:
@@ -52,7 +69,10 @@ class Message(abc.ABC):
 
 
 class SimpleMessage(Message):
-    def __init__(self, role: MessageRole, content: str) -> None:
+    def __init__(
+            self, metadata: MessageMetadata, role: MessageRole,
+            content: str) -> None:
+        super().__init__(metadata)
         if role not in t.get_args(MessageRole):
             raise ValueError(f"invalid role {role}")
         self._time = we.Instant.now()
@@ -73,25 +93,27 @@ class SimpleMessage(Message):
 
 
 class SystemMessage(SimpleMessage):
-    def __init__(self, content: str) -> None:
-        super().__init__("system", content)
+    def __init__(self, metadata: MessageMetadata, content: str) -> None:
+        super().__init__(metadata, "system", content)
 
 
 class DeveloperMessage(SimpleMessage):
-    def __init__(self, content: str) -> None:
-        super().__init__("developer", content)
+    def __init__(self, metadata: MessageMetadata, content: str) -> None:
+        super().__init__(metadata, "developer", content)
 
 
 class UserMessage(SimpleMessage):
     """Message sent by the user."""
-    def __init__(self, content: str) -> None:
-        super().__init__("user", content)
+    def __init__(self, metadata: MessageMetadata, content: str) -> None:
+        super().__init__(metadata, "user", content)
 
 
 class ToolMessage(SimpleMessage):
     """Message sent by the system in response to a tool call."""
-    def __init__(self, content: str, tool_call_id: str) -> None:
-        super().__init__("tool", content)
+    def __init__(
+            self, metadata: MessageMetadata, content: str,
+            tool_call_id: str) -> None:
+        super().__init__(metadata, "tool", content)
         self._tool_call_id = tool_call_id
 
     @property
@@ -311,7 +333,9 @@ class AssistantMessage(Message):
     arrived, a task is started on construction that waits for the final part to
     arrive and then sets the time. The property will block until then.
     """
-    def __init__(self, parts: StreamableList) -> None:
+    def __init__(
+            self, metadata: MessageMetadata, parts: StreamableList) -> None:
+        super().__init__(metadata)
         self._parts = parts
         self._time = None
         self._set_time_task = asyncio.create_task(self._set_time())
@@ -430,14 +454,18 @@ class Session:
         async with self._lock:
             if self._is_shut_down:
                 raise RuntimeError("shut down, can't process more messages")
-            self._messages.append(UserMessage(user_message_content))
+            self._messages.append(
+                UserMessage(
+                    MessageMetadata(len(self._messages)),
+                    user_message_content))
             async for assistant_message in self._request_assistant_messages():
                 yield assistant_message
 
     async def _request_assistant_messages(self):
         while True:
             assistant_message = await self._provider.request_assistant_message(
-                self._messages, self._mcp_client.tools.values())
+                MessageMetadata(len(self._messages)), self._messages,
+                self._mcp_client.tools.values())
             self._num_incomplete_messages += 1
             asyncio.create_task(self._wait_for_message_time(assistant_message))
             self._messages.append(assistant_message)
@@ -452,11 +480,13 @@ class Session:
                         tool_call.function.name, arguments_dict)
                     self._messages.append(
                         ToolMessage(
+                            MessageMetadata(len(self._messages)),
                             content=str(result.data),
                             tool_call_id=tool_call.id))
                 except Exception as e:
                     self._messages.append(
                         ToolMessage(
+                            MessageMetadata(len(self._messages)),
                             content="Error in tool call: " + str(e),
                             tool_call_id=tool_call.id))
                     self._logger.exception("Error in tool call.")

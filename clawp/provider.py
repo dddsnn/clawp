@@ -38,10 +38,11 @@ class Provider(abc.ABC):
     :param messages: The list of messages containing the current context.
     :param tools: An iterable of tools that should be made available to the
         assistant.
+    :param metadata: Metadata to attach to the message.
     """
     @abc.abstractmethod
     async def request_assistant_message(
-            self, messages: list[msg.Message],
+            self, metadata: msg.MessageMetadata, messages: list[msg.Message],
             tools: cl_abc.Iterable[fastmcp.tools.Tool]
     ) -> msg.AssistantMessage:
         raise NotImplementedError
@@ -66,14 +67,14 @@ class OpenrouterProvider(Provider):
         return await self._openrouter_client.__aexit__(*args)
 
     async def request_assistant_message(
-            self, messages: list[msg.Message],
+            self, metadata: msg.MessageMetadata, messages: list[msg.Message],
             tools: cl_abc.Iterable[fastmcp.tools.Tool]
     ) -> msg.AssistantMessage:
         stream = await self._openrouter_client.chat.send_async(
             messages=await self._as_openrouter_messages(messages),
             model=self.model, tools=self._as_openrouter_tools(tools),
             stream=True)
-        stream_reader = OpenrouterStreamReader(stream)
+        stream_reader = OpenrouterStreamReader(metadata, stream)
         return stream_reader.read_message()
 
     async def _as_openrouter_messages(
@@ -129,11 +130,13 @@ class OpenrouterProvider(Provider):
 class OpenrouterStreamReader:
     TIMEOUT = 120
 
-    def __init__(self, stream: or_stream.EventStreamAsync):
+    def __init__(
+            self, metadata: msg.MessageMetadata,
+            stream: or_stream.EventStreamAsync):
         self._logger = logging.getLogger(type(self).__name__)
         self._stream = stream
         self._parts = msg.StreamableList()
-        self._assistant_message = msg.AssistantMessage(self._parts)
+        self._assistant_message = msg.AssistantMessage(metadata, self._parts)
 
     def read_message(self) -> msg.AssistantMessage:
         asyncio.create_task(
