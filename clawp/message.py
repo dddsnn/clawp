@@ -459,7 +459,7 @@ class Session:
                 yield assistant_message
 
     def _append_message(self, message_factory, *args, **kwargs):
-        metadata = MessageMetadata(seq_in_session=(self._messages))
+        metadata = MessageMetadata(seq_in_session=len(self._messages))
         message = message_factory(metadata, *args, **kwargs)
         self._messages.append(message)
         return message
