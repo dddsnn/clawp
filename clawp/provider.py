@@ -19,7 +19,6 @@ import abc
 import asyncio
 import collections.abc as cl_abc
 import functools as ft
-import logging
 
 import fastmcp.tools
 import message as msg
@@ -33,18 +32,26 @@ class Provider(abc.ABC):
     Provider of LLM chat completions.
 
     Abstract provider capable of generating an AssistantMessage in response to
-    a list of messages.
-
-    :param messages: The list of messages containing the current context.
-    :param tools: An iterable of tools that should be made available to the
-        assistant.
-    :param metadata: Metadata to attach to the message.
+    a context of messages.
     """
     @abc.abstractmethod
-    async def request_assistant_message(
-            self, metadata: msg.MessageMetadata, messages: list[msg.Message],
-            tools: cl_abc.Iterable[fastmcp.tools.Tool]
-    ) -> msg.AssistantMessage:
+    async def stream_assistant_message(
+            self, message_parts: msg.StreamableList,
+            messages: list[msg.Message],
+            tools: cl_abc.Iterable[fastmcp.tools.Tool]) -> asyncio.Task[None]:
+        """
+        Stream an assistant response.
+
+        Request the response of the assistant to the context given by the
+        messages, and stream the parts into the list of message parts.
+
+        :param message_parts: The list of message parts into which the result
+            should be streamed.
+        :param messages: The messages making up the current context.
+        :param tools: An iterable of tools that should be made available to the
+            assistant.
+        :return: A task that is done when the message is complete.
+        """
         raise NotImplementedError
 
 
@@ -66,15 +73,15 @@ class OpenrouterProvider(Provider):
     async def __aexit__(self, *args):
         return await self._openrouter_client.__aexit__(*args)
 
-    async def request_assistant_message(
-            self, metadata: msg.MessageMetadata, messages: list[msg.Message],
-            tools: cl_abc.Iterable[fastmcp.tools.Tool]
-    ) -> msg.AssistantMessage:
+    async def stream_assistant_message(
+            self, message_parts: msg.StreamableList,
+            messages: list[msg.Message],
+            tools: cl_abc.Iterable[fastmcp.tools.Tool]) -> asyncio.Task[None]:
         stream = await self._openrouter_client.chat.send_async(
             messages=await self._as_openrouter_messages(messages),
             model=self.model, tools=self._as_openrouter_tools(tools),
             stream=True)
-        stream_reader = OpenrouterStreamReader(metadata, stream)
+        stream_reader = OpenrouterStreamReader(message_parts, stream)
         return stream_reader.read_message()
 
     async def _as_openrouter_messages(
@@ -131,17 +138,14 @@ class OpenrouterStreamReader:
     TIMEOUT = 120
 
     def __init__(
-            self, metadata: msg.MessageMetadata,
+            self, message_parts: msg.StreamableList,
             stream: or_stream.EventStreamAsync):
-        self._logger = logging.getLogger(type(self).__name__)
+        self._message_parts = message_parts
         self._stream = stream
-        self._parts = msg.StreamableList()
-        self._assistant_message = msg.AssistantMessage(metadata, self._parts)
 
-    def read_message(self) -> msg.AssistantMessage:
-        asyncio.create_task(
+    def read_message(self) -> asyncio.Task[None]:
+        return asyncio.create_task(
             asyncio.wait_for(self._read_stream(), timeout=self.TIMEOUT))
-        return self._assistant_message
 
     async def _read_stream(self) -> None:
         try:
@@ -162,17 +166,16 @@ class OpenrouterStreamReader:
                         msg.ToolCall(
                             id=tool_call_kwargs["id"], function=function))
         except (Exception, asyncio.CancelledError) as e:
-            self._logger.exception(
-                "Error reading assistant message from stream.")
             error_part = await self._ensure_current_error_part()
             await error_part.append(e)
+            raise e
         finally:
             try:
                 # Make sure the last part is finalized.
-                await self._parts[-1].finalize()
+                await self._message_parts[-1].finalize()
             except IndexError:
                 pass
-            await self._parts.finalize()
+            await self._message_parts.finalize()
 
     def _parse_chunk(self, chunk, tool_calls_kwargs: dict[int, dict]):
         if not isinstance(chunk, or_comp.ChatStreamChunk):
@@ -222,9 +225,9 @@ class OpenrouterStreamReader:
 
     async def _ensure_current_part(self, part_is_correct_type, part_factory):
         try:
-            if not part_is_correct_type(self._parts[-1]):
-                await self._parts[-1].finalize()
-                await self._parts.append(part_factory())
+            if not part_is_correct_type(self._message_parts[-1]):
+                await self._message_parts[-1].finalize()
+                await self._message_parts.append(part_factory())
         except IndexError:
-            await self._parts.append(part_factory())
-        return self._parts[-1]
+            await self._message_parts.append(part_factory())
+        return self._message_parts[-1]

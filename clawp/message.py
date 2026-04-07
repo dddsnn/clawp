@@ -454,21 +454,19 @@ class Session:
         async with self._lock:
             if self._is_shut_down:
                 raise RuntimeError("shut down, can't process more messages")
-            self._messages.append(
-                UserMessage(
-                    MessageMetadata(len(self._messages)),
-                    user_message_content))
+            self._append_message(UserMessage, user_message_content)
             async for assistant_message in self._request_assistant_messages():
                 yield assistant_message
 
+    def _append_message(self, message_factory, *args, **kwargs):
+        metadata = MessageMetadata(seq_in_session=(self._messages))
+        message = message_factory(metadata, *args, **kwargs)
+        self._messages.append(message)
+        return message
+
     async def _request_assistant_messages(self):
         while True:
-            assistant_message = await self._provider.request_assistant_message(
-                MessageMetadata(len(self._messages)), self._messages,
-                self._mcp_client.tools.values())
-            self._num_incomplete_messages += 1
-            asyncio.create_task(self._wait_for_message_time(assistant_message))
-            self._messages.append(assistant_message)
+            assistant_message = await self._request_assistant_message()
             yield assistant_message
             if not await assistant_message.tool_calls:
                 return
@@ -478,23 +476,40 @@ class Session:
                     arguments_dict = json.loads(tool_call.function.arguments)
                     result = await self._mcp_client.call_tool(
                         tool_call.function.name, arguments_dict)
-                    self._messages.append(
-                        ToolMessage(
-                            MessageMetadata(len(self._messages)),
-                            content=str(result.data),
-                            tool_call_id=tool_call.id))
+                    self._append_message(
+                        ToolMessage, content=str(result.data),
+                        tool_call_id=tool_call.id)
                 except Exception as e:
-                    self._messages.append(
-                        ToolMessage(
-                            MessageMetadata(len(self._messages)),
-                            content="Error in tool call: " + str(e),
-                            tool_call_id=tool_call.id))
+                    self._append_message(
+                        ToolMessage, content="Error in tool call: " + str(e),
+                        tool_call_id=tool_call.id)
                     self._logger.exception("Error in tool call.")
 
-    async def _wait_for_message_time(self, message):
-        # Wait for the message to finish streaming, at which point it get its
-        # time property set.
-        await message.time
-        self._num_incomplete_messages -= 1
-        async with self._message_wait_condition:
-            self._message_wait_condition.notify()
+    async def _request_assistant_message(self):
+        assistant_message_parts = StreamableList()
+        message_stream_task = (
+            await self._provider.stream_assistant_message(
+                assistant_message_parts, self._messages,
+                self._mcp_client.tools.values()))
+        assistant_message = self._append_message(
+            AssistantMessage, assistant_message_parts)
+        self._num_incomplete_messages += 1
+        asyncio.create_task(
+            self._wait_for_message_completion(
+                message_stream_task, assistant_message))
+        return assistant_message
+
+    async def _wait_for_message_completion(self, message_stream_task, message):
+        try:
+            await message_stream_task
+            # There is a separate task setting the message's time which we also
+            # have to wait for.
+            await message.time
+        except (Exception, asyncio.CancelledError):
+            self._logger.exception(
+                "Error streaming assistant message, the message may be empty "
+                "or incomplete.")
+        finally:
+            self._num_incomplete_messages -= 1
+            async with self._message_wait_condition:
+                self._message_wait_condition.notify()
