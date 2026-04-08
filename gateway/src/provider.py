@@ -21,10 +21,11 @@ import collections.abc as cl_abc
 import functools as ft
 
 import fastmcp.tools
-import message as msg
 import openrouter
 import openrouter.components as or_comp
 import openrouter.utils.eventstreaming as or_stream
+
+import message as msg
 
 
 class Provider(abc.ABC):

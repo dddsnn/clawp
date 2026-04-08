@@ -20,8 +20,9 @@ import contextlib
 import typing as t
 
 import fastapi
-import message as msg
 import uvicorn
+
+import message as msg
 
 router = fastapi.APIRouter(prefix="/api/v1")
 

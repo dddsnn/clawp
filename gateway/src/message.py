@@ -26,8 +26,9 @@ import pathlib
 import textwrap
 import typing as t
 
-import tool
 import whenever as we
+
+import tool
 
 if t.TYPE_CHECKING:
     import provider as prov
