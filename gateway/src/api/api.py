@@ -24,35 +24,9 @@ import uvicorn
 
 import message as msg
 
+from . import dependency as dep
+
 router = fastapi.APIRouter(prefix="/api/v1")
-
-
-def get_consciousness_from_request(
-        request: fastapi.Request) -> msg.Consciousness:
-    try:
-        consciousness = request.app.state.consciousness
-        assert isinstance(consciousness, msg.Consciousness)
-    except (AttributeError, AssertionError) as e:
-        raise fastapi.HTTPException(
-            status_code=500, detail="Consciousness is not available") from e
-    return consciousness
-
-
-def get_consciousness_from_websocket(
-        websocket: fastapi.WebSocket) -> msg.Consciousness:
-    try:
-        consciousness = websocket.app.state.consciousness
-        assert isinstance(consciousness, msg.Consciousness)
-    except (AttributeError, AssertionError) as e:
-        raise RuntimeError("Consciousness is not available") from e
-    return consciousness
-
-
-ConsciousnessDep = t.Annotated[msg.Consciousness,
-                               fastapi.Depends(get_consciousness_from_request)]
-ConsciousnessDepWs = t.Annotated[
-    msg.Consciousness,
-    fastapi.Depends(get_consciousness_from_websocket)]
 
 
 @router.get("/healthz")
@@ -61,7 +35,7 @@ async def healthz() -> dict[str, str]:
 
 
 @router.get("/stub")
-async def stub_json(consciousness: ConsciousnessDep) -> dict[str, t.Any]:
+async def stub_json(consciousness: dep.Consciousness) -> dict[str, t.Any]:
     return {
         "message": "stub response",
         "version": "v1",}
@@ -70,7 +44,7 @@ async def stub_json(consciousness: ConsciousnessDep) -> dict[str, t.Any]:
 @router.websocket("/ws")
 async def websocket_endpoint(
         websocket: fastapi.WebSocket,
-        consciousness: ConsciousnessDepWs) -> None:
+        consciousness: dep.ConsciousnessWs) -> None:
     await websocket.accept()
     try:
         while True:
