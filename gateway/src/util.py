@@ -1,5 +1,7 @@
 import asyncio
+import collections as cl
 import collections.abc as cl_abc
+import itertools as it
 
 
 class StreamableList:
@@ -105,3 +107,95 @@ class StreamableList:
     async def _wait_for_new_element(self):
         async with self._new_element_condition:
             await self._new_element_condition.wait()
+
+
+class Publisher:
+    """
+    A publisher of elements.
+
+    Elements can be appended. Clients can subscribe to a stream of elements.
+    When the asynchronous context manager exits, the streams of all subscribers
+    exit.
+    """
+    SeqElement = cl.namedtuple("SeqElement", ["seq", "element"])
+
+    def __init__(self):
+        self._condition = asyncio.Condition()
+        self._running = False
+
+        self._history = []
+        self._next_seq = 0
+
+        self._subscriber_id_gen = it.count()
+        self._subscriber_next_seq = {}
+
+    async def __aenter__(self) -> "Publisher":
+        self._running = True
+        return self
+
+    async def __aexit__(self, *_) -> bool:
+        async with self._condition:
+            self._running = False
+            self._condition.notify_all()
+        return False
+
+    async def append(self, element) -> None:
+        """
+        Append a new element.
+
+        All current subscribers will receive the new element.
+        """
+        async with self._condition:
+            if not self._running:
+                raise ValueError("Publisher is not running")
+            self._history.append(self.SeqElement(self._next_seq, element))
+            self._next_seq += 1
+            self._condition.notify_all()
+
+    async def subscribe(self) -> cl_abc.AsyncGenerator:
+        """
+        Subscribe to the elements of this publisher.
+
+        Asynchronously iterates over elements, yielding new ones as they are
+        published. The first element yielded is the first one that is appended
+        after the subscription starts.
+
+        The generator exits when the publisher shuts down.
+        """
+        if not self._running:
+            raise ValueError("Publisher is not running")
+        subscriber_id = next(self._subscriber_id_gen)
+        self._subscriber_next_seq[subscriber_id] = self._next_seq
+        try:
+            while True:
+                wanted_seq = self._subscriber_next_seq[subscriber_id]
+                try:
+                    element = next(
+                        se.element
+                        for se in self._history
+                        if se.seq == wanted_seq)
+                    yield element
+                    self._subscriber_next_seq[subscriber_id] += 1
+                    self._prune_history()
+                except StopIteration:
+                    async with self._condition:
+
+                        def have_data():
+                            return (
+                                not self._running
+                                or wanted_seq < self._next_seq)
+
+                        await self._condition.wait_for(have_data)
+                if not self._running:
+                    return
+        except asyncio.CancelledError:
+            return
+        finally:
+            del self._subscriber_next_seq[subscriber_id]
+            self._prune_history()
+
+    def _prune_history(self) -> None:
+        min_next_seq = min(
+            self._subscriber_next_seq.values(), default=float("inf"))
+        prune_count = sum(1 for se in self._history if se.seq < min_next_seq)
+        del self._history[:prune_count]
