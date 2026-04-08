@@ -25,8 +25,39 @@ import uvicorn
 import message as msg
 
 from . import dependency as dep
+from . import model
 
 router = fastapi.APIRouter(prefix="/api/v1")
+
+
+async def _message_to_model(message: msg.Message) -> model.Message:
+    metadata = model.MessageMetadata(
+        time=await message.time,
+        seq_in_session=message.metadata.seq_in_session)
+    message_kwargs = {"metadata": metadata, "content": await message.content}
+    if isinstance(message, msg.DeveloperMessage):
+        return model.DeveloperMessage(**message_kwargs)
+    elif isinstance(message, msg.SystemMessage):
+        return model.SystemMessage(**message_kwargs)
+    elif isinstance(message, msg.UserMessage):
+        return model.UserMessage(**message_kwargs)
+    elif isinstance(message, msg.ToolMessage):
+        message_kwargs["tool_call_id"] = message.tool_call_id
+        return model.ToolMessage(**message_kwargs)
+    else:
+        assert isinstance(message, msg.AssistantMessage)
+        tool_calls = []
+        for tool_call in await message.tool_calls:
+            tool_calls.append(
+                model.ToolCall(
+                    id=tool_call.id,
+                    function=model.ToolCallFunction(
+                        name=tool_call.function.name,
+                        arguments=tool_call.function.arguments),
+                ))
+        message_kwargs["reasoning"] = await message.reasoning
+        message_kwargs["tool_calls"] = tool_calls
+        return model.AssistantMessage(**message_kwargs)
 
 
 @router.get("/healthz")
@@ -34,11 +65,13 @@ async def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@router.get("/stub")
-async def stub_json(consciousness: dep.Consciousness) -> dict[str, t.Any]:
-    return {
-        "message": "stub response",
-        "version": "v1",}
+@router.get("/messages")
+async def get_messages(
+        consciousness: dep.Consciousness) -> list[model.Message]:
+    result = []
+    for message in consciousness._sessions[-1]._messages:
+        result.append(await _message_to_model(message))
+    return result
 
 
 @router.websocket("/ws")
