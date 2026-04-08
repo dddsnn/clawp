@@ -339,11 +339,13 @@ class Session:
         self._num_incomplete_messages = 0
         self._message_wait_condition = asyncio.Condition()
         self._lock = asyncio.Lock()
+        self._publisher = util.Publisher()
 
     async def __aenter__(self) -> "Session":
+        await self._publisher.__aenter__()
         return self
 
-    async def __aexit__(self, *_) -> bool:
+    async def __aexit__(self, *args) -> bool:
         async with self._lock:
             self._is_shut_down = True
             if self._num_incomplete_messages:
@@ -357,6 +359,7 @@ class Session:
             except asyncio.TimeoutError:
                 self._logger.warning(
                     "Timeout waiting for incomplete messages.")
+        await self._publisher.__aexit__(*args)
         return False
 
     async def add_system_message(self, message_content: str) -> None:
@@ -369,7 +372,7 @@ class Session:
         async with self._lock:
             if self._is_shut_down:
                 raise RuntimeError("shut down, can't process more messages")
-            self._append_message(SystemMessage, message_content)
+            await self._append_message(SystemMessage, message_content)
 
     async def process_user_message(
             self,
@@ -384,14 +387,15 @@ class Session:
         async with self._lock:
             if self._is_shut_down:
                 raise RuntimeError("shut down, can't process more messages")
-            self._append_message(UserMessage, message_content)
+            await self._append_message(UserMessage, message_content)
             async for assistant_message in self._request_assistant_messages():
                 yield assistant_message
 
-    def _append_message(self, message_factory, *args, **kwargs):
+    async def _append_message(self, message_factory, *args, **kwargs):
         metadata = MessageMetadata(seq_in_session=len(self._messages))
         message = message_factory(metadata, *args, **kwargs)
         self._messages.append(message)
+        await self._publisher.append(message)
         return message
 
     async def _request_assistant_messages(self):
@@ -406,11 +410,11 @@ class Session:
                     arguments_dict = json.loads(tool_call.function.arguments)
                     result = await self._mcp_client.call_tool(
                         tool_call.function.name, arguments_dict)
-                    self._append_message(
+                    await self._append_message(
                         ToolMessage, content=str(result.data),
                         tool_call_id=tool_call.id)
                 except Exception as e:
-                    self._append_message(
+                    await self._append_message(
                         ToolMessage, content="Error in tool call: " + str(e),
                         tool_call_id=tool_call.id)
                     self._logger.exception("Error in tool call.")
@@ -421,7 +425,7 @@ class Session:
             await self._provider.stream_assistant_message(
                 assistant_message_parts, self._messages,
                 self._mcp_client.tools.values()))
-        assistant_message = self._append_message(
+        assistant_message = await self._append_message(
             AssistantMessage, assistant_message_parts)
         self._num_incomplete_messages += 1
         asyncio.create_task(
@@ -444,6 +448,9 @@ class Session:
             async with self._message_wait_condition:
                 self._message_wait_condition.notify()
 
+    def subscribe(self) -> cl_abc.AsyncGenerator[Message]:
+        """Subscribe to messages in this session."""
+        return self._publisher.subscribe()
 
 class Consciousness:
     """
@@ -496,3 +503,7 @@ class Consciousness:
                 message_content)
             async for assistant_message in assistant_messages:
                 yield assistant_message
+
+    def subscribe(self) -> cl_abc.AsyncGenerator[Message]:
+        """Subscribe to messages in this consciousness."""
+        return self._sessions[-1].subscribe()
