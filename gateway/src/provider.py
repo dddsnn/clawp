@@ -26,6 +26,7 @@ import openrouter.components as or_comp
 import openrouter.utils.eventstreaming as or_stream
 
 import message as msg
+import util
 
 
 class Provider(abc.ABC):
@@ -37,7 +38,7 @@ class Provider(abc.ABC):
     """
     @abc.abstractmethod
     async def stream_assistant_message(
-            self, message_parts: msg.StreamableList,
+            self, message_parts: util.StreamableList,
             messages: cl_abc.Iterable[msg.Message],
             tools: cl_abc.Iterable[fastmcp.tools.Tool]) -> asyncio.Task[None]:
         """
@@ -75,7 +76,7 @@ class OpenrouterProvider(Provider):
         return await self._openrouter_client.__aexit__(*args)
 
     async def stream_assistant_message(
-            self, message_parts: msg.StreamableList,
+            self, message_parts: util.StreamableList,
             messages: cl_abc.Iterable[msg.Message],
             tools: cl_abc.Iterable[fastmcp.tools.Tool]) -> asyncio.Task[None]:
         stream = await self._openrouter_client.chat.send_async(
@@ -144,7 +145,7 @@ class OpenrouterStreamReader:
     TIMEOUT = 120
 
     def __init__(
-            self, message_parts: msg.StreamableList,
+            self, message_parts: util.StreamableList,
             stream: or_stream.EventStreamAsync):
         self._message_parts = message_parts
         self._stream = stream
