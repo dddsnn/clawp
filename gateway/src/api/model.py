@@ -88,6 +88,7 @@ class AssistantMessage(BaseMessage):
     role: t.Literal["assistant"] = "assistant"
     reasoning: str
     tool_calls: list[ToolCall]
+    errors: list[str]
 
 
 NonStreamableMessage = (

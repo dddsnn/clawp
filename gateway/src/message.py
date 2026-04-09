@@ -285,14 +285,19 @@ class AssistantMessage(Message):
 
     async def _concat_part_text(
             self, part_type: AssistantMessageTextPart.VALID_TYPES):
+        result = ""
+        async for text in self._collect_fragments(part_type):
+            result += text
+        return result
+
+    async def _collect_fragments(
+            self, part_type: AssistantMessagePart.VALID_TYPES):
         await self._parts.wait_finalized()
-        text = ""
         for part in self._parts:
             if part.type != part_type:
                 continue
             async for fragment in part.stream_fragments():
-                text += fragment
-        return text
+                yield fragment
 
     @property
     async def tool_calls(self) -> cl_abc.Awaitable[list[ToolCall]]:
@@ -302,14 +307,23 @@ class AssistantMessage(Message):
         These are not streamed and will only be available once the entire
         message has arrived.
         """
-        await self._parts.wait_finalized()
         tool_calls = []
-        for part in self._parts:
-            if part.type != "tool":
-                continue
-            async for tool_call in part.stream_fragments():
-                tool_calls.append(tool_call)
+        async for tool_call in self._collect_fragments("tool"):
+            tool_calls.append(tool_call)
         return tool_calls
+
+    @property
+    async def errors(self) -> cl_abc.Awaitable[list[Exception]]:
+        """
+        Errors in this message.
+
+        These are not streamed and will only be available once the entire
+        message has arrived.
+        """
+        exceptions = []
+        async for exception in self._collect_fragments("tool"):
+            exceptions.append(exception)
+        return exceptions
 
     async def stream_parts(
             self) -> cl_abc.AsyncGenerator[AssistantMessagePart]:

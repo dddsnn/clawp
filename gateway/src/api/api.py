@@ -53,6 +53,8 @@ async def _message_to_model(message: msg.Message) -> model.Message:
             tool_calls.append(_tool_call_to_model(tool_call))
         message_kwargs["reasoning"] = await message.reasoning
         message_kwargs["tool_calls"] = tool_calls
+        message_kwargs["errors"] = [
+            f"Error: {exc}" for exc in await message.errors]
         return model.AssistantMessage(**message_kwargs)
 
 
@@ -166,7 +168,7 @@ async def _generate_error_fragments(
     message_part: msg.AssistantMessageErrorPart
 ) -> cl_abc.AsyncGenerator[model.StreamingMessageFragmentText]:
     async for exc in message_part.stream_fragments():
-        yield model.StreamingMessageFragmentText(fragment=f"Error: {exc}\n")
+        yield model.StreamingMessageFragmentText(fragment=f"Error: {exc}")
 
 
 async def _generate_tool_call_fragments(
