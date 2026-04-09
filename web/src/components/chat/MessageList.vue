@@ -43,8 +43,8 @@ const filteredMessages = computed(() => {
   >
     <div class="max-w-4xl mx-auto w-full">
       <MessageBubble 
-        v-for="msg in filteredMessages" 
-        :key="msg.id" 
+        v-for="(msg, idx) in filteredMessages" 
+        :key="msg.metadata.seq_in_session ?? ((msg as any)._localId || idx)" 
         :message="msg" 
       />
       
