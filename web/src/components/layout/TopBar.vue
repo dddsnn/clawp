@@ -22,7 +22,7 @@ const { visibility, connectionStatus } = storeToRefs(chatStore);
     <!-- Main Header -->
     <header class="flex items-center justify-between px-4 py-3 bg-white border-b shadow-sm">
       <div class="flex items-center space-x-2">
-        <h1 class="text-xl font-semibold text-slate-800 tracking-tight">AI Assistant</h1>
+        <h1 class="text-xl font-semibold text-slate-800 tracking-tight">Clawp AI assistant framework</h1>
       </div>
 
       <div class="flex items-center space-x-4 bg-slate-100 p-1.5 rounded-lg border border-slate-200 shadow-inner">
