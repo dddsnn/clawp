@@ -321,7 +321,7 @@ class AssistantMessage(Message):
         message has arrived.
         """
         exceptions = []
-        async for exception in self._collect_fragments("tool"):
+        async for exception in self._collect_fragments("error"):
             exceptions.append(exception)
         return exceptions
 
