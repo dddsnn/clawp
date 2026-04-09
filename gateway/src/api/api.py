@@ -22,6 +22,7 @@ import typing as t
 
 import fastapi
 import uvicorn
+import whenever as we
 
 import message as msg
 
@@ -69,10 +70,14 @@ async def healthz() -> dict[str, str]:
 
 @router.get("/messages")
 async def get_messages(
-        consciousness: dep.Consciousness) -> list[model.Message]:
+        consciousness: dep.Consciousness, ge_time: we.Instant = we.Instant.MIN,
+        lt_seq: int = 2**64) -> list[model.Message]:
     result = []
     for message in consciousness._sessions[-1]._messages:
-        result.append(await _message_to_model(message))
+        if message.metadata.seq_in_session >= lt_seq:
+            break
+        if await message.time >= ge_time:
+            result.append(await _message_to_model(message))
     return result
 
 
