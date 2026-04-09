@@ -185,3 +185,8 @@ class WebsocketChunkAssistantMessageFragment(BaseWebsocketChunk):
 WebsocketChunk = (
     WebsocketChunkFullMessage | WebsocketChunkAssistantMessageMarker
     | WebsocketChunkAssistantMessageFragment)
+
+
+class UserInputMessage(BaseModel):
+    """A message sent from the user to the system."""
+    content: str

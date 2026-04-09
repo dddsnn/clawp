@@ -114,8 +114,30 @@ async def websocket_stream(
         - each part ends in a message marker signalling its end
         - after all parts have been sent, another message marker signals the
           end of the message, including some final metadata
+
+    The websocket can receive new user messages which will be appended to the
+    consciousness and prompt a response. These must be JSON objects conforming
+    to the UserInputMessage model.
     """
     await websocket.accept()
+    send_task = asyncio.create_task(_send_websocket(websocket, consciousness))
+    try:
+        while True:
+            input_message = model.UserInputMessage.validate(
+                await websocket.receive_json())
+            async for _ in consciousness.process_user_message(
+                    input_message.content):
+                pass
+    except fastapi.WebSocketDisconnect:
+        return
+    finally:
+        send_task.cancel()
+        await send_task
+
+
+async def _send_websocket(
+        websocket: fastapi.WebSocket,
+        consciousness: msg.Consciousness) -> None:
     try:
         async for message in consciousness.subscribe():
             async for chunk in _generate_message_chunks(message):
@@ -129,7 +151,7 @@ async def websocket_stream(
                 send_task = asyncio.create_task(
                     websocket.send_json(chunk.model_dump()))
                 await send_task
-    except fastapi.WebSocketDisconnect:
+    except asyncio.CancelledError:
         return
 
 
