@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+@theme {
+  --color-role-user-bg: #e2e8f0;
+  --color-role-user-border: #cbd5e1;
+  --color-role-user-text: #0f172a;
+  
+  --color-role-agent-bg: #f1f5f9;
+  --color-role-agent-border: #e2e8f0;
+  --color-role-agent-text: #0f172a;
+  
+  --color-role-system-bg: #fef08a;
+  --color-role-system-border: #fde047;
+  --color-role-system-text: #854d0e;
+  
+  --color-role-tool-bg: #e0e7ff;
+  --color-role-tool-border: #c7d2fe;
+  --color-role-tool-text: #3730a3;
+  
+  --color-role-developer-bg: #fce7f3;
+  --color-role-developer-border: #fbcfe8;
+  --color-role-developer-text: #9d174d;
+}
+
+@layer base {
+  body {
+    @apply antialiased text-slate-900 bg-slate-50;
+  }
+}
+
+/* Custom scrollbar for webkit */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-300 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-400;
+}
