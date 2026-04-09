@@ -119,7 +119,16 @@ async def websocket_stream(
     try:
         async for message in consciousness.subscribe():
             async for chunk in _generate_message_chunks(message):
-                await websocket.send_json(chunk.model_dump())
+                # For some reason, we have to schedule the send as a task and
+                # then immediately await that task. If we just await the send,
+                # this loop will sometimes block until the full message content
+                # is available (this happens in streaming assistant messages,
+                # where the reasoning will stream fine, but then this loop will
+                # only see the first chunk of the content once the entire
+                # content has been received).
+                send_task = asyncio.create_task(
+                    websocket.send_json(chunk.model_dump()))
+                await send_task
     except fastapi.WebSocketDisconnect:
         return
 
