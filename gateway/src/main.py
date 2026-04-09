@@ -59,20 +59,20 @@ async def ainput() -> str:
         None, sys.stdin.readline)
 
 
-async def do_chat(consiousness: msg.Consciousness):
+async def do_chat(consciousness: msg.Consciousness):
     while True:
         try:
-            await run_turn(consiousness)
+            await run_turn(consciousness)
         except asyncio.CancelledError:
             return
         except Exception:
             logger.exception("Error running chat turn.")
 
 
-async def run_turn(consiousness: msg.Consciousness):
+async def run_turn(consciousness: msg.Consciousness):
     user_message_content = await ainput()
     print("--- message sent, waiting for agent response ---")
-    async for message in consiousness.process_user_message(
+    async for message in consciousness.process_user_message(
             user_message_content):
         if not isinstance(message, msg.AssistantMessage):
             logger.warning(f"Got non-assistant message {message} as response.")
@@ -112,14 +112,14 @@ async def main():
     openrouter_provider = prov.OpenrouterProvider(
         OPENROUTER_API_KEY, "stepfun/step-3.5-flash:free")
     mcp_client = tool.Client()
-    consiousness = msg.Consciousness(openrouter_provider, mcp_client)
-    clawp_api = api.Api(consiousness, API_HOST, API_PORT, API_LOG_LEVEL)
+    consciousness = msg.Consciousness(openrouter_provider, mcp_client)
+    clawp_api = api.Api(consciousness, API_HOST, API_PORT, API_LOG_LEVEL)
     async with contextlib.AsyncExitStack() as stack:
         await stack.enter_async_context(openrouter_provider)
         await stack.enter_async_context(mcp_client)
-        await stack.enter_async_context(consiousness)
+        await stack.enter_async_context(consciousness)
         await stack.enter_async_context(clawp_api)
-        chat_task = asyncio.create_task(do_chat(consiousness))
+        chat_task = asyncio.create_task(do_chat(consciousness))
         await shutdown_event.wait()
         chat_task.cancel()
         await chat_task
