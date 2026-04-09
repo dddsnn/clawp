@@ -16,6 +16,7 @@
 # with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
+import collections.abc as cl_abc
 import contextlib
 import typing as t
 
@@ -48,16 +49,17 @@ async def _message_to_model(message: msg.Message) -> model.Message:
         assert isinstance(message, msg.AssistantMessage)
         tool_calls = []
         for tool_call in await message.tool_calls:
-            tool_calls.append(
-                model.ToolCall(
-                    id=tool_call.id,
-                    function=model.ToolCallFunction(
-                        name=tool_call.function.name,
-                        arguments=tool_call.function.arguments),
-                ))
+            tool_calls.append(_tool_call_to_model(tool_call))
         message_kwargs["reasoning"] = await message.reasoning
         message_kwargs["tool_calls"] = tool_calls
         return model.AssistantMessage(**message_kwargs)
+
+
+def _tool_call_to_model(tool_call: msg.ToolCall) -> model.ToolCall:
+    return model.ToolCall(
+        id=tool_call.id, function=model.ToolCallFunction(
+            name=tool_call.function.name,
+            arguments=tool_call.function.arguments))
 
 
 @router.get("/healthz")
@@ -74,17 +76,72 @@ async def get_messages(
     return result
 
 
-@router.websocket("/ws")
-async def websocket_endpoint(
+@router.websocket("/stream")
+async def websocket_stream(
         websocket: fastapi.WebSocket,
         consciousness: dep.ConsciousnessWs) -> None:
     await websocket.accept()
     try:
-        while True:
-            payload = await websocket.receive_text()
-            await websocket.send_json({"echo": payload})
+        async for message in consciousness.subscribe():
+            async for chunk in _generate_message_chunks(message):
+                await websocket.send_json(chunk.model_dump())
     except fastapi.WebSocketDisconnect:
         return
+
+
+async def _generate_message_chunks(
+        message: msg.Message) -> cl_abc.AsyncGenerator[model.WebsocketChunk]:
+    if not isinstance(message, msg.AssistantMessage):
+        message_model = await _message_to_model(message)
+        yield model.WebsocketChunkFullMessage(payload=message_model)
+        return
+    # At this point, it's a streaming assistant message.
+    start_metadata = model.StartMessageMetadata(
+        seq_in_session=message.metadata.seq_in_session)
+    yield model.WebsocketChunkAssistantMessageMarker(
+        payload=model.StreamingMessageMarkerMessageStart(
+            metadata=start_metadata))
+    async for message_part in message.stream_parts():
+        yield model.WebsocketChunkAssistantMessageMarker(
+            payload=model.StreamingMessageMarkerPartStart(
+                part_type=message_part.type))
+        if isinstance(message_part, msg.AssistantMessageTextPart):
+            fragment_gen = _generate_text_fragments(message_part)
+        elif isinstance(message_part, msg.AssistantMessageErrorPart):
+            fragment_gen = _generate_error_fragments(message_part)
+        else:
+            assert isinstance(message_part, msg.AssistantMessageToolPart)
+            fragment_gen = _generate_tool_call_fragments(message_part)
+        async for fragment in fragment_gen:
+            yield model.WebsocketChunkAssistantMessageFragment(
+                payload=fragment)
+        yield model.WebsocketChunkAssistantMessageMarker(
+            payload=model.StreamingMessageMarkerPartEnd())
+    end_metadata = model.EndMessageMetadata(time=await message.time)
+    yield model.WebsocketChunkAssistantMessageMarker(
+        payload=model.StreamingMessageMarkerMessageEnd(metadata=end_metadata))
+
+
+async def _generate_text_fragments(
+    message_part: msg.AssistantMessageTextPart
+) -> cl_abc.AsyncGenerator[model.StreamingMessageFragmentText]:
+    async for fragment in message_part.stream_fragments():
+        yield model.StreamingMessageFragmentText(fragment=fragment)
+
+
+async def _generate_error_fragments(
+    message_part: msg.AssistantMessageErrorPart
+) -> cl_abc.AsyncGenerator[model.StreamingMessageFragmentText]:
+    async for exc in message_part.stream_fragments():
+        yield model.StreamingMessageFragmentText(fragment=f"Error: {exc}\n")
+
+
+async def _generate_tool_call_fragments(
+    message_part: msg.AssistantMessageToolPart
+) -> cl_abc.AsyncGenerator[model.StreamingMessageFragmentToolCall]:
+    async for tool_call in message_part.stream_fragments():
+        yield model.StreamingMessageFragmentToolCall(
+            fragment=_tool_call_to_model(tool_call))
 
 
 class Api:
