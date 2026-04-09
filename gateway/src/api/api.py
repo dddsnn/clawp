@@ -72,6 +72,13 @@ async def healthz() -> dict[str, str]:
 async def get_messages(
         consciousness: dep.Consciousness, ge_time: we.Instant = we.Instant.MIN,
         lt_seq: int = 2**64) -> list[model.Message]:
+    """
+    Get a list of messages.
+
+    Optionally, filter by ge_time (only messages with time greater or equal,
+    ISO 8601 format), or lt_seq (only messages with a sequence number less than
+    the given one).
+    """
     result = []
     for message in consciousness._sessions[-1]._messages:
         if message.metadata.seq_in_session >= lt_seq:
@@ -85,6 +92,27 @@ async def get_messages(
 async def websocket_stream(
         websocket: fastapi.WebSocket,
         consciousness: dep.ConsciousnessWs) -> None:
+    """
+    Open a websocket to stream messages.
+
+    Each payload sent by the server will be a JSON object containing a
+    WebSocketChunk. For most message roles, a chunk will contain the full
+    message just as in the /messages endpoint.
+
+    Assistant messages are streamed. They consist of parts of different types,
+    each of which consists of fragments. Only one message is streamed at a time
+    (i.e. a message's stream must finish before another one can start). It is a
+    stateful protocol:
+        - a message marker is sent signalling the start of the message,
+          including some metadata
+        - each part start with a message marker signalling its start, including
+          the type of the part
+        - the following chunks are the fragments of the part, their type
+          depending on the type of the part
+        - each part ends in a message marker signalling its end
+        - after all parts have been sent, another message marker signals the
+          end of the message, including some final metadata
+    """
     await websocket.accept()
     try:
         async for message in consciousness.subscribe():
