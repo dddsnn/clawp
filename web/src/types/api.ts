@@ -146,6 +146,12 @@ export const WebsocketChunkSchema = z.discriminatedUnion('chunk_type', [
   WebsocketChunkAssistantMessageFragmentSchema,
 ]);
 
+// --- User Input ---
+
+export const UserInputMessageSchema = z.object({
+  content: z.string(),
+});
+
 // --- Exported Types ---
 
 export type Message = z.infer<typeof MessageSchema>;
@@ -154,3 +160,4 @@ export type NonStreamableMessage = z.infer<typeof NonStreamableMessageSchema>;
 export type ToolCall = z.infer<typeof ToolCallSchema>;
 export type WebsocketChunk = z.infer<typeof WebsocketChunkSchema>;
 export type StreamingMessageMarkerPartStart = z.infer<typeof StreamingMessageMarkerPartStartSchema>;
+export type UserInputMessage = z.infer<typeof UserInputMessageSchema>;

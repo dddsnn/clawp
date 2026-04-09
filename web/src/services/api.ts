@@ -1,7 +1,7 @@
 import { useChatStore } from '../stores/chatStore';
 import { z } from 'zod';
 import { MessageSchema, WebsocketChunkSchema } from '../types/api';
-import type { WebsocketChunk } from '../types/api';
+import type { WebsocketChunk, UserInputMessage } from '../types/api';
 
 const MessagesResponseSchema = z.array(MessageSchema);
 
@@ -138,8 +138,12 @@ export class ApiService {
     }
   }
 
-  // Placeholder for when we add send functionality
   async sendMessage(text: string) {
-    console.warn("Sending messages not yet implemented. Cannot send:", text);
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.error("WebSocket is not connected. Cannot send message.");
+      return;
+    }
+    const message: UserInputMessage = { content: text };
+    this.ws.send(JSON.stringify(message));
   }
 }
