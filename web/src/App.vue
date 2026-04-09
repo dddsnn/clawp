@@ -16,7 +16,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  // If we wanted to cleanly close the websocket, we'd do it here.
+  apiService.disconnect();
 });
 </script>
 

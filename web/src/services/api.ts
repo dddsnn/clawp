@@ -9,12 +9,14 @@ export class ApiService {
   private store: ReturnType<typeof useChatStore>;
   private ws: WebSocket | null = null;
   private wsConnectionPromise: Promise<void> | null = null;
+  private isIntentionallyClosed = false;
 
   constructor() {
     this.store = useChatStore();
   }
 
   async init() {
+    this.isIntentionallyClosed = false;
     this.store.setConnectionStatus('connecting');
     try {
       await this.connectWebSocket();
@@ -24,6 +26,15 @@ export class ApiService {
       console.error("Failed to initialize API:", e);
       this.store.setConnectionStatus('error');
     }
+  }
+
+  disconnect() {
+    this.isIntentionallyClosed = true;
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+    this.store.setConnectionStatus('disconnected');
   }
 
   private connectWebSocket(): Promise<void> {
@@ -52,6 +63,10 @@ export class ApiService {
       };
 
       this.ws.onclose = () => {
+        if (this.isIntentionallyClosed) {
+          console.log('WebSocket intentionally disconnected.');
+          return;
+        }
         console.log('WebSocket disconnected. Reconnecting in 3s...');
         this.store.setConnectionStatus('connecting');
         this.wsConnectionPromise = null;
