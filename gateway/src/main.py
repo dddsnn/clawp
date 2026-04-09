@@ -21,7 +21,6 @@ import logging
 import logging.config
 import os
 import signal
-import sys
 
 import api
 import message as msg
@@ -54,57 +53,6 @@ def shutdown(shutdown_event: asyncio.Event):
     shutdown_event.set()
 
 
-async def ainput() -> str:
-    return await asyncio.get_running_loop().run_in_executor(
-        None, sys.stdin.readline)
-
-
-async def do_chat(consciousness: msg.Consciousness):
-    while True:
-        try:
-            await run_turn(consciousness)
-        except asyncio.CancelledError:
-            return
-        except Exception:
-            logger.exception("Error running chat turn.")
-
-
-async def run_turn(consciousness: msg.Consciousness):
-    user_message_content = await ainput()
-    print("--- message sent, waiting for agent response ---")
-    async for message in consciousness.process_user_message(
-            user_message_content):
-        if not isinstance(message, msg.AssistantMessage):
-            logger.warning(f"Got non-assistant message {message} as response.")
-            if not await message.content:
-                continue
-            print(await message.content, flush=True)
-        else:
-            async for message_part in message.stream_parts():
-                if isinstance(message_part, msg.AssistantMessageTextPart):
-                    await print_text_part(message_part)
-                    continue
-                elif isinstance(message_part, msg.AssistantMessageErrorPart):
-                    await print_error_part(message_part)
-    print("--- end of agent message ---")
-
-
-async def print_text_part(message_part: msg.AssistantMessageTextPart):
-    print(f"{message_part.type}: ", end="")
-    async for fragment in message_part.stream_fragments():
-        print(fragment, end="", flush=True)
-    print(flush=True)
-
-
-async def print_error_part(message_part: msg.AssistantMessageErrorPart):
-    async for exc in message_part.stream_fragments():
-        msg = f"A {type(exc).__name__} occurred when receiving the message"
-        if str(exc):
-            msg += f": {exc}"
-        msg += "."
-        logger.error(msg)
-
-
 async def main():
     shutdown_event = asyncio.Event()
     asyncio.get_running_loop().add_signal_handler(
@@ -119,10 +67,7 @@ async def main():
         await stack.enter_async_context(mcp_client)
         await stack.enter_async_context(consciousness)
         await stack.enter_async_context(clawp_api)
-        chat_task = asyncio.create_task(do_chat(consciousness))
         await shutdown_event.wait()
-        chat_task.cancel()
-        await chat_task
 
 
 if __name__ == "__main__":
