@@ -15,12 +15,14 @@ export class ApiService {
   }
 
   async init() {
+    this.store.setConnectionStatus('connecting');
     try {
       await this.connectWebSocket();
       await this.fetchHistory();
+      this.store.setConnectionStatus('connected');
     } catch (e) {
       console.error("Failed to initialize API:", e);
-      // NOTE: We could set an app-wide error state here if requested.
+      this.store.setConnectionStatus('error');
     }
   }
 
@@ -35,6 +37,7 @@ export class ApiService {
 
       this.ws.onopen = () => {
         console.log('WebSocket connected');
+        this.store.setConnectionStatus('connected');
         resolve();
       };
 
@@ -50,12 +53,14 @@ export class ApiService {
 
       this.ws.onclose = () => {
         console.log('WebSocket disconnected. Reconnecting in 3s...');
+        this.store.setConnectionStatus('connecting');
         this.wsConnectionPromise = null;
         setTimeout(() => this.connectWebSocket(), 3000);
       };
 
       this.ws.onerror = (error) => {
         console.error('WebSocket error:', error);
+        this.store.setConnectionStatus('error');
         reject(error);
       };
     });

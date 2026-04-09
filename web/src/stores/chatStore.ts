@@ -4,6 +4,8 @@ import type { Message, AssistantMessage, ToolCall, StreamingMessageMarkerPartSta
 
 type ActivePartType = StreamingMessageMarkerPartStart['part_type'];
 
+export type ConnectionStatus = 'connecting' | 'connected' | 'error' | 'disconnected';
+
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<Message[]>([]);
   const visibility = ref({
@@ -12,9 +14,15 @@ export const useChatStore = defineStore('chat', () => {
     developer: true,
   });
 
+  const connectionStatus = ref<ConnectionStatus>('connecting');
+
   // Streaming State
   const activeStreamMessageId = ref<string | null>(null);
   const activeStreamPartType = ref<ActivePartType | null>(null);
+
+  function setConnectionStatus(status: ConnectionStatus) {
+    connectionStatus.value = status;
+  }
 
   function addMessage(message: Message) {
     const seq = message.metadata.seq_in_session;
@@ -122,8 +130,10 @@ export const useChatStore = defineStore('chat', () => {
   return {
     messages,
     visibility,
+    connectionStatus,
     activeStreamMessageId,
     activeStreamPartType,
+    setConnectionStatus,
     addMessage,
     startStreamingMessage,
     endStreamingMessage,
