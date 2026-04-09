@@ -50,12 +50,12 @@ const formattedTime = computed(() => {
     </div>
 
     <!-- Errors -->
-    <div v-if="hasErrors" class="mb-4 bg-red-50 border border-red-200 rounded-lg overflow-hidden shadow-sm">
-      <div class="flex items-center space-x-2 p-3 bg-red-100/50 border-b border-red-200 text-sm font-medium text-red-800">
+    <div v-if="hasErrors" class="mb-4 bg-[var(--color-role-error-bg)] border-[var(--color-role-error-border)] rounded-lg overflow-hidden shadow-sm">
+      <div class="flex items-center space-x-2 p-3 bg-[var(--color-role-error-bg-dark)] border-b border-[var(--color-role-error-border)] text-sm font-medium text-[var(--color-role-error-text)]">
         <AlertCircle class="w-4 h-4" />
         <span>Errors ({{ (message as any).errors.length }})</span>
       </div>
-      <div class="px-4 py-3 text-sm text-red-700 font-mono whitespace-pre-wrap divide-y divide-red-100">
+      <div class="px-4 py-3 text-sm text-[var(--color-role-error-text)] font-mono whitespace-pre-wrap divide-y divide-[var(--color-role-error-bg-dark)]">
         <div v-for="(err, idx) in (message as any).errors" :key="idx" class="py-1 first:pt-0 last:pb-0">
           {{ err }}
         </div>

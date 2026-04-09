@@ -20,6 +20,11 @@
   --color-role-developer-bg: #fce7f3;
   --color-role-developer-border: #fbcfe8;
   --color-role-developer-text: #9d174d;
+
+  --color-role-error-bg: #fef2f2;
+  --color-role-error-bg-dark: #fee2e2;
+  --color-role-error-border: #fecaca;
+  --color-role-error-text: #991b1b;
 }
 
 @layer base {
