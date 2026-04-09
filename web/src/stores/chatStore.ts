@@ -104,13 +104,7 @@ export const useChatStore = defineStore('chat', () => {
     } else if (activeStreamPartType.value === 'reasoning') {
       msg.reasoning += text;
     } else if (activeStreamPartType.value === 'error') {
-      // In the stream protocol, errors might come as multiple text fragments for a single error.
-      // Or they might be discrete strings. Let's just append to the last string if it exists, or push a new one.
-      if (msg.errors.length === 0) {
-        msg.errors.push(text);
-      } else {
-        msg.errors[msg.errors.length - 1] += text;
-      }
+      msg.errors.push(text);
     }
   }
 
