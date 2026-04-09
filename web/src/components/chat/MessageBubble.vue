@@ -29,14 +29,7 @@ const hasErrors = computed(() => isAssistant.value && (props.message as any).err
 
 const formattedTime = computed(() => {
   if (!('time' in props.message.metadata)) return null;
-  const timeStr = props.message.metadata.time;
-  if (!timeStr) return null;
-  try {
-    const date = new Date(timeStr);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch (e) {
-    return null;
-  }
+  return props.message.metadata.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 });
 
 </script>

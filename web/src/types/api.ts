@@ -1,13 +1,13 @@
 import { z } from 'zod';
 
-export const Iso8601MillisSchema = z.string();
+export const Iso8601Schema = z.string().transform((str) => new Date(str));
 
 export const StartMessageMetadataSchema = z.object({
   seq_in_session: z.number().nullable().optional(),
 });
 
 export const EndMessageMetadataSchema = z.object({
-  time: Iso8601MillisSchema,
+  time: Iso8601Schema,
 });
 
 export const MessageMetadataSchema = StartMessageMetadataSchema.merge(EndMessageMetadataSchema);

@@ -75,7 +75,7 @@ export const useChatStore = defineStore('chat', () => {
     };
   }
 
-  function endStreamingMessage(time: string) {
+  function endStreamingMessage(time: Date) {
     if (!activeStreamingMessage.value) return;
     
     const finalizedMessage: AssistantMessage = {
