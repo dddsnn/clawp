@@ -41,7 +41,7 @@ const formattedTime = computed(() => {
 </script>
 
 <template>
-  <div :class="[roleConfig.bgClass, 'p-4 rounded-xl border shadow-sm w-full relative group pb-8']">
+  <div :class="[roleConfig.bgClass, 'p-4 rounded-xl border shadow-sm w-full relative group pb-8 mb-6']">
     <div class="flex items-center justify-between mb-2 font-medium">
       <div class="flex items-center space-x-2">
         <component :is="roleConfig.icon" class="w-5 h-5" />
