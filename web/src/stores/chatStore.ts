@@ -66,7 +66,7 @@ export const useChatStore = defineStore('chat', () => {
       errors: [],
       metadata: {
         seq_in_session: seqInSession,
-        time: new Date().toISOString(), // Temporary until message_end provides final time
+        time: '', // Temporary until message_end provides final time
       },
     };
     // Let's attach our local tempId so we can find it
