@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
-import { ref } from 'vue';
-import type { Message, AssistantMessage, ToolCall, StreamingMessageMarkerPartStart } from '../types/api';
+import { ref, computed } from 'vue';
+import type { Message, AssistantMessage, ToolCall, StreamingMessageMarkerPartStart, StreamingAssistantMessage } from '../types/api';
 
 type ActivePartType = StreamingMessageMarkerPartStart['part_type'];
 
@@ -17,8 +17,16 @@ export const useChatStore = defineStore('chat', () => {
   const connectionStatus = ref<ConnectionStatus>('connecting');
 
   // Streaming State
-  const activeStreamMessageId = ref<string | null>(null);
+  const activeStreamingMessage = ref<StreamingAssistantMessage | null>(null);
   const activeStreamPartType = ref<ActivePartType | null>(null);
+
+  const displayedMessages = computed(() => {
+    const list = [...messages.value];
+    if (activeStreamingMessage.value) {
+      list.push(activeStreamingMessage.value as unknown as Message);
+    }
+    return list;
+  });
 
   function setConnectionStatus(status: ConnectionStatus) {
     connectionStatus.value = status;
@@ -50,15 +58,12 @@ export const useChatStore = defineStore('chat', () => {
       const existingMsg = messages.value.find(m => m.metadata.seq_in_session === seqInSession);
       if (existingMsg) {
         // If we already have this message (e.g. from history), we should not start a new stream for it.
-        // We will return early and not set activeStreamMessageId, so subsequent fragments will be ignored.
-        activeStreamMessageId.value = null;
+        activeStreamingMessage.value = null;
         return;
       }
     }
 
-    // Generate a temporary unique ID for tracking the stream locally until the final ID is known
-    const tempId = crypto.randomUUID();
-    const newMsg: AssistantMessage = {
+    activeStreamingMessage.value = {
       role: 'assistant',
       content: '',
       reasoning: '',
@@ -66,22 +71,23 @@ export const useChatStore = defineStore('chat', () => {
       errors: [],
       metadata: {
         seq_in_session: seqInSession,
-        time: '', // Temporary until message_end provides final time
       },
     };
-    // Let's attach our local tempId so we can find it
-    (newMsg as any)._localId = tempId;
-    addMessage(newMsg);
-    activeStreamMessageId.value = tempId;
   }
 
   function endStreamingMessage(time: string) {
-    if (!activeStreamMessageId.value) return;
-    const msg = messages.value.find((m) => (m as any)._localId === activeStreamMessageId.value);
-    if (msg) {
-      msg.metadata.time = time;
-    }
-    activeStreamMessageId.value = null;
+    if (!activeStreamingMessage.value) return;
+    
+    const finalizedMessage: AssistantMessage = {
+      ...activeStreamingMessage.value,
+      metadata: {
+        ...activeStreamingMessage.value.metadata,
+        time,
+      },
+    };
+    
+    addMessage(finalizedMessage);
+    activeStreamingMessage.value = null;
     activeStreamPartType.value = null;
   }
 
@@ -94,27 +100,21 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function appendStreamFragmentText(text: string) {
-    if (!activeStreamMessageId.value || !activeStreamPartType.value) return;
-    
-    const msg = messages.value.find((m) => (m as any)._localId === activeStreamMessageId.value) as AssistantMessage | undefined;
-    if (!msg) return;
+    if (!activeStreamingMessage.value || !activeStreamPartType.value) return;
 
     if (activeStreamPartType.value === 'content') {
-      msg.content += text;
+      activeStreamingMessage.value.content += text;
     } else if (activeStreamPartType.value === 'reasoning') {
-      msg.reasoning += text;
+      activeStreamingMessage.value.reasoning += text;
     } else if (activeStreamPartType.value === 'error') {
-      msg.errors.push(text);
+      activeStreamingMessage.value.errors.push(text);
     }
   }
 
   function appendStreamFragmentToolCall(toolCall: ToolCall) {
-    if (!activeStreamMessageId.value || activeStreamPartType.value !== 'tool') return;
+    if (!activeStreamingMessage.value || activeStreamPartType.value !== 'tool') return;
     
-    const msg = messages.value.find((m) => (m as any)._localId === activeStreamMessageId.value) as AssistantMessage | undefined;
-    if (!msg) return;
-
-    msg.tool_calls.push(toolCall);
+    activeStreamingMessage.value.tool_calls.push(toolCall);
   }
 
   function toggleVisibility(role: 'system' | 'tool' | 'developer') {
@@ -123,9 +123,10 @@ export const useChatStore = defineStore('chat', () => {
 
   return {
     messages,
+    displayedMessages,
     visibility,
     connectionStatus,
-    activeStreamMessageId,
+    activeStreamingMessage,
     activeStreamPartType,
     setConnectionStatus,
     addMessage,

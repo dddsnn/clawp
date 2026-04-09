@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { Message } from '../../types/api';
+import type { Message, StreamingAssistantMessage } from '../../types/api';
 import { User, Bot, Server, Wrench, Terminal, ChevronDown, Braces, AlertCircle, Loader2 } from 'lucide-vue-next';
 
-const props = defineProps<{ message: Message }>();
+const props = defineProps<{ message: Message | StreamingAssistantMessage }>();
 
 const roleConfig = computed(() => {
   switch (props.message.role) {
@@ -28,7 +28,8 @@ const hasToolCalls = computed(() => isAssistant.value && (props.message as any).
 const hasErrors = computed(() => isAssistant.value && (props.message as any).errors && (props.message as any).errors.length > 0);
 
 const formattedTime = computed(() => {
-  const timeStr = props.message.metadata?.time;
+  if (!('time' in props.message.metadata)) return null;
+  const timeStr = props.message.metadata.time;
   if (!timeStr) return null;
   try {
     const date = new Date(timeStr);

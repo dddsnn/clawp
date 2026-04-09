@@ -1,57 +1,72 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
-import MessageBubble from './MessageBubble.vue';
+import { computed, ref, onMounted } from 'vue';
+import { useScroll } from '@vueuse/core';
 import { useChatStore } from '../../stores/chatStore';
-import { storeToRefs } from 'pinia';
+import MessageBubble from './MessageBubble.vue';
 import { Bot } from 'lucide-vue-next';
 
-const chatStore = useChatStore();
-const { messages, visibility } = storeToRefs(chatStore);
-const containerRef = ref<HTMLElement | null>(null);
+const store = useChatStore();
+const scrollContainer = ref<HTMLElement | null>(null);
+const { y } = useScroll(scrollContainer, { behavior: 'smooth' });
 
-// Auto-scroll logic
-watch(() => messages.value, () => {
-  // Check if we are at the bottom (or very close to it)
-  // If so, scroll to bottom
-  if (containerRef.value) {
-    const el = containerRef.value;
-    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-    
-    if (isAtBottom) {
-      // Use nextTick or just a small timeout to ensure DOM is updated
-      setTimeout(() => {
-        el.scrollTop = el.scrollHeight;
-      }, 50);
-    }
-  }
-}, { deep: true });
+// We want to auto-scroll if the user is near the bottom
+const isNearBottom = ref(true);
 
+const handleScroll = () => {
+  if (!scrollContainer.value) return;
+  const { scrollTop, scrollHeight, clientHeight } = scrollContainer.value;
+  // Consider "near bottom" if within 100px
+  isNearBottom.value = scrollHeight - scrollTop - clientHeight < 100;
+};
+
+// Use the new displayedMessages array
 const filteredMessages = computed(() => {
-  return messages.value.filter(msg => {
-    if (msg.role === 'system' && !visibility.value.system) return false;
-    if (msg.role === 'tool' && !visibility.value.tool) return false;
-    if (msg.role === 'developer' && !visibility.value.developer) return false;
-    return true;
+  return store.displayedMessages.filter(msg => {
+    if (msg.role === 'system') return store.visibility.system;
+    if (msg.role === 'tool') return store.visibility.tool;
+    if (msg.role === 'developer') return store.visibility.developer;
+    return true; // Always show user and assistant messages
   });
+});
+
+// Auto-scroll when new messages arrive if we were already near the bottom
+store.$subscribe(() => {
+  if (isNearBottom.value && scrollContainer.value) {
+    setTimeout(() => {
+      if (scrollContainer.value) {
+        y.value = scrollContainer.value.scrollHeight;
+      }
+    }, 50);
+  }
+});
+
+onMounted(() => {
+  if (scrollContainer.value) {
+    y.value = scrollContainer.value.scrollHeight;
+  }
 });
 </script>
 
 <template>
   <div 
-    ref="containerRef" 
-    class="flex-1 overflow-y-auto px-4 py-6 md:px-8 space-y-6 scroll-smooth bg-slate-50"
+    ref="scrollContainer"
+    @scroll="handleScroll"
+    class="flex-1 overflow-y-auto p-4 md:p-8"
   >
-    <div class="max-w-4xl mx-auto w-full">
-      <MessageBubble 
-        v-for="(msg, idx) in filteredMessages" 
-        :key="msg.metadata.seq_in_session ?? ((msg as any)._localId || idx)" 
-        :message="msg" 
-      />
+    <div class="max-w-4xl mx-auto space-y-6">
       
-      <div v-if="filteredMessages.length === 0" class="flex flex-col items-center justify-center h-full text-slate-400 mt-20">
-        <Bot class="w-16 h-16 mb-4 text-slate-300" />
-        <p class="text-lg">No messages yet. Start a conversation!</p>
+      <!-- Empty State -->
+      <div v-if="filteredMessages.length === 0" class="flex flex-col items-center justify-center h-64 text-slate-400 space-y-4">
+        <Bot class="w-12 h-12 text-slate-300" />
+        <p>No messages yet. Say hello!</p>
       </div>
+
+      <!-- Message List -->
+      <MessageBubble
+        v-for="(msg, index) in filteredMessages"
+        :key="msg.metadata?.seq_in_session ?? index"
+        :message="msg"
+      />
     </div>
   </div>
 </template>

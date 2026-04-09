@@ -161,3 +161,14 @@ export type ToolCall = z.infer<typeof ToolCallSchema>;
 export type WebsocketChunk = z.infer<typeof WebsocketChunkSchema>;
 export type StreamingMessageMarkerPartStart = z.infer<typeof StreamingMessageMarkerPartStartSchema>;
 export type UserInputMessage = z.infer<typeof UserInputMessageSchema>;
+
+export interface StreamingAssistantMessage {
+  role: 'assistant';
+  content: string;
+  reasoning: string;
+  tool_calls: ToolCall[];
+  errors: string[];
+  metadata: {
+    seq_in_session?: number | null;
+  };
+}
