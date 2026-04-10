@@ -18,6 +18,8 @@
 import asyncio
 import collections.abc as cl_abc
 import contextlib
+import enum
+import logging
 import typing as t
 
 import fastapi
@@ -30,6 +32,23 @@ from . import dependency as dep
 from . import model
 
 router = fastapi.APIRouter(prefix="/api/v1")
+
+logger = logging.getLogger(__name__)
+
+
+class WebsocketCloseCode(enum.IntEnum):
+    NORMAL_CLOSURE = 1000
+    GOING_AWAY = 1001
+    PROTOCOL_ERROR = 1002
+    UNACCEPTABLE_DATA = 1003
+    RESERVED_NO_CLOSE_CODE = 1005
+    RESERVED_ABNORMAL_CLOSURE = 1006
+    INCONSISTENT_DATA = 1007
+    POLICY_VIOLATION = 1008
+    MESSAGE_TOO_BIG = 1009
+    MISSING_NEGOTIATION = 1010
+    UNEXPECTED_CONDITION = 1011
+    RESERVED_FAILED_TLS_HANDSHAKE = 1015
 
 
 async def _message_to_model(message: msg.Message) -> model.Message:
@@ -129,7 +148,15 @@ async def websocket_stream(
                     input_message.content):
                 pass
     except fastapi.WebSocketDisconnect:
+        # The client closed the connection.
         return
+    except asyncio.CancelledError:
+        # The server is shutting down.
+        await _try_close_websocket(websocket, WebsocketCloseCode.GOING_AWAY)
+    except Exception:
+        logger.exception("Error in websocket.")
+        await _try_close_websocket(
+            websocket, WebsocketCloseCode.UNEXPECTED_CONDITION)
     finally:
         send_task.cancel()
         await send_task
@@ -153,6 +180,15 @@ async def _send_websocket(
                 await send_task
     except asyncio.CancelledError:
         return
+
+
+async def _try_close_websocket(
+        websocket: fastapi.WebSocket, close_code: WebsocketCloseCode) -> None:
+    try:
+        async with asyncio.timeout(5):
+            await websocket.close(code=close_code)
+    except Exception:
+        logger.exception("Error while trying to close the websocket.")
 
 
 async def _generate_message_chunks(
