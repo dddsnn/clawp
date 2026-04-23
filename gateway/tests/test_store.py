@@ -23,15 +23,21 @@ import pytest
 import store
 
 
-def asst_id(i):
-    return uuid.UUID(int=i)
+def asst_id(id_int):
+    return uuid.UUID(int=id_int)
 
 
-def con_id(i):
-    return uuid.UUID(int=1 << 8 + i)
+def con_id(id_int):
+    return uuid.UUID(int=1 << 8 + id_int)
 
 
 class TestMessageStore:
+    @pytest.fixture
+    async def message_store(self, base_dir):
+        s = store.MessageStore(base_dir)
+        yield s
+        await s.close()
+
     @pytest.fixture
     def base_dir(self, tmp_path):
         d = tmp_path / "store"
@@ -39,19 +45,20 @@ class TestMessageStore:
         return d
 
     @pytest.fixture
-    async def message_store(self, base_dir):
-        s = store.MessageStore(base_dir)
-        yield s
-        await s.close()
+    def session_file(self, base_dir):
+        def getter(assistant_id_int, consciousness_id_int, session_seq):
+            return (
+                base_dir / "assistants" / str(asst_id(assistant_id_int))
+                / "consciousnesses" / str(con_id(consciousness_id_int))
+                / "sessions" / f"{session_seq}.jsonl")
+
+        return getter
 
     async def test_create_session_creates_file_with_header(
-            self, message_store, base_dir):
+            self, message_store, session_file):
         await message_store.create_session(asst_id(1), con_id(1), 0)
-        path = (
-            base_dir / "assistants" / str(asst_id(1)) / "consciousnesses"
-            / str(con_id(1)) / "sessions" / "0.jsonl")
-        assert path.exists()
-        lines = path.read_text().splitlines()
+        assert session_file(1, 1, 0).exists()
+        lines = session_file(1, 1, 0).read_text().splitlines()
         assert len(lines) == 1
         header = json.loads(lines[0])
         assert header == {
@@ -65,25 +72,11 @@ class TestMessageStore:
         with pytest.raises(FileExistsError):
             await message_store.create_session(asst_id(1), con_id(1), 0)
 
-    async def test_create_session_creates_directories(
-            self, message_store, base_dir):
-        await message_store.create_session(asst_id(1), con_id(1), 0)
-        assert (base_dir / "assistants" / str(asst_id(1))).is_dir()
-        assert (
-            base_dir / "assistants" / str(asst_id(1)) / "consciousnesses"
-            / str(con_id(1))).is_dir()
-        assert (
-            base_dir / "assistants" / str(asst_id(1)) / "consciousnesses"
-            / str(con_id(1)) / "sessions").is_dir()
-
-    async def test_append_message(self, message_store, base_dir):
+    async def test_append_message(self, message_store, session_file):
         await message_store.create_session(asst_id(1), con_id(1), 0)
         msg = {"role": "user", "content": "hello"}
         await message_store.append_message(asst_id(1), con_id(1), 0, msg)
-        path = (
-            base_dir / "assistants" / str(asst_id(1)) / "consciousnesses"
-            / str(con_id(1)) / "sessions" / "0.jsonl")
-        lines = path.read_text().splitlines()
+        lines = session_file(1, 1, 0).read_text().splitlines()
         assert len(lines) == 2
         assert json.loads(lines[1]) == msg
 
@@ -174,11 +167,9 @@ class TestMessageStore:
                                                  con_id(1)) == [0, 1, 3]
 
     async def test_list_sessions_ignores_non_session_files(
-            self, message_store, base_dir):
+            self, message_store, session_file):
         await message_store.create_session(asst_id(1), con_id(1), 0)
-        sessions_dir = (
-            base_dir / "assistants" / str(asst_id(1)) / "consciousnesses"
-            / str(con_id(1)) / "sessions")
+        sessions_dir = session_file(1, 1, 0).parent
         (sessions_dir / "1.not_jsonl").open("x").close()
         (sessions_dir / "not_a_number.jsonl").open("x").close()
         assert await message_store.list_sessions(asst_id(1), con_id(1)) == [0]
@@ -238,16 +229,13 @@ class TestMessageStore:
             await store2.close()
 
     async def test_read_discards_truncated_last_line(
-            self, message_store, base_dir):
+            self, message_store, base_dir, session_file):
         await message_store.create_session(asst_id(1), con_id(1), 0)
         msg = {"role": "user", "content": "hello"}
         await message_store.append_message(asst_id(1), con_id(1), 0, msg)
         await message_store.close()
         # Simulate a crash by appending a partial line.
-        path = (
-            base_dir / "assistants" / str(asst_id(1)) / "consciousnesses"
-            / str(con_id(1)) / "sessions" / "0.jsonl")
-        with open(path, "a") as f:
+        with open(session_file(1, 1, 0), "a") as f:
             f.write('{"role": "assistant", "cont')
         store2 = store.MessageStore(base_dir)
         try:
@@ -258,14 +246,11 @@ class TestMessageStore:
             await store2.close()
 
     async def test_read_raises_on_corrupt_non_last_line(
-            self, message_store, base_dir):
+            self, message_store, base_dir, session_file):
         await message_store.create_session(asst_id(1), con_id(1), 0)
         await message_store.close()
         # Write a corrupt line followed by a valid line.
-        path = (
-            base_dir / "assistants" / str(asst_id(1)) / "consciousnesses"
-            / str(con_id(1)) / "sessions" / "0.jsonl")
-        with open(path, "a") as f:
+        with open(session_file(1, 1, 0), "a") as f:
             f.write("not json\n")
             f.write('{"role": "user", "content": "hello"}\n')
         store2 = store.MessageStore(base_dir)
@@ -294,15 +279,6 @@ class TestMessageStore:
         messages = await message_store.read_session_messages(
             asst_id(1), con_id(1), 0)
         assert messages == [msg]
-
-    async def test_list_sessions_ignores_non_jsonl_files(
-            self, message_store, base_dir):
-        await message_store.create_session(asst_id(1), con_id(1), 0)
-        sessions_dir = (
-            base_dir / "assistants" / str(asst_id(1)) / "consciousnesses"
-            / str(con_id(1)) / "sessions")
-        (sessions_dir / "notes.txt").write_text("not a session")
-        assert await message_store.list_sessions(asst_id(1), con_id(1)) == [0]
 
 
 class TestUpgrade:
