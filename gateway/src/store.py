@@ -21,6 +21,7 @@ import logging
 import os
 import pathlib
 import typing as t
+import uuid
 
 VERSION = 1
 """
@@ -86,29 +87,31 @@ class MessageStore:
     def _assistants_dir(self) -> pathlib.Path:
         return self._base_dir / "assistants"
 
-    def _assistant_dir(self, assistant_id: str) -> pathlib.Path:
-        return self._assistants_dir() / assistant_id
+    def _assistant_dir(self, assistant_id: uuid.UUID) -> pathlib.Path:
+        return self._assistants_dir() / str(assistant_id)
 
-    def _consciousnesses_dir(self, assistant_id: str) -> pathlib.Path:
+    def _consciousnesses_dir(self, assistant_id: uuid.UUID) -> pathlib.Path:
         return self._assistant_dir(assistant_id) / "consciousnesses"
 
     def _consciousness_dir(
-            self, assistant_id: str, consciousness_id: str) -> pathlib.Path:
-        return self._consciousnesses_dir(assistant_id) / consciousness_id
+            self, assistant_id: uuid.UUID,
+            consciousness_id: uuid.UUID) -> pathlib.Path:
+        return self._consciousnesses_dir(assistant_id) / str(consciousness_id)
 
     def _sessions_dir(
-            self, assistant_id: str, consciousness_id: str) -> pathlib.Path:
+            self, assistant_id: uuid.UUID,
+            consciousness_id: uuid.UUID) -> pathlib.Path:
         return self._consciousness_dir(
             assistant_id, consciousness_id) / "sessions"
 
     def _session_path(
-            self, assistant_id: str, consciousness_id: str,
+            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
             session_seq: int) -> pathlib.Path:
         return self._sessions_dir(
             assistant_id, consciousness_id) / _session_filename(session_seq)
 
     async def create_session(
-            self, assistant_id: str, consciousness_id: str,
+            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
             session_seq: int) -> None:
         """
         Create a new session file with a header.
@@ -119,8 +122,8 @@ class MessageStore:
         path = self._session_path(assistant_id, consciousness_id, session_seq)
         header = {
             "v": VERSION,
-            "assistant_id": assistant_id,
-            "consciousness_id": consciousness_id,
+            "assistant_id": str(assistant_id),
+            "consciousness_id": str(consciousness_id),
             "session_seq": session_seq,}
         await asyncio.to_thread(self._sync_create_session, path, header)
 
@@ -134,8 +137,8 @@ class MessageStore:
             os.fsync(f.fileno())
 
     async def append_message(
-            self, assistant_id: str, consciousness_id: str, session_seq: int,
-            message: dict) -> None:
+            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
+            session_seq: int, message: dict) -> None:
         """
         Append a message to a session file.
 
@@ -158,13 +161,13 @@ class MessageStore:
         os.fsync(f.fileno())
 
     async def read_session_header(
-            self, assistant_id: str, consciousness_id: str,
+            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
             session_seq: int) -> dict:
         """
         Read the header of a session file.
 
         Returns the header dict. Raises FileNotFoundError if the session
-        doesn't exist.
+        doesn't exist. Raises a ValueError if the header has an invalid format.
         """
         path = self._session_path(assistant_id, consciousness_id, session_seq)
         return await asyncio.to_thread(self._sync_read_header, path)
@@ -174,10 +177,18 @@ class MessageStore:
             raise FileNotFoundError(f"session file does not exist: {path}")
         with open(path, "r") as f:
             header_line = f.readline()
-        return json.loads(header_line)
+        try:
+            header_dict = json.loads(header_line)
+            assert isinstance(header_dict["v"], int)
+            assert isinstance(header_dict["session_seq"], int)
+            for uuid_key in ["assistant_id", "consciousness_id"]:
+                header_dict[uuid_key] = uuid.UUID(header_dict[uuid_key])
+        except Exception as e:
+            raise ValueError("invalid header format") from e
+        return header_dict
 
     async def read_session_messages(
-            self, assistant_id: str, consciousness_id: str,
+            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
             session_seq: int) -> list[dict]:
         """
         Read all messages from a session file.
@@ -211,7 +222,7 @@ class MessageStore:
                     raise
         return messages
 
-    async def list_assistants(self) -> list[str]:
+    async def list_assistants(self) -> list[uuid.UUID]:
         """
         List all assistant IDs.
 
@@ -220,13 +231,25 @@ class MessageStore:
         return await asyncio.to_thread(self._sync_list_assistants)
 
     def _sync_list_assistants(self):
-        assistants_dir = self._assistants_dir()
-        if not assistants_dir.exists():
+        try:
+            entries = self._assistants_dir().iterdir()
+        except FileNotFoundError:
             return []
-        return sorted(
-            entry.name for entry in assistants_dir.iterdir() if entry.is_dir())
+        assistant_ids = []
+        for entry in entries:
+            if not entry.is_dir():
+                self._logger.warning(
+                    f"Unexpected file {entry} in assistants directory.")
+            try:
+                assistant_ids.append(uuid.UUID(entry.name))
+            except ValueError:
+                self._logger.exception(
+                    f"Assistant subdirectory {entry} is not a valid UUID.")
+                continue
+        return sorted(assistant_ids)
 
-    async def list_consciousnesses(self, assistant_id: str) -> list[str]:
+    async def list_consciousnesses(self,
+                                   assistant_id: uuid.UUID) -> list[uuid.UUID]:
         """
         List all consciousness IDs for an assistant.
 
@@ -236,16 +259,26 @@ class MessageStore:
             self._sync_list_consciousnesses, assistant_id)
 
     def _sync_list_consciousnesses(self, assistant_id):
-        consciousnesses_dir = self._consciousnesses_dir(assistant_id)
-        if not consciousnesses_dir.exists():
+        try:
+            entries = self._consciousnesses_dir(assistant_id).iterdir()
+        except FileNotFoundError:
             return []
-        return sorted(
-            entry.name
-            for entry in consciousnesses_dir.iterdir()
-            if entry.is_dir())
+        consciousness_ids = []
+        for entry in entries:
+            if not entry.is_dir():
+                self._logger.warning(
+                    f"Unexpected file {entry} in consciousnesses directory.")
+            try:
+                consciousness_ids.append(uuid.UUID(entry.name))
+            except ValueError:
+                self._logger.exception(
+                    f"Consciousness subdirectory {entry} is not a valid UUID.")
+                continue
+        return sorted(consciousness_ids)
 
-    async def list_sessions(self, assistant_id: str,
-                            consciousness_id: str) -> list[int]:
+    async def list_sessions(
+            self, assistant_id: uuid.UUID,
+            consciousness_id: uuid.UUID) -> list[int]:
         """
         List all session sequence numbers for a consciousness.
 
