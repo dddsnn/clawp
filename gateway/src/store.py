@@ -40,18 +40,6 @@ version N to N+1. All upgraders stay in the codebase so that any previous
 version can be upgraded by running them in sequence.
 """
 
-_SESSION_FILE_DIGITS = 10
-
-
-def _session_filename(session_seq: int) -> str:
-    return f"{session_seq:0{_SESSION_FILE_DIGITS}}.jsonl"
-
-
-def _parse_session_seq(filename: str) -> int:
-    if not filename.endswith(".jsonl"):
-        raise ValueError(f"not a session file: {filename}")
-    return int(filename.removesuffix(".jsonl"))
-
 
 class MessageStore:
     """
@@ -108,7 +96,7 @@ class MessageStore:
             self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
             session_seq: int) -> pathlib.Path:
         return self._sessions_dir(
-            assistant_id, consciousness_id) / _session_filename(session_seq)
+            assistant_id, consciousness_id) / f"{session_seq}.jsonl"
 
     async def create_session(
             self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
@@ -294,8 +282,19 @@ class MessageStore:
             return []
         seqs = []
         for entry in sessions_dir.iterdir():
-            if entry.is_file() and entry.name.endswith(".jsonl"):
-                seqs.append(_parse_session_seq(entry.name))
+            if not entry.is_file():
+                self._logger.warning(
+                    "Ignoring nexpected directory in sessions directory "
+                    f"{sessions_dir}.")
+                continue
+            try:
+                assert entry.name.endswith(".jsonl")
+                seqs.append(int(entry.name.removesuffix(".jsonl")))
+            except Exception:
+                self._logger.warning(
+                    f"Ignoring unexpected file {entry} in sessions directory "
+                    f"{sessions_dir}.", exc_info=True)
+                continue
         return sorted(seqs)
 
 

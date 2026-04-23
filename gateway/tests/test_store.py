@@ -49,7 +49,7 @@ class TestMessageStore:
         await message_store.create_session(asst_id(1), con_id(1), 0)
         path = (
             base_dir / "assistants" / str(asst_id(1)) / "consciousnesses"
-            / str(con_id(1)) / "sessions" / "0000000000.jsonl")
+            / str(con_id(1)) / "sessions" / "0.jsonl")
         assert path.exists()
         lines = path.read_text().splitlines()
         assert len(lines) == 1
@@ -82,7 +82,7 @@ class TestMessageStore:
         await message_store.append_message(asst_id(1), con_id(1), 0, msg)
         path = (
             base_dir / "assistants" / str(asst_id(1)) / "consciousnesses"
-            / str(con_id(1)) / "sessions" / "0000000000.jsonl")
+            / str(con_id(1)) / "sessions" / "0.jsonl")
         lines = path.read_text().splitlines()
         assert len(lines) == 2
         assert json.loads(lines[1]) == msg
@@ -173,6 +173,16 @@ class TestMessageStore:
         assert await message_store.list_sessions(asst_id(1),
                                                  con_id(1)) == [0, 1, 3]
 
+    async def test_list_sessions_ignores_non_session_files(
+            self, message_store, base_dir):
+        await message_store.create_session(asst_id(1), con_id(1), 0)
+        sessions_dir = (
+            base_dir / "assistants" / str(asst_id(1)) / "consciousnesses"
+            / str(con_id(1)) / "sessions")
+        (sessions_dir / "1.not_jsonl").open("x").close()
+        (sessions_dir / "not_a_number.jsonl").open("x").close()
+        assert await message_store.list_sessions(asst_id(1), con_id(1)) == [0]
+
     async def test_multiple_assistants_are_independent(self, message_store):
         await message_store.create_session(asst_id(1), con_id(1), 0)
         await message_store.create_session(asst_id(2), con_id(1), 0)
@@ -227,13 +237,6 @@ class TestMessageStore:
         finally:
             await store2.close()
 
-    async def test_session_filename_padding(self, message_store, base_dir):
-        await message_store.create_session(asst_id(1), con_id(1), 42)
-        path = (
-            base_dir / "assistants" / str(asst_id(1)) / "consciousnesses"
-            / str(con_id(1)) / "sessions" / "0000000042.jsonl")
-        assert path.exists()
-
     async def test_read_discards_truncated_last_line(
             self, message_store, base_dir):
         await message_store.create_session(asst_id(1), con_id(1), 0)
@@ -243,7 +246,7 @@ class TestMessageStore:
         # Simulate a crash by appending a partial line.
         path = (
             base_dir / "assistants" / str(asst_id(1)) / "consciousnesses"
-            / str(con_id(1)) / "sessions" / "0000000000.jsonl")
+            / str(con_id(1)) / "sessions" / "0.jsonl")
         with open(path, "a") as f:
             f.write('{"role": "assistant", "cont')
         store2 = store.MessageStore(base_dir)
@@ -261,7 +264,7 @@ class TestMessageStore:
         # Write a corrupt line followed by a valid line.
         path = (
             base_dir / "assistants" / str(asst_id(1)) / "consciousnesses"
-            / str(con_id(1)) / "sessions" / "0000000000.jsonl")
+            / str(con_id(1)) / "sessions" / "0.jsonl")
         with open(path, "a") as f:
             f.write("not json\n")
             f.write('{"role": "user", "content": "hello"}\n')
@@ -354,18 +357,3 @@ class TestUpgrade:
         monkeypatch.setattr(store, "VERSION", 2)
         with pytest.raises(RuntimeError, match="no upgrader from version 1"):
             store.upgrade(base_dir)
-
-
-class TestSessionFilename:
-    def test_session_filename(self):
-        assert store._session_filename(0) == "0000000000.jsonl"
-        assert store._session_filename(42) == "0000000042.jsonl"
-        assert store._session_filename(9999999999) == "9999999999.jsonl"
-
-    def test_parse_session_seq(self):
-        assert store._parse_session_seq("0000000000.jsonl") == 0
-        assert store._parse_session_seq("0000000042.jsonl") == 42
-
-    def test_parse_session_seq_rejects_non_jsonl(self):
-        with pytest.raises(ValueError, match="not a session file"):
-            store._parse_session_seq("0000000000.txt")
