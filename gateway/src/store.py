@@ -121,7 +121,7 @@ class MessageStore:
         """
         path = self._session_path(assistant_id, consciousness_id, session_seq)
         header = {
-            "v": VERSION,
+            "version": VERSION,
             "assistant_id": str(assistant_id),
             "consciousness_id": str(consciousness_id),
             "session_seq": session_seq,}
@@ -179,7 +179,7 @@ class MessageStore:
             header_line = f.readline()
         try:
             header_dict = json.loads(header_line)
-            assert isinstance(header_dict["v"], int)
+            assert isinstance(header_dict["version"], int)
             assert isinstance(header_dict["session_seq"], int)
             for uuid_key in ["assistant_id", "consciousness_id"]:
                 header_dict[uuid_key] = uuid.UUID(header_dict[uuid_key])

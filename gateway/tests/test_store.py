@@ -55,7 +55,7 @@ class TestMessageStore:
         assert len(lines) == 1
         header = json.loads(lines[0])
         assert header == {
-            "v": store.VERSION,
+            "version": store.VERSION,
             "assistant_id": str(asst_id(1)),
             "consciousness_id": str(con_id(1)),
             "session_seq": 0,}
@@ -108,7 +108,7 @@ class TestMessageStore:
         header = await message_store.read_session_header(
             asst_id(1), con_id(1), 5)
         assert header == {
-            "v": store.VERSION,
+            "version": store.VERSION,
             "assistant_id": asst_id(1),
             "consciousness_id": con_id(1),
             "session_seq": 5,}
