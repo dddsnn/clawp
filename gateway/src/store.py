@@ -55,22 +55,30 @@ class MessageStore:
     The store keeps file handles open for active sessions to avoid repeated
     open/close overhead. All I/O is dispatched to a thread via
     asyncio.to_thread to avoid blocking the event loop.
+
+    MessageStore is an asynchronous context manager that takes control of the
+    base_dir. Only one instance may be active at any one time.
     """
+    _message_store_lock = asyncio.Lock()
+
     def __init__(self, base_dir: pathlib.Path) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._base_dir = base_dir
         self._open_files: dict[pathlib.Path, t.IO] = {}
 
-    async def close(self) -> None:
-        """
-        Close all open file handles.
+    async def __aenter__(self) -> t.Self:
+        try:
+            await asyncio.wait_for(self._message_store_lock.acquire(), 10**-2)
+        except asyncio.TimeoutError:
+            raise RuntimeError("another MessageStore is already active")
+        return self
 
-        This must be called when the store is no longer needed.
-        """
+    async def __aexit__(self, *_) -> None:
         for path, f in self._open_files.items():
             self._logger.debug(f"Closing {path}.")
             await asyncio.to_thread(f.close)
         self._open_files.clear()
+        self._message_store_lock.release()
 
     def _assistants_dir(self) -> pathlib.Path:
         return self._base_dir / "assistants"

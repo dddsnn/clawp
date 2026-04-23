@@ -33,16 +33,22 @@ def con_id(id_int):
 
 class TestMessageStore:
     @pytest.fixture
-    async def message_store(self, base_dir):
-        s = store.MessageStore(base_dir)
-        yield s
-        await s.close()
-
-    @pytest.fixture
     def base_dir(self, tmp_path):
         d = tmp_path / "store"
         d.mkdir()
         return d
+
+    @pytest.fixture
+    async def make_message_store(self, base_dir):
+        def factory():
+            return store.MessageStore(base_dir)
+
+        return factory
+
+    @pytest.fixture
+    async def message_store(self, make_message_store):
+        async with make_message_store() as s:
+            yield s
 
     @pytest.fixture
     def session_file(self, base_dir):
@@ -198,67 +204,69 @@ class TestMessageStore:
         assert await message_store.read_session_messages(
             asst_id(1), con_id(1), 1) == [msg1]
 
-    async def test_close_and_reopen(self, base_dir):
-        store1 = store.MessageStore(base_dir)
-        await store1.create_session(asst_id(1), con_id(1), 0)
-        msg = {"role": "user", "content": "persisted"}
-        await store1.append_message(asst_id(1), con_id(1), 0, msg)
-        await store1.close()
-        store2 = store.MessageStore(base_dir)
-        try:
-            messages = await store2.read_session_messages(
+    async def test_aenter_after_aexit(self, make_message_store):
+        async with make_message_store() as store:
+            await store.create_session(asst_id(1), con_id(1), 0)
+            msg = {"role": "user", "content": "persisted"}
+            await store.append_message(asst_id(1), con_id(1), 0, msg)
+        async with store:
+            messages = await store.read_session_messages(
                 asst_id(1), con_id(1), 0)
             assert messages == [msg]
-        finally:
-            await store2.close()
 
-    async def test_append_after_reopen(self, base_dir):
-        store1 = store.MessageStore(base_dir)
-        await store1.create_session(asst_id(1), con_id(1), 0)
-        msg1 = {"role": "user", "content": "first"}
-        await store1.append_message(asst_id(1), con_id(1), 0, msg1)
-        await store1.close()
-        store2 = store.MessageStore(base_dir)
-        try:
+    async def test_aenter_in_new_instance(self, make_message_store):
+        async with make_message_store() as store:
+            await store.create_session(asst_id(1), con_id(1), 0)
+            msg = {"role": "user", "content": "persisted"}
+            await store.append_message(asst_id(1), con_id(1), 0, msg)
+        async with make_message_store() as store:
+            messages = await store.read_session_messages(
+                asst_id(1), con_id(1), 0)
+            assert messages == [msg]
+
+    async def test_only_one_instance_can_be_active(self, make_message_store):
+        async with make_message_store():
+            with pytest.raises(RuntimeError):
+                async with make_message_store():
+                    pass
+
+    async def test_append_after_reopen(self, make_message_store):
+        async with make_message_store() as store:
+            await store.create_session(asst_id(1), con_id(1), 0)
+            msg1 = {"role": "user", "content": "first"}
+            await store.append_message(asst_id(1), con_id(1), 0, msg1)
+        async with store:
             msg2 = {"role": "assistant", "content": "second"}
-            await store2.append_message(asst_id(1), con_id(1), 0, msg2)
-            messages = await store2.read_session_messages(
+            await store.append_message(asst_id(1), con_id(1), 0, msg2)
+            messages = await store.read_session_messages(
                 asst_id(1), con_id(1), 0)
             assert messages == [msg1, msg2]
-        finally:
-            await store2.close()
 
     async def test_read_discards_truncated_last_line(
-            self, message_store, base_dir, session_file):
-        await message_store.create_session(asst_id(1), con_id(1), 0)
-        msg = {"role": "user", "content": "hello"}
-        await message_store.append_message(asst_id(1), con_id(1), 0, msg)
-        await message_store.close()
+            self, make_message_store, session_file):
+        async with make_message_store() as store:
+            await store.create_session(asst_id(1), con_id(1), 0)
+            msg = {"role": "user", "content": "hello"}
+            await store.append_message(asst_id(1), con_id(1), 0, msg)
         # Simulate a crash by appending a partial line.
         with open(session_file(1, 1, 0), "a") as f:
             f.write('{"role": "assistant", "cont')
-        store2 = store.MessageStore(base_dir)
-        try:
-            messages = await store2.read_session_messages(
+        async with store:
+            messages = await store.read_session_messages(
                 asst_id(1), con_id(1), 0)
             assert messages == [msg]
-        finally:
-            await store2.close()
 
     async def test_read_raises_on_corrupt_non_last_line(
-            self, message_store, base_dir, session_file):
-        await message_store.create_session(asst_id(1), con_id(1), 0)
-        await message_store.close()
+            self, make_message_store, session_file):
+        async with make_message_store() as store:
+            await store.create_session(asst_id(1), con_id(1), 0)
         # Write a corrupt line followed by a valid line.
         with open(session_file(1, 1, 0), "a") as f:
             f.write("not json\n")
             f.write('{"role": "user", "content": "hello"}\n')
-        store2 = store.MessageStore(base_dir)
-        try:
+        async with store:
             with pytest.raises(json.JSONDecodeError):
-                await store2.read_session_messages(asst_id(1), con_id(1), 0)
-        finally:
-            await store2.close()
+                await store.read_session_messages(asst_id(1), con_id(1), 0)
 
     async def test_message_with_unicode_and_newlines(self, message_store):
         await message_store.create_session(asst_id(1), con_id(1), 0)
