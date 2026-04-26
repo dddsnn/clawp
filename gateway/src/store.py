@@ -16,6 +16,8 @@
 # with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
+import collections.abc as cl_abc
+import itertools as it
 import json
 import logging
 import os
@@ -23,27 +25,22 @@ import pathlib
 import typing as t
 import uuid
 
-VERSION = 1
-"""
-Current message store format version.
 
-When the format changes, increment this and add an _upgrade_from_<old>
-function.
-"""
+class MessageStoreError(Exception):
+    pass
 
-_UPGRADERS: dict[int, t.Callable[[pathlib.Path], None]] = {}
-"""
-Registry of upgrade functions, keyed by the version they upgrade from.
 
-Each function takes the base directory and transforms the on-disk data from
-version N to N+1. All upgraders stay in the codebase so that any previous
-version can be upgraded by running them in sequence.
-"""
+class MessageStoreConcurrentError(MessageStoreError, RuntimeError):
+    """Raised when another message store already claimed the same directory."""
+
+
+class MessageStoreFormatError(MessageStoreError, ValueError):
+    """Raised when the file structure is invalid."""
 
 
 class MessageStore:
     """
-    Persistent store for assistant messages using JSONL files.
+    Persistent store for messages using JSONL files.
 
     The store uses a directory tree that mirrors the domain hierarchy:
     <base_dir>/assistants/<assistant_id>/consciousnesses/<consciousness_id>/
@@ -57,8 +54,20 @@ class MessageStore:
     asyncio.to_thread to avoid blocking the event loop.
 
     MessageStore is an asynchronous context manager that takes control of the
-    base_dir. Only one instance may be active at any one time.
+    base_dir. When the context manager enters, it locks the directory (so only
+    one instance may be active at any one time) and checks base_dir for
+    consistency. If it contains files with an older format, they are upgraded
+    to the current one.
     """
+
+    VERSION = 0
+    """
+    Current message store format version.
+
+    When the format changes, increment this and add a function to the
+    _upgraders dictionary
+    """
+
     _message_store_lock = asyncio.Lock()
 
     def __init__(self, base_dir: pathlib.Path) -> None:
@@ -70,7 +79,9 @@ class MessageStore:
         try:
             await asyncio.wait_for(self._message_store_lock.acquire(), 10**-2)
         except asyncio.TimeoutError:
-            raise RuntimeError("another MessageStore is already active")
+            raise MessageStoreConcurrentError(
+                "another message store is already active")
+        self._ensure_valid_store_format()
         return self
 
     async def __aexit__(self, *_) -> None:
@@ -117,7 +128,7 @@ class MessageStore:
         """
         path = self._session_path(assistant_id, consciousness_id, session_seq)
         header = {
-            "version": VERSION,
+            "version": self.VERSION,
             "assistant_id": str(assistant_id),
             "consciousness_id": str(consciousness_id),
             "session_seq": session_seq,}
@@ -156,33 +167,6 @@ class MessageStore:
         f.flush()
         os.fsync(f.fileno())
 
-    async def read_session_header(
-            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
-            session_seq: int) -> dict:
-        """
-        Read the header of a session file.
-
-        Returns the header dict. Raises FileNotFoundError if the session
-        doesn't exist. Raises a ValueError if the header has an invalid format.
-        """
-        path = self._session_path(assistant_id, consciousness_id, session_seq)
-        return await asyncio.to_thread(self._sync_read_header, path)
-
-    def _sync_read_header(self, path):
-        if not path.exists():
-            raise FileNotFoundError(f"session file does not exist: {path}")
-        with open(path, "r") as f:
-            header_line = f.readline()
-        try:
-            header_dict = json.loads(header_line)
-            assert isinstance(header_dict["version"], int)
-            assert isinstance(header_dict["session_seq"], int)
-            for uuid_key in ["assistant_id", "consciousness_id"]:
-                header_dict[uuid_key] = uuid.UUID(header_dict[uuid_key])
-        except Exception as e:
-            raise ValueError("invalid header format") from e
-        return header_dict
-
     async def read_session_messages(
             self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
             session_seq: int) -> list[dict]:
@@ -218,15 +202,12 @@ class MessageStore:
                     raise
         return messages
 
-    async def list_assistants(self) -> list[uuid.UUID]:
+    def list_assistants(self) -> list[uuid.UUID]:
         """
         List all assistant IDs.
 
         Returns an empty list if the store has no assistants yet.
         """
-        return await asyncio.to_thread(self._sync_list_assistants)
-
-    def _sync_list_assistants(self):
         try:
             entries = self._assistants_dir().iterdir()
         except FileNotFoundError:
@@ -244,17 +225,12 @@ class MessageStore:
                 continue
         return sorted(assistant_ids)
 
-    async def list_consciousnesses(self,
-                                   assistant_id: uuid.UUID) -> list[uuid.UUID]:
+    def list_consciousnesses(self, assistant_id: uuid.UUID) -> list[uuid.UUID]:
         """
         List all consciousness IDs for an assistant.
 
         Returns an empty list if the assistant has no consciousnesses yet.
         """
-        return await asyncio.to_thread(
-            self._sync_list_consciousnesses, assistant_id)
-
-    def _sync_list_consciousnesses(self, assistant_id):
         try:
             entries = self._consciousnesses_dir(assistant_id).iterdir()
         except FileNotFoundError:
@@ -272,7 +248,7 @@ class MessageStore:
                 continue
         return sorted(consciousness_ids)
 
-    async def list_sessions(
+    def list_sessions(
             self, assistant_id: uuid.UUID,
             consciousness_id: uuid.UUID) -> list[int]:
         """
@@ -281,10 +257,6 @@ class MessageStore:
         Returns a sorted list of sequence numbers, or an empty list if the
         consciousness has no sessions yet.
         """
-        return await asyncio.to_thread(
-            self._sync_list_sessions, assistant_id, consciousness_id)
-
-    def _sync_list_sessions(self, assistant_id, consciousness_id):
         sessions_dir = self._sessions_dir(assistant_id, consciousness_id)
         if not sessions_dir.exists():
             return []
@@ -292,7 +264,7 @@ class MessageStore:
         for entry in sessions_dir.iterdir():
             if not entry.is_file():
                 self._logger.warning(
-                    "Ignoring nexpected directory in sessions directory "
+                    "Unexpected directory in sessions directory "
                     f"{sessions_dir}.")
                 continue
             try:
@@ -300,48 +272,149 @@ class MessageStore:
                 seqs.append(int(entry.name.removesuffix(".jsonl")))
             except Exception:
                 self._logger.warning(
-                    f"Ignoring unexpected file {entry} in sessions directory "
+                    f"Unexpected file {entry} in sessions directory "
                     f"{sessions_dir}.", exc_info=True)
                 continue
         return sorted(seqs)
 
+    def _list_all_sessions(
+            self) -> cl_abc.Generator[tuple[uuid.UUID, uuid.UUID, int]]:
+        for assistant_id in self.list_assistants():
+            for consciousness_id in self.list_consciousnesses(assistant_id):
+                for seq in self.list_sessions(assistant_id, consciousness_id):
+                    yield assistant_id, consciousness_id, seq
 
-def upgrade(base_dir: pathlib.Path) -> None:
+    def _list_all_session_files(self) -> cl_abc.Generator[pathlib.Path]:
+        for assistant_id, consciousness_id, seq in self._list_all_sessions():
+            path = self._session_path(assistant_id, consciousness_id, seq)
+            assert path.is_file()
+            yield path
+
+    def _ensure_valid_store_format(self) -> None:
+        """
+        Ensure that base_dir is consistent and valid.
+
+        Goes through each consciousness directory of every assistant and checks
+        that the session files in it are consistent. This is the case if
+
+        - the assistant_id, consciouness_id and session_seq in the session
+          file's header is consistent with the directory/file name
+        - all session files have the version number
+        - the session files' version number is not greater than
+          MessageStore.VERSION
+
+        Additionally, in each consiousness directory the following must hold:
+
+        - session sequence numbers start at 0
+        - no session sequence numbers are missing
+
+        If base_dir doesn't exist, it is created. If the session files have a
+        previous version, they are upgraded to the current one using the
+        functions in the _upgraders dictionary.
+
+        If any inconsistencies are found, a MessageStoreFormatError is raised.
+        """
+        if not self._base_dir.exists():
+            self._logger.info(
+                f"Message store directory {self._base_dir} doesn't exist yet, "
+                "creating it.")
+            self._base_dir.mkdir()
+        session_file_versions = set()
+        sessions_by_consciousness = it.groupby(
+            self._list_all_sessions(), key=lambda acs: (acs[0], acs[1]))
+        for (assistant_id, consciousness_id), acs in sessions_by_consciousness:
+            prev_seq = None
+            for _, _, seq in acs:
+                if prev_seq is None and seq != 0:
+                    raise MessageStoreFormatError(
+                        f"session sequence numbers of {assistant_id}:"
+                        f"{consciousness_id} doesn't start at 0")
+                if prev_seq is not None and prev_seq + 1 != seq:
+                    raise MessageStoreFormatError(
+                        "broken session sequence numbers of "
+                        f"{assistant_id}:{consciousness_id} after "
+                        f"{prev_seq}")
+                prev_seq = seq
+                session_file_version = self._ensure_valid_session_format(
+                    assistant_id, consciousness_id, seq)
+                session_file_versions.add(session_file_version)
+        if len(session_file_versions) > 1:
+            raise MessageStoreFormatError(
+                "inconsistent message store with "
+                f"{len(session_file_versions)} different versions")
+        version_on_disk = next(iter(session_file_versions), self.VERSION)
+        if version_on_disk < self.VERSION:
+            self._logger.info(
+                f"Found store with version {version_on_disk}, upgrading to "
+                f"{self.VERSION}.")
+            self._upgrade_files(from_version=version_on_disk)
+        elif version_on_disk > self.VERSION:
+            raise MessageStoreFormatError(
+                f"store on disk has higher version {version_on_disk} than "
+                "known the this implementation, unable to downgrade")
+        else:
+            self._logger.debug(
+                f"Found valid message store at {self._base_dir} with version "
+                f"{self.VERSION}.")
+
+    def _ensure_valid_session_format(
+            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
+            seq: int):
+        path = self._session_path(assistant_id, consciousness_id, seq)
+        try:
+            with path.open() as f:
+                header_dict = json.loads(f.readline())
+            assert isinstance(header_dict["version"], int)
+            assert isinstance(header_dict["session_seq"], int)
+            for uuid_key in ["assistant_id", "consciousness_id"]:
+                header_dict[uuid_key] = uuid.UUID(header_dict[uuid_key])
+        except Exception as e:
+            raise MessageStoreFormatError("invalid header format") from e
+        if assistant_id != header_dict["assistant_id"]:
+            raise MessageStoreFormatError(
+                f"inconsistent session file {path}: directory suggests "
+                f"assistant {assistant_id}, but file header says "
+                f"{header_dict['assistant_id']}")
+        if consciousness_id != header_dict["consciousness_id"]:
+            raise MessageStoreFormatError(
+                f"inconsistent session file {path}: directory suggests "
+                f"consciousness {consciousness_id}, but file header says "
+                f"{header_dict['consciousness_id']}")
+        if seq != header_dict["session_seq"]:
+            raise MessageStoreFormatError(
+                f"inconsistent session file {path}: directory suggests "
+                f"session {seq}, but file header says "
+                f"{header_dict['session_seq']}")
+        return header_dict["version"]
+
+    def _upgrade_files(self, from_version: int) -> None:
+        """
+        Upgrade the on-disk data to the current version.
+
+        Upgrades all session files to the current format. Uses the functions in
+        the _upgraders dictionary to upgrade each file version by version.
+
+        The base_dir must exist, and all session files must have a valid format
+        according to from_version.
+        """
+        assert from_version < self.VERSION
+        assert self._base_dir.is_dir()
+        for file in list(self._list_all_session_files()):
+            assert file.is_file()
+            for version in range(from_version, self.VERSION):
+                upgrader = self._upgraders[version]
+                self._logger.debug(
+                    f"Upgrading {file} from {version} to {version+1}.")
+                upgrader(file)
+
+    _upgraders: dict[int, t.Callable[[pathlib.Path], None]] = {}
     """
-    Upgrade the on-disk data to the current version.
+    Registry of upgrade functions, keyed by the version they upgrade from.
 
-    Reads the version from the store's version file and applies all necessary
-    upgrade functions in sequence. If no version file exists, assumes this is
-    a fresh store and writes the current version.
-
-    This is synchronous and should be called before the async event loop
-    starts (or in a thread).
+    Each function takes the base directory and transforms the on-disk data from
+    version N to N+1. All upgraders stay in the codebase so that any previous
+    version can be upgraded by running them in sequence.
     """
-    version_path = base_dir / "version"
-    if not base_dir.exists():
-        base_dir.mkdir(parents=True, exist_ok=True)
-        _write_version(version_path, VERSION)
-        return
-    if not version_path.exists():
-        # Existing directory without a version file. Assume version 1 (the
-        # first version that could exist on disk).
-        disk_version = 1
-    else:
-        disk_version = int(version_path.read_text().strip())
-    if disk_version == VERSION:
-        _write_version(version_path, VERSION)
-        return
-    if disk_version > VERSION:
-        raise RuntimeError(
-            f"on-disk version {disk_version} is newer than the current "
-            f"version {VERSION}, refusing to downgrade")
-    for v in range(disk_version, VERSION):
-        upgrader = _UPGRADERS.get(v)
-        if upgrader is None:
-            raise RuntimeError(f"no upgrader from version {v} to {v + 1}")
-        upgrader(base_dir)
-    _write_version(version_path, VERSION)
 
-
-def _write_version(version_path: pathlib.Path, version: int) -> None:
-    version_path.write_text(str(version) + "\n")
+    for version_number in range(VERSION):
+        assert version_number in _upgraders

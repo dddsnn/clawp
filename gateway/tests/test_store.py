@@ -15,7 +15,9 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+import asyncio
 import json
+import pathlib
 import uuid
 
 import pytest
@@ -31,6 +33,33 @@ def con_id(id_int):
     return uuid.UUID(int=1 << 8 + id_int)
 
 
+def create_file(path: pathlib.Path, lines: list[str] = None) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.open("x").close()
+    write_file_content(path, lines)
+
+
+def write_file_content(path: pathlib.Path, lines: list[str] = None) -> None:
+    assert path.is_file()
+    with path.open("w") as f:
+        f.writelines(line + "\n" for line in (lines or []))
+
+
+def read_file_content(path: pathlib.Path) -> list[str]:
+    with path.open("r") as f:
+        return [line.rstrip("\n") for line in f.readlines()]
+
+
+def session_file_header(
+        assistant_id_int, consciousness_id_int, session_seq,
+        version=store.MessageStore.VERSION):
+    return {
+        "version": version,
+        "assistant_id": str(asst_id(assistant_id_int)),
+        "consciousness_id": str(con_id(consciousness_id_int)),
+        "session_seq": session_seq,}
+
+
 class TestMessageStore:
     @pytest.fixture
     def base_dir(self, tmp_path):
@@ -39,7 +68,13 @@ class TestMessageStore:
         return d
 
     @pytest.fixture
-    async def make_message_store(self, base_dir):
+    async def make_message_store(self, base_dir, monkeypatch):
+        # Set a new class-level _message_store_lock so it is bound to this
+        # test's event loop.
+        assert not store.MessageStore._message_store_lock.locked()
+        monkeypatch.setattr(
+            store.MessageStore, "_message_store_lock", asyncio.Lock())
+
         def factory():
             return store.MessageStore(base_dir)
 
@@ -67,11 +102,7 @@ class TestMessageStore:
         lines = session_file(1, 1, 0).read_text().splitlines()
         assert len(lines) == 1
         header = json.loads(lines[0])
-        assert header == {
-            "version": store.VERSION,
-            "assistant_id": str(asst_id(1)),
-            "consciousness_id": str(con_id(1)),
-            "session_seq": 0,}
+        assert header == session_file_header(1, 1, 0)
 
     async def test_create_session_raises_if_exists(self, message_store):
         await message_store.create_session(asst_id(1), con_id(1), 0)
@@ -102,20 +133,6 @@ class TestMessageStore:
             await message_store.append_message(
                 asst_id(1), con_id(1), 0, {"role": "user", "content": "hello"})
 
-    async def test_read_session_header(self, message_store):
-        await message_store.create_session(asst_id(1), con_id(1), 5)
-        header = await message_store.read_session_header(
-            asst_id(1), con_id(1), 5)
-        assert header == {
-            "version": store.VERSION,
-            "assistant_id": asst_id(1),
-            "consciousness_id": con_id(1),
-            "session_seq": 5,}
-
-    async def test_read_session_header_raises_if_missing(self, message_store):
-        with pytest.raises(FileNotFoundError):
-            await message_store.read_session_header(asst_id(1), con_id(1), 0)
-
     async def test_read_session_messages_empty_session(self, message_store):
         await message_store.create_session(asst_id(1), con_id(1), 0)
         messages = await message_store.read_session_messages(
@@ -145,40 +162,38 @@ class TestMessageStore:
         assert messages_out == messages_in
 
     async def test_list_assistants_empty(self, message_store):
-        assert await message_store.list_assistants() == []
+        assert message_store.list_assistants() == []
 
     async def test_list_assistants(self, message_store):
         await message_store.create_session(asst_id(2), con_id(1), 0)
         await message_store.create_session(asst_id(1), con_id(1), 0)
-        assert await message_store.list_assistants() == [
-            asst_id(1), asst_id(2)]
+        assert message_store.list_assistants() == [asst_id(1), asst_id(2)]
 
     async def test_list_consciousnesses_empty(self, message_store):
-        assert await message_store.list_consciousnesses(asst_id(1)) == []
+        assert message_store.list_consciousnesses(asst_id(1)) == []
 
     async def test_list_consciousnesses(self, message_store):
         await message_store.create_session(asst_id(1), con_id(2), 0)
         await message_store.create_session(asst_id(1), con_id(1), 0)
-        assert await message_store.list_consciousnesses(asst_id(1)) == [
+        assert message_store.list_consciousnesses(asst_id(1)) == [
             con_id(1), con_id(2)]
 
     async def test_list_sessions_empty(self, message_store):
-        assert await message_store.list_sessions(asst_id(1), con_id(1)) == []
+        assert message_store.list_sessions(asst_id(1), con_id(1)) == []
 
     async def test_list_sessions(self, message_store):
         await message_store.create_session(asst_id(1), con_id(1), 3)
         await message_store.create_session(asst_id(1), con_id(1), 0)
         await message_store.create_session(asst_id(1), con_id(1), 1)
-        assert await message_store.list_sessions(asst_id(1),
-                                                 con_id(1)) == [0, 1, 3]
+        assert message_store.list_sessions(asst_id(1), con_id(1)) == [0, 1, 3]
 
     async def test_list_sessions_ignores_non_session_files(
             self, message_store, session_file):
         await message_store.create_session(asst_id(1), con_id(1), 0)
         sessions_dir = session_file(1, 1, 0).parent
-        (sessions_dir / "1.not_jsonl").open("x").close()
-        (sessions_dir / "not_a_number.jsonl").open("x").close()
-        assert await message_store.list_sessions(asst_id(1), con_id(1)) == [0]
+        create_file(sessions_dir / "1.not_jsonl")
+        create_file(sessions_dir / "not_a_number.jsonl")
+        assert message_store.list_sessions(asst_id(1), con_id(1)) == [0]
 
     async def test_multiple_assistants_are_independent(self, message_store):
         await message_store.create_session(asst_id(1), con_id(1), 0)
@@ -226,9 +241,145 @@ class TestMessageStore:
 
     async def test_only_one_instance_can_be_active(self, make_message_store):
         async with make_message_store():
-            with pytest.raises(RuntimeError):
+            with pytest.raises(store.MessageStoreConcurrentError):
                 async with make_message_store():
                     pass
+
+    async def test_aenter_creates_base_dir(self, tmp_path):
+        base_dir = tmp_path / "store"
+        assert not base_dir.exists()
+        async with store.MessageStore(base_dir):
+            assert base_dir.exists()
+
+    async def test_aenter_accepts_valid_existing_base_dir(
+            self, make_message_store, session_file):
+        create_file(
+            session_file(1, 1, 0), [json.dumps(session_file_header(1, 1, 0))])
+        create_file(
+            session_file(1, 1, 1), [json.dumps(session_file_header(1, 1, 1))])
+        create_file(
+            session_file(1, 2, 0), [json.dumps(session_file_header(1, 2, 0))])
+        create_file(
+            session_file(2, 1, 0), [json.dumps(session_file_header(2, 1, 0))])
+        async with make_message_store():
+            pass
+
+    @pytest.mark.parametrize("seq", [1, -1])
+    async def test_aenter_raises_if_session_seq_doesnt_start_at_0(
+            self, make_message_store, session_file, seq):
+        create_file(
+            session_file(1, 1, seq),
+            [json.dumps(session_file_header(1, 1, seq))])
+        with pytest.raises(store.MessageStoreFormatError):
+            async with make_message_store():
+                pass
+
+    async def test_aenter_raises_if_sessions_have_missing_seqs(
+            self, make_message_store, session_file):
+        create_file(
+            session_file(1, 1, 0), [json.dumps(session_file_header(1, 1, 0))])
+        create_file(
+            session_file(1, 1, 2), [json.dumps(session_file_header(1, 1, 2))])
+        with pytest.raises(store.MessageStoreFormatError):
+            async with make_message_store():
+                pass
+
+    async def test_aenter_raises_if_session_has_invalid_header_json(
+            self, make_message_store, session_file):
+        create_file(session_file(1, 1, 0), ["not json"])
+        with pytest.raises(store.MessageStoreFormatError):
+            async with make_message_store():
+                pass
+
+    @pytest.mark.parametrize(
+        "key,value", [("version", "not an int"),
+                      ("assistant_id", "not a uuid"),
+                      ("consciousness_id", "not a uuid"),
+                      ("session_seq", "not an int")])
+    async def test_aenter_raises_if_session_has_invalid_header(
+            self, make_message_store, session_file, key, value):
+        header = session_file_header(1, 1, 0)
+        header[key] = value
+        create_file(session_file(1, 1, 0), [json.dumps(header)])
+        with pytest.raises(store.MessageStoreFormatError):
+            async with make_message_store():
+                pass
+
+    @pytest.mark.parametrize(
+        "key,value", [("assistant_id", str(asst_id(2))),
+                      ("consciousness_id", str(con_id(2))),
+                      ("session_seq", 1)])
+    async def test_aenter_raises_if_session_has_inconsistent_header(
+            self, make_message_store, session_file, key, value):
+        header = session_file_header(1, 1, 0)
+        header[key] = value
+        create_file(session_file(1, 1, 0), [json.dumps(header)])
+        with pytest.raises(store.MessageStoreFormatError):
+            async with make_message_store():
+                pass
+
+    async def test_aenter_upgrades_older_version(
+            self, make_message_store, session_file, monkeypatch):
+        def upgrade(path):
+            write_file_content(path, ["upgraded"])
+
+        monkeypatch.setattr(store.MessageStore, "VERSION", 1)
+        monkeypatch.setattr(store.MessageStore, "_upgraders", {0: upgrade})
+        create_file(
+            session_file(1, 1, 0),
+            [json.dumps(session_file_header(1, 1, 0, version=0))])
+        create_file(
+            session_file(2, 1, 0),
+            [json.dumps(session_file_header(2, 1, 0, version=0))])
+        async with make_message_store():
+            assert read_file_content(session_file(1, 1, 0)) == ["upgraded"]
+            assert read_file_content(session_file(2, 1, 0)) == ["upgraded"]
+
+    async def test_aenter_upgrades_multiple_version_steps(
+            self, make_message_store, session_file, monkeypatch):
+        def upgrade_0(path):
+            write_file_content(path, ["upgraded 0"])
+
+        def upgrade_1(path):
+            assert read_file_content(path) == ["upgraded 0"]
+            write_file_content(path, ["upgraded 1"])
+
+        monkeypatch.setattr(store.MessageStore, "VERSION", 2)
+        monkeypatch.setattr(
+            store.MessageStore, "_upgraders", {0: upgrade_0, 1: upgrade_1})
+        create_file(
+            session_file(1, 1, 0),
+            [json.dumps(session_file_header(1, 1, 0, version=0))])
+        async with make_message_store():
+            assert read_file_content(session_file(1, 1, 0)) == ["upgraded 1"]
+
+    async def test_aenter_raises_if_multiple_versions_in_session_files(
+            self, make_message_store, session_file, monkeypatch):
+        def upgrade(path):
+            pass
+
+        monkeypatch.setattr(store.MessageStore, "VERSION", 1)
+        monkeypatch.setattr(store.MessageStore, "_upgraders", {0: upgrade})
+        create_file(
+            session_file(1, 1, 0),
+            [json.dumps(session_file_header(1, 1, 0, version=0))])
+        create_file(
+            session_file(2, 1, 0),
+            [json.dumps(session_file_header(2, 1, 0, version=1))])
+        with pytest.raises(store.MessageStoreFormatError):
+            async with make_message_store():
+                pass
+
+    async def test_aenter_raises_if_future_version_in_session_files(
+            self, make_message_store, session_file):
+        create_file(
+            session_file(1, 1, 0), [
+                json.dumps(
+                    session_file_header(
+                        1, 1, 0, version=store.MessageStore.VERSION + 1))])
+        with pytest.raises(store.MessageStoreFormatError):
+            async with make_message_store():
+                pass
 
     async def test_append_after_reopen(self, make_message_store):
         async with make_message_store() as store:
@@ -287,57 +438,3 @@ class TestMessageStore:
         messages = await message_store.read_session_messages(
             asst_id(1), con_id(1), 0)
         assert messages == [msg]
-
-
-class TestUpgrade:
-    def test_fresh_store_creates_version_file(self, tmp_path):
-        base_dir = tmp_path / "store"
-        store.upgrade(base_dir)
-        version_path = base_dir / "version"
-        assert version_path.exists()
-        assert int(version_path.read_text().strip()) == store.VERSION
-
-    def test_current_version_is_noop(self, tmp_path):
-        base_dir = tmp_path / "store"
-        base_dir.mkdir()
-        (base_dir / "version").write_text(str(store.VERSION) + "\n")
-        store.upgrade(base_dir)
-        assert int((base_dir / "version").read_text().strip()) == store.VERSION
-
-    def test_refuses_to_downgrade(self, tmp_path):
-        base_dir = tmp_path / "store"
-        base_dir.mkdir()
-        (base_dir / "version").write_text(str(store.VERSION + 1) + "\n")
-        with pytest.raises(RuntimeError, match="refusing to downgrade"):
-            store.upgrade(base_dir)
-
-    def test_missing_version_file_assumes_version_1(self, tmp_path):
-        base_dir = tmp_path / "store"
-        base_dir.mkdir()
-        # No version file, should assume version 1. Since VERSION is 1,
-        # this should write the version file and be a noop.
-        store.upgrade(base_dir)
-        assert int((base_dir / "version").read_text().strip()) == store.VERSION
-
-    def test_upgrade_runs_upgraders_in_sequence(self, tmp_path, monkeypatch):
-        base_dir = tmp_path / "store"
-        base_dir.mkdir()
-        (base_dir / "version").write_text("1\n")
-        call_log = []
-        upgraders = {
-            1: lambda d: call_log.append(("1->2", d)),
-            2: lambda d: call_log.append(("2->3", d)),}
-        monkeypatch.setattr(store, "_UPGRADERS", upgraders)
-        monkeypatch.setattr(store, "VERSION", 3)
-        store.upgrade(base_dir)
-        assert call_log == [("1->2", base_dir), ("2->3", base_dir)]
-        assert int((base_dir / "version").read_text().strip()) == 3
-
-    def test_upgrade_raises_if_upgrader_missing(self, tmp_path, monkeypatch):
-        base_dir = tmp_path / "store"
-        base_dir.mkdir()
-        (base_dir / "version").write_text("1\n")
-        monkeypatch.setattr(store, "_UPGRADERS", {})
-        monkeypatch.setattr(store, "VERSION", 2)
-        with pytest.raises(RuntimeError, match="no upgrader from version 1"):
-            store.upgrade(base_dir)
