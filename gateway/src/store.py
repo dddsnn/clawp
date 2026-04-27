@@ -88,11 +88,28 @@ class MessageStore:
         return self
 
     async def __aexit__(self, *_) -> None:
+        await self._close_files()
+        self._message_store_lock.release()
+
+    async def _close_files(self):
+        close_tasks = set()
         for path, f in self._open_files.items():
             self._logger.debug(f"Closing {path}.")
-            await asyncio.to_thread(f.close)
+            close_tasks.add(
+                asyncio.create_task(
+                    asyncio.to_thread(self._safe_close_file, f)))
+        if close_tasks:
+            _, pending = await asyncio.wait(close_tasks, timeout=2)
+            if pending:
+                self._logger.exception(
+                    f"Timeout while closing files ({len(pending)} not done).")
         self._open_files.clear()
-        self._message_store_lock.release()
+
+    def _safe_close_file(self, f: t.IO):
+        try:
+            f.close()
+        except Exception:
+            self._logger.exception(f"Error closing file {f}.")
 
     def _assistants_dir(self) -> pathlib.Path:
         return self._base_dir / "assistants"
