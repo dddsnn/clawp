@@ -27,9 +27,9 @@ import uvicorn
 import whenever as we
 
 import message as msg
+import model
 
 from . import dependency as dep
-from . import model
 
 router = fastapi.APIRouter(prefix="/api/v1")
 
