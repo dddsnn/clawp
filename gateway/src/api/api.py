@@ -51,39 +51,6 @@ class WebsocketCloseCode(enum.IntEnum):
     RESERVED_FAILED_TLS_HANDSHAKE = 1015
 
 
-async def _message_to_model(message: msg.Message) -> model.Message:
-    metadata = model.MessageMetadata(
-        time=await message.time,
-        seq_in_session=message.metadata.seq_in_session)
-    message_kwargs = {"metadata": metadata, "content": await message.content}
-    if isinstance(message, msg.DeveloperMessage):
-        return model.DeveloperMessage(**message_kwargs)
-    elif isinstance(message, msg.SystemMessage):
-        return model.SystemMessage(**message_kwargs)
-    elif isinstance(message, msg.UserMessage):
-        return model.UserMessage(**message_kwargs)
-    elif isinstance(message, msg.ToolMessage):
-        message_kwargs["tool_call_id"] = message.tool_call_id
-        return model.ToolMessage(**message_kwargs)
-    else:
-        assert isinstance(message, msg.AssistantMessage)
-        tool_calls = []
-        for tool_call in await message.tool_calls:
-            tool_calls.append(_tool_call_to_model(tool_call))
-        message_kwargs["reasoning"] = await message.reasoning
-        message_kwargs["tool_calls"] = tool_calls
-        message_kwargs["errors"] = [
-            f"Error: {exc}" for exc in await message.errors]
-        return model.AssistantMessage(**message_kwargs)
-
-
-def _tool_call_to_model(tool_call: msg.ToolCall) -> model.ToolCall:
-    return model.ToolCall(
-        id=tool_call.id, function=model.ToolCallFunction(
-            name=tool_call.function.name,
-            arguments=tool_call.function.arguments))
-
-
 @router.get("/healthz")
 async def healthz() -> dict[str, str]:
     return {"status": "ok"}
@@ -105,7 +72,7 @@ async def get_messages(
         if message.metadata.seq_in_session >= lt_seq:
             break
         if await message.time >= ge_time:
-            result.append(await _message_to_model(message))
+            result.append(await message.model)
     return result
 
 
@@ -194,8 +161,7 @@ async def _try_close_websocket(
 async def _generate_message_chunks(
         message: msg.Message) -> cl_abc.AsyncGenerator[model.WebsocketChunk]:
     if not isinstance(message, msg.AssistantMessage):
-        message_model = await _message_to_model(message)
-        yield model.WebsocketChunkFullMessage(payload=message_model)
+        yield model.WebsocketChunkFullMessage(payload=await message.model)
         return
     # At this point, it's a streaming assistant message.
     start_metadata = model.StartMessageMetadata(
@@ -242,8 +208,7 @@ async def _generate_tool_call_fragments(
     message_part: msg.AssistantMessageToolPart
 ) -> cl_abc.AsyncGenerator[model.StreamingMessageFragmentToolCall]:
     async for tool_call in message_part.stream_fragments():
-        yield model.StreamingMessageFragmentToolCall(
-            fragment=_tool_call_to_model(tool_call))
+        yield model.StreamingMessageFragmentToolCall(fragment=tool_call.model)
 
 
 class Api:

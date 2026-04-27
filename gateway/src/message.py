@@ -28,6 +28,7 @@ import typing as t
 
 import whenever as we
 
+import model
 import tool
 import util
 
@@ -89,6 +90,17 @@ class Message(abc.ABC):
         """The full content of the message."""
         raise NotImplementedError
 
+    @property
+    @abc.abstractmethod
+    async def model(self) -> cl_abc.Awaitable[model.Message]:
+        """Model representation of this message."""
+        raise NotImplementedError
+
+    @property
+    async def _metadata_model(self) -> model.MessageMetadata:
+        return model.MessageMetadata(
+            time=await self.time, seq_in_session=self.metadata.seq_in_session)
+
 
 class SimpleMessage(Message):
     def __init__(
@@ -118,16 +130,31 @@ class SystemMessage(SimpleMessage):
     def __init__(self, metadata: MessageMetadata, content: str) -> None:
         super().__init__(metadata, "system", content)
 
+    @property
+    async def model(self) -> cl_abc.Awaitable[model.SystemMessage]:
+        return model.SystemMessage(
+            metadata=await self._metadata_model, content=await self.content)
+
 
 class DeveloperMessage(SimpleMessage):
     def __init__(self, metadata: MessageMetadata, content: str) -> None:
         super().__init__(metadata, "developer", content)
+
+    @property
+    async def model(self) -> cl_abc.Awaitable[model.DeveloperMessage]:
+        return model.DeveloperMessage(
+            metadata=await self._metadata_model, content=await self.content)
 
 
 class UserMessage(SimpleMessage):
     """Message sent by the user."""
     def __init__(self, metadata: MessageMetadata, content: str) -> None:
         super().__init__(metadata, "user", content)
+
+    @property
+    async def model(self) -> cl_abc.Awaitable[model.UserMessage]:
+        return model.UserMessage(
+            metadata=await self._metadata_model, content=await self.content)
 
 
 class ToolMessage(SimpleMessage):
@@ -142,6 +169,12 @@ class ToolMessage(SimpleMessage):
     def tool_call_id(self) -> str:
         return self._tool_call_id
 
+    @property
+    async def model(self) -> cl_abc.Awaitable[model.ToolMessage]:
+        return model.ToolMessage(
+            metadata=await self._metadata_model, content=await self.content,
+            tool_call_id=self.tool_call_id)
+
 
 @dc.dataclass
 class ToolCallFunction:
@@ -155,6 +188,12 @@ class ToolCall:
     """A tool call requested by the assistant."""
     id: str
     function: ToolCallFunction = dc.field(default_factory=ToolCallFunction)
+
+    @property
+    def model(self) -> model.ToolCall:
+        return model.ToolCall(
+            id=self.id, function=model.ToolCallFunction(
+                name=self.function.name, arguments=self.function.arguments))
 
 
 class AssistantMessagePart:
@@ -330,6 +369,16 @@ class AssistantMessage(Message):
         """Asynchronously iterate over parts as they arrive."""
         async for part in self._parts.stream():
             yield part
+
+    @property
+    async def model(self) -> cl_abc.Awaitable[model.AssistantMessage]:
+        tool_calls = [tool_call.model for tool_call in await self.tool_calls]
+        errors = [f"Error: {exc}" for exc in await self.errors]
+        return model.AssistantMessage(
+            metadata=await self._metadata_model, content=await self.content,
+            reasoning=await self.reasoning, tool_calls=tool_calls,
+            errors=errors)
+
 
 
 class Session:
