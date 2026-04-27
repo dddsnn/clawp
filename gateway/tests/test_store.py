@@ -18,9 +18,11 @@
 import asyncio
 import json
 import pathlib
+import re
 import uuid
 
 import pytest
+import whenever as we
 
 import store
 
@@ -60,6 +62,14 @@ def session_file_header(
         "session_seq": session_seq,}
 
 
+def session_file_for_base_dir(
+        base_dir, assistant_id_int, consciousness_id_int, session_seq):
+    return (
+        base_dir / "assistants" / str(asst_id(assistant_id_int))
+        / "consciousnesses" / str(con_id(consciousness_id_int)) / "sessions"
+        / f"{session_seq}.jsonl")
+
+
 class TestMessageStore:
     @pytest.fixture
     def base_dir(self, tmp_path):
@@ -88,21 +98,16 @@ class TestMessageStore:
     @pytest.fixture
     def session_file(self, base_dir):
         def getter(assistant_id_int, consciousness_id_int, session_seq):
-            return (
-                base_dir / "assistants" / str(asst_id(assistant_id_int))
-                / "consciousnesses" / str(con_id(consciousness_id_int))
-                / "sessions" / f"{session_seq}.jsonl")
+            return session_file_for_base_dir(
+                base_dir, assistant_id_int, consciousness_id_int, session_seq)
 
         return getter
 
     async def test_create_session_creates_file_with_header(
             self, message_store, session_file):
         await message_store.create_session(asst_id(1), con_id(1), 0)
-        assert session_file(1, 1, 0).exists()
-        lines = session_file(1, 1, 0).read_text().splitlines()
-        assert len(lines) == 1
-        header = json.loads(lines[0])
-        assert header == session_file_header(1, 1, 0)
+        assert read_file_content(session_file(1, 1, 0)) == [
+            json.dumps(session_file_header(1, 1, 0))]
 
     async def test_create_session_raises_if_exists(self, message_store):
         await message_store.create_session(asst_id(1), con_id(1), 0)
@@ -113,7 +118,7 @@ class TestMessageStore:
         await message_store.create_session(asst_id(1), con_id(1), 0)
         msg = {"role": "user", "content": "hello"}
         await message_store.append_message(asst_id(1), con_id(1), 0, msg)
-        lines = session_file(1, 1, 0).read_text().splitlines()
+        lines = read_file_content(session_file(1, 1, 0))
         assert len(lines) == 2
         assert json.loads(lines[1]) == msg
 
@@ -352,6 +357,29 @@ class TestMessageStore:
             [json.dumps(session_file_header(1, 1, 0, version=0))])
         async with make_message_store():
             assert read_file_content(session_file(1, 1, 0)) == ["upgraded 1"]
+
+    async def test_aenter_backs_up_before_upgrade(
+            self, make_message_store, session_file, monkeypatch, base_dir):
+        def upgrade(path):
+            write_file_content(path, ["upgraded"])
+
+        monkeypatch.setattr(store.MessageStore, "VERSION", 1)
+        monkeypatch.setattr(store.MessageStore, "_upgraders", {0: upgrade})
+        lines_before_upgrade = [
+            json.dumps(session_file_header(1, 1, 0, version=0)),
+            json.dumps({"role": "user", "content": "hello"})]
+        create_file(session_file(1, 1, 0), lines_before_upgrade)
+        async with make_message_store():
+            backup_dirs = list(base_dir.parent.glob("backup*"))
+            assert len(backup_dirs) == 1
+            backup_dir_match = re.match(
+                f"backup_{base_dir.name}_version_(?P<version>[0-9]+)"
+                "_(?P<timestamp>.*)", backup_dirs[0].name)
+            assert backup_dir_match.group("version") == "0"
+            # Make sure the timestamp parses.
+            we.Instant(backup_dir_match.group("timestamp"))
+        backup_file = session_file_for_base_dir(backup_dirs[0], 1, 1, 0)
+        assert read_file_content(backup_file) == lines_before_upgrade
 
     async def test_aenter_raises_if_multiple_versions_in_session_files(
             self, make_message_store, session_file, monkeypatch):

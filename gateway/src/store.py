@@ -22,8 +22,11 @@ import json
 import logging
 import os
 import pathlib
+import shutil
 import typing as t
 import uuid
+
+import whenever as we
 
 
 class MessageStoreError(Exception):
@@ -57,7 +60,7 @@ class MessageStore:
     base_dir. When the context manager enters, it locks the directory (so only
     one instance may be active at any one time) and checks base_dir for
     consistency. If it contains files with an older format, they are upgraded
-    to the current one.
+    to the current one (a backup is created first).
     """
 
     VERSION = 0
@@ -393,12 +396,19 @@ class MessageStore:
 
         Upgrades all session files to the current format. Uses the functions in
         the _upgraders dictionary to upgrade each file version by version.
+        Before the upgrade, the entire old base_dir is backed up to a sibling
+        directory.
 
         The base_dir must exist, and all session files must have a valid format
         according to from_version.
         """
         assert from_version < self.VERSION
         assert self._base_dir.is_dir()
+        backup_directory_name = (
+            f"backup_{self._base_dir.name}_version_{from_version}_"
+            f"{we.Instant.now()}")
+        backup_directory = self._base_dir.parent / backup_directory_name
+        shutil.copytree(self._base_dir, backup_directory)
         for file in list(self._list_all_session_files()):
             assert file.is_file()
             for version in range(from_version, self.VERSION):
