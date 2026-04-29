@@ -265,3 +265,55 @@ class Consciousness:
     def subscribe(self) -> cl_abc.AsyncGenerator[msg.Message]:
         """Subscribe to messages in this consciousness."""
         return self._session.subscribe()
+
+
+class Assistant:
+    def __init__(
+            self, assistant_id: uuid.UUID, *,
+            message_store: store.MessageStore, provider: "prov.Provider",
+            mcp_client: tool.Client) -> None:
+        self._logger = logging.getLogger(type(self).__name__)
+        self._assistant_id = assistant_id
+        self._message_store = message_store
+        self._consciousness_factory = ft.partial(
+            Consciousness, self._assistant_id, message_store=message_store,
+            provider=provider, mcp_client=mcp_client)
+        self._consciousnesses = {}
+
+    async def __aenter__(self) -> t.Self:
+        self._consciousnesses.clear()
+        await self._init_consciousnesses()
+        return self
+
+    async def __aexit__(self, *args) -> bool:
+        for consciousness in self._consciousnesses.values():
+            await consciousness.__aexit__(*args)
+
+    async def _init_consciousnesses(self):
+        for consciousness_id in self._message_store.list_consciousnesses(
+                self._assistant_id):
+            await self._add_consciousness(consciousness_id)
+        if not self._consciousnesses:
+            consciousness_id = uuid.uuid4()
+            self._logger.info(
+                "No existing consciousnesses, adding new one with ID "
+                f"{consciousness_id}.")
+            await self._add_consciousness(consciousness_id)
+
+    async def _add_consciousness(self, consciousness_id):
+        assert consciousness_id not in self._consciousnesses
+        consciousness = self._consciousness_factory(consciousness_id)
+        self._consciousnesses[consciousness_id] = (
+            await consciousness.__aenter__())
+
+    async def process_user_message(
+            self, consciousness_id: uuid.UUID, message_content: str):
+        """Process and respond to a user message in the consciousness."""
+        consciousness = self._consciousnesses[consciousness_id]
+        await consciousness.process_user_message(message_content)
+
+    def subscribe(
+            self,
+            consciousness_id: uuid.UUID) -> cl_abc.AsyncGenerator[msg.Message]:
+        """Subscribe to messages in the consciousness."""
+        return self._consciousnesses[consciousness_id].subscribe()
