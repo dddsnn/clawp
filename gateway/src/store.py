@@ -196,8 +196,12 @@ class MessageStore:
         """
         Read all messages from a session file.
 
-        Returns a list of messages parsed from the file. Raises
-        FileNotFoundError if the session doesn't exist.
+        Returns a list of messages parsed from the file. Skips past the header
+        (which has its own format) and parses each line as a message.
+
+        Raises FileNotFoundError if the session file doesn't exist. Raises a
+        MessageStoreFormatError if any line doesn't parse to a message (that
+        includes empty lines).
         """
         path = self._session_path(assistant_id, consciousness_id, session_seq)
         json_lines = await asyncio.to_thread(self._sync_read_messages, path)
@@ -218,7 +222,8 @@ class MessageStore:
                         f"Discarding truncated last line in {path}.",
                         exc_info=True)
                 else:
-                    raise
+                    raise MessageStoreFormatError(
+                        f"invalid line in session file {path}: {json_line}")
         return messages
 
     def _sync_read_messages(self, path):

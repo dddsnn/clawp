@@ -452,26 +452,28 @@ class TestMessageStore:
 
     async def test_read_raises_on_corrupt_non_last_line(
             self, make_message_store, session_file):
-        async with make_message_store() as store:
-            await store.create_session(asst_id(1), con_id(1), 0)
+        async with make_message_store() as message_store:
+            await message_store.create_session(asst_id(1), con_id(1), 0)
         # Write a corrupt line followed by a valid line.
         with open(session_file(1, 1, 0), "a") as f:
             f.write("not json\n")
             f.write('{"payload":"a"}\n')
-        async with store:
-            with pytest.raises(pyd.ValidationError):
-                await store.read_session_messages(asst_id(1), con_id(1), 0)
+        async with message_store:
+            with pytest.raises(store.MessageStoreFormatError):
+                await message_store.read_session_messages(
+                    asst_id(1), con_id(1), 0)
 
     async def test_read_raises_on_empty_non_last_line(
             self, make_message_store, session_file):
-        async with make_message_store() as store:
-            await store.create_session(asst_id(1), con_id(1), 0)
+        async with make_message_store() as message_store:
+            await message_store.create_session(asst_id(1), con_id(1), 0)
         with open(session_file(1, 1, 0), "a") as f:
             f.write("\n")
             f.write('{"payload":"a"}\n')
-        async with store:
-            with pytest.raises(pyd.ValidationError):
-                await store.read_session_messages(asst_id(1), con_id(1), 0)
+        async with message_store:
+            with pytest.raises(store.MessageStoreFormatError):
+                await message_store.read_session_messages(
+                    asst_id(1), con_id(1), 0)
 
     async def test_message_with_unicode_and_newlines(self, message_store):
         await message_store.create_session(asst_id(1), con_id(1), 0)
