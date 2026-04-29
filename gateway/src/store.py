@@ -227,13 +227,7 @@ class MessageStore:
         with open(path, "r") as f:
             lines = f.readlines()
         # Skip the header (first line).
-        json_lines = []
-        for line in lines[1:]:
-            stripped = line.strip()
-            if not stripped:
-                continue
-            json_lines.append(line)
-        return json_lines
+        return lines[1:]
 
     def list_assistants(self) -> list[uuid.UUID]:
         """

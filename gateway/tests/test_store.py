@@ -382,7 +382,7 @@ class TestMessageStore:
         monkeypatch.setattr(store.MessageStore, "_upgraders", {0: upgrade})
         lines_before_upgrade = [
             json.dumps(session_file_header(1, 1, 0, version=0)),
-            json.dumps({"role": "user", "content": "hello"})]
+            json.dumps({"payload": "a"})]
         create_file(session_file(1, 1, 0), lines_before_upgrade)
         async with make_message_store():
             backup_dirs = list(base_dir.parent.glob("backup*"))
@@ -457,7 +457,18 @@ class TestMessageStore:
         # Write a corrupt line followed by a valid line.
         with open(session_file(1, 1, 0), "a") as f:
             f.write("not json\n")
-            f.write('{"role": "user", "content": "hello"}\n')
+            f.write('{"payload":"a"}\n')
+        async with store:
+            with pytest.raises(pyd.ValidationError):
+                await store.read_session_messages(asst_id(1), con_id(1), 0)
+
+    async def test_read_raises_on_empty_non_last_line(
+            self, make_message_store, session_file):
+        async with make_message_store() as store:
+            await store.create_session(asst_id(1), con_id(1), 0)
+        with open(session_file(1, 1, 0), "a") as f:
+            f.write("\n")
+            f.write('{"payload":"a"}\n')
         async with store:
             with pytest.raises(pyd.ValidationError):
                 await store.read_session_messages(asst_id(1), con_id(1), 0)
