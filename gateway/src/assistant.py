@@ -33,6 +33,11 @@ if t.TYPE_CHECKING:
     import provider as prov
 
 
+def _read_file(path: pathlib.Path) -> str:
+    with path.open() as f:
+        return f.read()
+
+
 class Session:
     """
     Session with an assistant.
@@ -243,13 +248,11 @@ class Consciousness:
         self._session = self._session_factory(0)
         await self._session.__aenter__()
         await self._session.add_system_message(
-            self._read_message_file("init_system.md"))
+            await self._read_message_file("init_system.md"))
 
-    def _read_message_file(self, file_name: str) -> str:
+    async def _read_message_file(self, file_name: str) -> str:
         messages_dir = pathlib.Path(__file__).parent.parent / "messages"
-        file_path = messages_dir / file_name
-        with file_path.open() as f:
-            return f.read()
+        return await asyncio.to_thread(_read_file, messages_dir / file_name)
 
     async def process_user_message(self, message_content: str):
         """
