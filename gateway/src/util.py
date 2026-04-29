@@ -33,15 +33,22 @@ class StreamableList:
 
     After finalize() is called, no more elements can be added. finalize() must
     be called eventually so that the task waiting for it can finish.
+
+    The list can be initialized with content, in which case it is immediately
+    finalized (i.e. no more elements can be added).
     """
-    def __init__(self):
-        self._list = []
+    def __init__(self, content: list | None = None):
         self._new_element_condition = asyncio.Condition()
         self._num_readers = 0
         self._num_readers_condition = asyncio.Condition()
         self._finalized_event = asyncio.Event()
         self._finalized_wait_task = asyncio.create_task(
             self._finalized_event.wait())
+        if content is None:
+            self._list = []
+        else:
+            self._list = content
+            self._finalized_event.set()
 
     def __bool__(self) -> bool:
         return bool(self._list)

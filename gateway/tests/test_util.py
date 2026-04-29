@@ -77,6 +77,12 @@ class TestStreamableList:
         async with asyncio.timeout(10**-3):
             await wait_task
 
+    async def test_immediately_finalized_if_initialized_with_content(self):
+        ls = util.StreamableList([1, 2, 3])
+        with pytest.raises(ValueError):
+            await ls.append(1)
+        await ls.wait_finalized()
+
     async def test_stream(self, ls, stream_into_list):
         output = []
         stream_task = asyncio.create_task(stream_into_list(output))
