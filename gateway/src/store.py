@@ -26,7 +26,11 @@ import shutil
 import typing as t
 import uuid
 
+import pydantic as pyd
 import whenever as we
+
+import message as msg
+import model
 
 
 class MessageStoreError(Exception):
@@ -165,39 +169,57 @@ class MessageStore:
 
     async def append_message(
             self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
-            session_seq: int, message: dict) -> None:
+            session_seq: int, message: msg.Message) -> None:
         """
         Append a message to a session file.
 
-        The message is a dict that will be serialized as JSON. The session
-        must have been created first, or a FileNotFoundError is raised.
+        The message will be serialized as JSON using its model property. The
+        session must have been created first, or a FileNotFoundError is raised.
         """
         path = self._session_path(assistant_id, consciousness_id, session_seq)
-        line = json.dumps(message)
-        await asyncio.to_thread(self._sync_append, path, line)
+        await asyncio.to_thread(self._sync_append, path, await message.model)
 
-    def _sync_append(self, path, line):
+    def _sync_append(self, path, model):
         f = self._open_files.get(path)
         if f is None:
             if not path.exists():
                 raise FileNotFoundError(f"session file does not exist: {path}")
             f = open(path, "a")
             self._open_files[path] = f
-        f.write(line + "\n")
+        f.write(model.model_dump_json() + "\n")
         f.flush()
         os.fsync(f.fileno())
 
     async def read_session_messages(
             self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
-            session_seq: int) -> list[dict]:
+            session_seq: int) -> list[msg.Message]:
         """
         Read all messages from a session file.
 
-        Returns a list of message dicts (excluding the header). Raises
+        Returns a list of messages parsed from the file. Raises
         FileNotFoundError if the session doesn't exist.
         """
         path = self._session_path(assistant_id, consciousness_id, session_seq)
-        return await asyncio.to_thread(self._sync_read_messages, path)
+        json_lines = await asyncio.to_thread(self._sync_read_messages, path)
+        # Do the parsing in the async method here because we need an event loop
+        # for the messages' from_model() (which wants to schedule a task for
+        # the StreamableList).
+        messages = []
+        for i, json_line in enumerate(json_lines):
+            try:
+                message = msg.Message.from_model(
+                    model.MessageTypeAdapter.validate_json(json_line))
+                messages.append(message)
+            except pyd.ValidationError:
+                # A truncated last line likely means the app crashed
+                # mid-write. Log a warning and discard it.
+                if i == len(json_lines) - 1:
+                    self._logger.warning(
+                        f"Discarding truncated last line in {path}.",
+                        exc_info=True)
+                else:
+                    raise
+        return messages
 
     def _sync_read_messages(self, path):
         if not path.exists():
@@ -205,22 +227,13 @@ class MessageStore:
         with open(path, "r") as f:
             lines = f.readlines()
         # Skip the header (first line).
-        messages = []
-        for i, line in enumerate(lines[1:], start=2):
+        json_lines = []
+        for line in lines[1:]:
             stripped = line.strip()
             if not stripped:
                 continue
-            try:
-                messages.append(json.loads(stripped))
-            except json.JSONDecodeError:
-                # A truncated last line likely means the app crashed
-                # mid-write. Log a warning and discard it.
-                if i == len(lines):
-                    self._logger.warning(
-                        f"Discarding truncated last line in {path}.")
-                else:
-                    raise
-        return messages
+            json_lines.append(line)
+        return json_lines
 
     def list_assistants(self) -> list[uuid.UUID]:
         """

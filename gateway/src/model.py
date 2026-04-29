@@ -91,10 +91,13 @@ class AssistantMessage(BaseMessage):
     errors: list[str]
 
 
-NonStreamableMessage = (
-    DeveloperMessage | SystemMessage | ToolMessage | UserMessage)
+NonStreamableMessage = t.Annotated[DeveloperMessage | SystemMessage
+                                   | ToolMessage | UserMessage,
+                                   pyd.Field(discriminator="role")]
 
-Message = AssistantMessage | NonStreamableMessage
+Message = t.Annotated[AssistantMessage | NonStreamableMessage,
+                      pyd.Field(discriminator="role")]
+MessageTypeAdapter = pyd.TypeAdapter(Message)
 
 
 class BaseStreamingMessageMarker(BaseModel):

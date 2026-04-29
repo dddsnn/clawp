@@ -16,11 +16,13 @@
 # with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
+import dataclasses as dc
 import json
 import pathlib
 import re
 import uuid
 
+import pydantic as pyd
 import pytest
 import whenever as we
 
@@ -70,7 +72,36 @@ def session_file_for_base_dir(
         / f"{session_seq}.jsonl")
 
 
+class MockMessageModel(pyd.BaseModel):
+    payload: str
+
+
+@dc.dataclass
+class MockMessage:
+    payload: str
+
+    @staticmethod
+    def from_model(model: MockMessageModel) -> "MockMessage":
+        assert model.payload.startswith("encoded ")
+        # Create a task here to make sure there's an event loop running at the
+        # point where we load models (we need this for the StreamableList).
+        asyncio.create_task(asyncio.sleep(0))
+        return MockMessage(payload=model.payload.removeprefix("encoded "))
+
+    @property
+    async def model(self) -> pyd.BaseModel:
+        return MockMessageModel(payload=f"encoded {self.payload}")
+
+
 class TestMessageStore:
+    @pytest.fixture(autouse=True)
+    def mock_message(self, monkeypatch):
+        import message
+        import model
+        monkeypatch.setattr(message, "Message", MockMessage)
+        monkeypatch.setattr(
+            model, "MessageTypeAdapter", pyd.TypeAdapter(MockMessageModel))
+
     @pytest.fixture
     def base_dir(self, tmp_path):
         d = tmp_path / "store"
@@ -116,16 +147,17 @@ class TestMessageStore:
 
     async def test_append_message(self, message_store, session_file):
         await message_store.create_session(asst_id(1), con_id(1), 0)
-        msg = {"role": "user", "content": "hello"}
+        msg = MockMessage(payload="a")
         await message_store.append_message(asst_id(1), con_id(1), 0, msg)
         lines = read_file_content(session_file(1, 1, 0))
         assert len(lines) == 2
-        assert json.loads(lines[1]) == msg
+        assert MockMessage.from_model(
+            MockMessageModel.model_validate_json(lines[1])) == msg
 
     async def test_append_multiple_messages(self, message_store):
         await message_store.create_session(asst_id(1), con_id(1), 0)
-        msg1 = {"role": "user", "content": "hello"}
-        msg2 = {"role": "assistant", "content": "hi there"}
+        msg1 = MockMessage(payload="a")
+        msg2 = MockMessage(payload="b")
         await message_store.append_message(asst_id(1), con_id(1), 0, msg1)
         await message_store.append_message(asst_id(1), con_id(1), 0, msg2)
         messages = await message_store.read_session_messages(
@@ -136,7 +168,7 @@ class TestMessageStore:
             self, message_store):
         with pytest.raises(FileNotFoundError):
             await message_store.append_message(
-                asst_id(1), con_id(1), 0, {"role": "user", "content": "hello"})
+                asst_id(1), con_id(1), 0, MockMessage(payload="a"))
 
     async def test_read_session_messages_empty_session(self, message_store):
         await message_store.create_session(asst_id(1), con_id(1), 0)
@@ -148,23 +180,6 @@ class TestMessageStore:
             self, message_store):
         with pytest.raises(FileNotFoundError):
             await message_store.read_session_messages(asst_id(1), con_id(1), 0)
-
-    async def test_read_session_messages_returns_all_messages(
-            self, message_store):
-        await message_store.create_session(asst_id(1), con_id(1), 0)
-        messages_in = [
-            {"role": "system", "content": "you are helpful"},
-            {"role": "user", "content": "hello"},
-            {
-                "role": "assistant",
-                "content": "hi",
-                "reasoning": "greeting",
-                "tool_calls": [],},]
-        for msg in messages_in:
-            await message_store.append_message(asst_id(1), con_id(1), 0, msg)
-        messages_out = await message_store.read_session_messages(
-            asst_id(1), con_id(1), 0)
-        assert messages_out == messages_in
 
     async def test_list_assistants_empty(self, message_store):
         assert message_store.list_assistants() == []
@@ -203,8 +218,8 @@ class TestMessageStore:
     async def test_multiple_assistants_are_independent(self, message_store):
         await message_store.create_session(asst_id(1), con_id(1), 0)
         await message_store.create_session(asst_id(2), con_id(1), 0)
-        msg1 = {"role": "user", "content": "from ast-1"}
-        msg2 = {"role": "user", "content": "from ast-2"}
+        msg1 = MockMessage(payload="a")
+        msg2 = MockMessage(payload="b")
         await message_store.append_message(asst_id(1), con_id(1), 0, msg1)
         await message_store.append_message(asst_id(2), con_id(1), 0, msg2)
         assert await message_store.read_session_messages(
@@ -215,8 +230,8 @@ class TestMessageStore:
     async def test_multiple_sessions_are_independent(self, message_store):
         await message_store.create_session(asst_id(1), con_id(1), 0)
         await message_store.create_session(asst_id(1), con_id(1), 1)
-        msg0 = {"role": "user", "content": "session 0"}
-        msg1 = {"role": "user", "content": "session 1"}
+        msg0 = MockMessage(payload="a")
+        msg1 = MockMessage(payload="b")
         await message_store.append_message(asst_id(1), con_id(1), 0, msg0)
         await message_store.append_message(asst_id(1), con_id(1), 1, msg1)
         assert await message_store.read_session_messages(
@@ -227,7 +242,7 @@ class TestMessageStore:
     async def test_aenter_after_aexit(self, make_message_store):
         async with make_message_store() as store:
             await store.create_session(asst_id(1), con_id(1), 0)
-            msg = {"role": "user", "content": "persisted"}
+            msg = MockMessage(payload="a")
             await store.append_message(asst_id(1), con_id(1), 0, msg)
         async with store:
             messages = await store.read_session_messages(
@@ -237,7 +252,7 @@ class TestMessageStore:
     async def test_aenter_in_new_instance(self, make_message_store):
         async with make_message_store() as store:
             await store.create_session(asst_id(1), con_id(1), 0)
-            msg = {"role": "user", "content": "persisted"}
+            msg = MockMessage(payload="a")
             await store.append_message(asst_id(1), con_id(1), 0, msg)
         async with make_message_store() as store:
             messages = await store.read_session_messages(
@@ -412,10 +427,10 @@ class TestMessageStore:
     async def test_append_after_reopen(self, make_message_store):
         async with make_message_store() as store:
             await store.create_session(asst_id(1), con_id(1), 0)
-            msg1 = {"role": "user", "content": "first"}
+            msg1 = MockMessage(payload="a")
             await store.append_message(asst_id(1), con_id(1), 0, msg1)
         async with store:
-            msg2 = {"role": "assistant", "content": "second"}
+            msg2 = MockMessage(payload="b")
             await store.append_message(asst_id(1), con_id(1), 0, msg2)
             messages = await store.read_session_messages(
                 asst_id(1), con_id(1), 0)
@@ -425,11 +440,11 @@ class TestMessageStore:
             self, make_message_store, session_file):
         async with make_message_store() as store:
             await store.create_session(asst_id(1), con_id(1), 0)
-            msg = {"role": "user", "content": "hello"}
+            msg = MockMessage(payload="a")
             await store.append_message(asst_id(1), con_id(1), 0, msg)
         # Simulate a crash by appending a partial line.
         with open(session_file(1, 1, 0), "a") as f:
-            f.write('{"role": "assistant", "cont')
+            f.write('{"payload": "some s')
         async with store:
             messages = await store.read_session_messages(
                 asst_id(1), con_id(1), 0)
@@ -444,14 +459,12 @@ class TestMessageStore:
             f.write("not json\n")
             f.write('{"role": "user", "content": "hello"}\n')
         async with store:
-            with pytest.raises(json.JSONDecodeError):
+            with pytest.raises(pyd.ValidationError):
                 await store.read_session_messages(asst_id(1), con_id(1), 0)
 
     async def test_message_with_unicode_and_newlines(self, message_store):
         await message_store.create_session(asst_id(1), con_id(1), 0)
-        msg = {
-            "role": "user",
-            "content": "hello\nworld\n\ttab\u00e9\U0001f600",}
+        msg = MockMessage(payload="hello\nworld\n\ttab\u00e9\U0001f600")
         await message_store.append_message(asst_id(1), con_id(1), 0, msg)
         messages = await message_store.read_session_messages(
             asst_id(1), con_id(1), 0)
@@ -459,7 +472,7 @@ class TestMessageStore:
 
     async def test_read_after_append_on_same_instance(self, message_store):
         await message_store.create_session(asst_id(1), con_id(1), 0)
-        msg = {"role": "user", "content": "hello"}
+        msg = MockMessage(payload="a")
         await message_store.append_message(asst_id(1), con_id(1), 0, msg)
         # Read from the same store instance (which has the file open for
         # appending). The read uses a separate file handle.
