@@ -70,6 +70,7 @@ async def get_messages(
     the given one).
     """
     result = []
+    # TODO hardcoded consciousness, session+++++++++++
     assert len(assistant._consciousnesses) == 1
     consciousness = next(iter(assistant._consciousnesses.values()))
     for message in consciousness._session._messages:
@@ -80,6 +81,9 @@ async def get_messages(
     return result
 
 
+# TODO handle in frontend: seq may be null for transient messages++++++
+# TODO and: on ws reconnect, fetch any history that may have been missed (we may need a ge_seq filter for the endpoint)
+# TODO take consc id as a parameter in req++++++++
 @router.websocket("/stream")
 async def websocket_stream(
         websocket: fastapi.WebSocket, assistant: dep.AssistantWs) -> None:
@@ -108,6 +112,7 @@ async def websocket_stream(
     consciousness and prompt a response. These must be JSON objects conforming
     to the UserInputMessage model.
     """
+    # TODO hardcoded consciousness, session+++++++++++
     assert len(assistant._consciousnesses) == 1
     consciousness_id = next(iter(assistant._consciousnesses))
     await websocket.accept()
@@ -147,6 +152,8 @@ async def _send_websocket(
                 # where the reasoning will stream fine, but then this loop will
                 # only see the first chunk of the content once the entire
                 # content has been received).
+                # TODO why is it like this? it makes no sense+++++++++++
+                # await websocket.send_json(chunk.model_dump())
                 send_task = asyncio.create_task(
                     websocket.send_json(chunk.model_dump()))
                 await send_task

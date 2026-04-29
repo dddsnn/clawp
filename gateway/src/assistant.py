@@ -38,6 +38,17 @@ def _read_file(path: pathlib.Path) -> str:
         return f.read()
 
 
+# TODO arch:
+# - (later) multiple distinct agents, each with a uuid
+# - each agent has exactly one root session
+# - within a session, can communicate via different channels with different people,
+#   also group chats etc. using either a send message tool or message header
+# - without message header, agent messages go the last used channel/recipient
+# - agent or user can start new sessions
+# - only one session active at a time
+
+
+# TODO give each session a reason, e.g. "root session", "compaction", "change in md files" etc.?+++++++
 class Session:
     """
     Session with an assistant.
@@ -189,6 +200,13 @@ class Session:
         return self._publisher.subscribe()
 
 
+# TODO need to mutex access to consciousness (can't have multiple users/multiple
+# channels adding messages concurrently)
+# TODO is every consciousness bound to one agent? how do we handle group chats? how chats
+# with multiple agents? are different chats just different channels?+++++++
+# TODO the llm can get incredibly confused if we take tools away that were present
+# previously (getting stuck in a loop hallucinating). we probably have to send a
+# system message informing it that a tool is no longer available
 class Consciousness:
     """
     A consciousness of an assistant.
@@ -197,6 +215,19 @@ class Consciousness:
 
     A consciousness is an asynchronous context manager that ensures sessions
     are properly opened and closed.
+
+    TODO
+    ++++++++++
+
+    TODO sessions are append-only: compactions will lead to a new session, changes in tools
+    or agent files will lead to a new session (with just the tools/system messages
+    changed and the user and assistant messages the same)++++++++++
+
+    PERF to maintain cache, we may want to temporarily add system messages saying
+    "this has changed" instead of rewriting the whole context and causing
+    cache invalidations++++++++++
+
+    ++++++
     """
     def __init__(
             self, consciousness_id: uuid.UUID, *,
@@ -236,6 +267,8 @@ class Consciousness:
             self._session = self._make_session(0)
             await self._start_new_session()
 
+    # TODO this only ever starts a session with seq 0. when we implement session restarts
+    # for compactions etc. this seq needs to increase+++++++++++++
     async def _start_new_session(self):
         if self._session:
             await self._session.__aexit__(None, None, None)
@@ -261,10 +294,15 @@ class Consciousness:
 
     def subscribe(self) -> cl_abc.AsyncGenerator[msg.Message]:
         """Subscribe to messages in this consciousness."""
+        # TODO handle session rollover++++++
         return self._session.subscribe()
 
 
 class Assistant:
+    """
+    An assistant.
+    TODO++++++++++++
+    """
     def __init__(
             self, assistant_id: uuid.UUID, *,
             message_store: store.AssistantMessageStore,
@@ -283,6 +321,7 @@ class Assistant:
 
     async def __aexit__(self, *args) -> bool:
         for consciousness in self._consciousnesses.values():
+            # TODO exc handling, continue if one fails++++++++++
             await consciousness.__aexit__(*args)
 
     def _make_consciousness(

@@ -31,6 +31,9 @@ import util
 MessageRole = t.Literal["assistant", "developer", "system", "tool", "user"]
 
 
+# TODO message metadata:
+# - channel/sender
+# - trusted class
 @dc.dataclass
 class MessageMetadata:
     seq_in_session: t.Optional[int]

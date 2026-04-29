@@ -9,6 +9,7 @@ export default defineConfig({
     tailwindcss(),
   ],
   server: {
+    // TODO sometimes we can't reconnect to the api after it's been down (error shown on the console ws proxy error). there's a long timeout
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:8000',

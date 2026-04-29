@@ -63,8 +63,14 @@ async def main():
         signal.SIGTERM, shutdown, shutdown_event)
     message_store = store.MessageStore(MESSAGE_STORE_PATH)
     openrouter_provider = prov.OpenrouterProvider(
-        OPENROUTER_API_KEY, "stepfun/step-3.5-flash:free")
+        OPENROUTER_API_KEY,
+        # "stepfun/step-3.5-flash:free",
+        # "google/gemini-2.5-flash",
+        # "google/gemini-2.5-flash-lite",
+        "x-ai/grok-4.1-fast",
+    )
     mcp_client = tool.Client()
+    # TODO hardcoded uuid++++++++
     assistant_id = uuid.UUID(int=0)
     assistant = asst.Assistant(
         assistant_id,

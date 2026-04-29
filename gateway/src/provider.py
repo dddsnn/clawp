@@ -173,6 +173,8 @@ class OpenrouterStreamReader:
                         msg.ToolCall(
                             id=tool_call_kwargs["id"], function=function))
         except (Exception, asyncio.CancelledError) as e:
+            # TODO instead of quitting out, should we maybe try to read all the
+            # bits we can? then append an error part in the end?+++++++
             error_part = await self._ensure_current_error_part()
             await error_part.append(e)
             raise e

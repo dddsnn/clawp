@@ -29,6 +29,11 @@ def add(a: int, b: int) -> int:
     return a + b
 
 
+# @mcp_server.tool
+# def contact_jimmy(message: str) -> None:
+#     """Send Jimmy a message."""
+
+
 class Client:
     """A client providing tools via MCP servers."""
     def __init__(self):
