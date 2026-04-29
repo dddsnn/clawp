@@ -112,6 +112,8 @@ class Session:
         metadata = msg.MessageMetadata(seq_in_session=len(self._messages))
         message = message_factory(metadata, *args, **kwargs)
         self._messages.append(message)
+        # First, let the store finish writing the message before we send it to
+        # the user.
         await self._message_store.append_message(message)
         await self._publisher.append(message)
         return message
@@ -228,7 +230,7 @@ class Consciousness:
             self._session = self._make_session(active_session_seq)
             await self._session.__aenter__()
         else:
-            self._logger.warning(
+            self._logger.info(
                 f"Existing consciousness {self._consciousness_id} has no "
                 "sessions. Starting the first one.")
             self._session = self._make_session(0)
@@ -315,5 +317,9 @@ class Assistant:
     def subscribe(
             self,
             consciousness_id: uuid.UUID) -> cl_abc.AsyncGenerator[msg.Message]:
-        """Subscribe to messages in the consciousness."""
+        """
+        Subscribe to messages in the consciousness.
+
+        Raises a KeyError if the consciousness doesn't exist.
+        """
         return self._consciousnesses[consciousness_id].subscribe()
