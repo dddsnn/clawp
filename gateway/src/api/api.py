@@ -21,11 +21,13 @@ import contextlib
 import enum
 import logging
 import typing as t
+import uuid
 
 import fastapi
 import uvicorn
 import whenever as we
 
+import assistant as asst
 import message as msg
 import model
 
@@ -58,7 +60,7 @@ async def healthz() -> dict[str, str]:
 
 @router.get("/messages")
 async def get_messages(
-        consciousness: dep.Consciousness, ge_time: we.Instant = we.Instant.MIN,
+        assistant: dep.Assistant, ge_time: we.Instant = we.Instant.MIN,
         lt_seq: int = 2**64) -> list[model.Message]:
     """
     Get a list of messages.
@@ -68,7 +70,9 @@ async def get_messages(
     the given one).
     """
     result = []
-    for message in consciousness._sessions[-1]._messages:
+    assert len(assistant._consciousnesses) == 1
+    consciousness = next(iter(assistant._consciousnesses.values()))
+    for message in consciousness._session._messages:
         if message.metadata.seq_in_session >= lt_seq:
             break
         if await message.time >= ge_time:
@@ -78,8 +82,7 @@ async def get_messages(
 
 @router.websocket("/stream")
 async def websocket_stream(
-        websocket: fastapi.WebSocket,
-        consciousness: dep.ConsciousnessWs) -> None:
+        websocket: fastapi.WebSocket, assistant: dep.AssistantWs) -> None:
     """
     Open a websocket to stream messages.
 
@@ -105,15 +108,17 @@ async def websocket_stream(
     consciousness and prompt a response. These must be JSON objects conforming
     to the UserInputMessage model.
     """
+    assert len(assistant._consciousnesses) == 1
+    consciousness_id = next(iter(assistant._consciousnesses))
     await websocket.accept()
-    send_task = asyncio.create_task(_send_websocket(websocket, consciousness))
+    send_task = asyncio.create_task(
+        _send_websocket(websocket, assistant, consciousness_id))
     try:
         while True:
             input_message = model.UserInputMessage.validate(
                 await websocket.receive_json())
-            async for _ in consciousness.process_user_message(
-                    input_message.content):
-                pass
+            await assistant.process_user_message(
+                consciousness_id, input_message.content)
     except fastapi.WebSocketDisconnect:
         # The client closed the connection.
         return
@@ -130,10 +135,10 @@ async def websocket_stream(
 
 
 async def _send_websocket(
-        websocket: fastapi.WebSocket,
-        consciousness: msg.Consciousness) -> None:
+        websocket: fastapi.WebSocket, assistant: asst.Assistant,
+        consciousness_id: uuid.UUID) -> None:
     try:
-        async for message in consciousness.subscribe():
+        async for message in assistant.subscribe(consciousness_id):
             async for chunk in _generate_message_chunks(message):
                 # For some reason, we have to schedule the send as a task and
                 # then immediately await that task. If we just await the send,
@@ -213,10 +218,10 @@ async def _generate_tool_call_fragments(
 
 class Api:
     def __init__(
-            self, consciousness: msg.Consciousness, host: str = "127.0.0.1",
+            self, assistant: asst.Assistant, host: str = "127.0.0.1",
             port: int = 8000, log_level: str = "info") -> None:
         app = fastapi.FastAPI()
-        app.state.consciousness = consciousness
+        app.state.assistant = assistant
         app.include_router(router)
         config = uvicorn.Config(
             app=app, host=host, port=port, log_level=log_level)

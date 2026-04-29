@@ -20,14 +20,18 @@ import contextlib
 import logging
 import logging.config
 import os
+import pathlib
 import signal
+import uuid
 
 import api
-import message as msg
+import assistant as asst
 import provider as prov
+import store
 import tool
 
 OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
+MESSAGE_STORE_PATH = pathlib.Path(os.environ["MESSAGE_STORE_PATH"])
 
 API_HOST = "0.0.0.0"
 API_PORT = 8000
@@ -57,15 +61,19 @@ async def main():
     shutdown_event = asyncio.Event()
     asyncio.get_running_loop().add_signal_handler(
         signal.SIGTERM, shutdown, shutdown_event)
+    message_store = store.MessageStore(MESSAGE_STORE_PATH)
     openrouter_provider = prov.OpenrouterProvider(
         OPENROUTER_API_KEY, "stepfun/step-3.5-flash:free")
     mcp_client = tool.Client()
-    consciousness = msg.Consciousness(openrouter_provider, mcp_client)
-    clawp_api = api.Api(consciousness, API_HOST, API_PORT, API_LOG_LEVEL)
+    assistant = asst.Assistant(
+        uuid.UUID(int=0), message_store=message_store,
+        provider=openrouter_provider, mcp_client=mcp_client)
+    clawp_api = api.Api(assistant, API_HOST, API_PORT, API_LOG_LEVEL)
     async with contextlib.AsyncExitStack() as stack:
+        await stack.enter_async_context(message_store)
         await stack.enter_async_context(openrouter_provider)
         await stack.enter_async_context(mcp_client)
-        await stack.enter_async_context(consciousness)
+        await stack.enter_async_context(assistant)
         await stack.enter_async_context(clawp_api)
         await shutdown_event.wait()
 

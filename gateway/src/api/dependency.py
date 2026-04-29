@@ -19,32 +19,30 @@ import typing as t
 
 import fastapi
 
-import message as msg
+import assistant as asst
 
 
-def get_consciousness_from_request(
-        request: fastapi.Request) -> msg.Consciousness:
+def get_assistant_from_request(request: fastapi.Request) -> asst.Assistant:
     try:
-        consciousness = request.app.state.consciousness
-        assert isinstance(consciousness, msg.Consciousness)
+        assistant = request.app.state.assistant
+        assert isinstance(assistant, asst.Assistant)
     except (AttributeError, AssertionError) as e:
         raise fastapi.HTTPException(
-            status_code=500, detail="Consciousness is not available") from e
-    return consciousness
+            status_code=500, detail="Assistant is not available") from e
+    return assistant
 
 
-def get_consciousness_from_websocket(
-        websocket: fastapi.WebSocket) -> msg.Consciousness:
+def get_assistant_from_websocket(
+        websocket: fastapi.WebSocket) -> asst.Assistant:
     try:
-        consciousness = websocket.app.state.consciousness
-        assert isinstance(consciousness, msg.Consciousness)
+        assistant = websocket.app.state.assistant
+        assert isinstance(assistant, asst.Assistant)
     except (AttributeError, AssertionError) as e:
-        raise RuntimeError("Consciousness is not available") from e
-    return consciousness
+        raise RuntimeError("Assistant is not available") from e
+    return assistant
 
 
-Consciousness = t.Annotated[msg.Consciousness,
-                            fastapi.Depends(get_consciousness_from_request)]
-ConsciousnessWs = t.Annotated[
-    msg.Consciousness,
-    fastapi.Depends(get_consciousness_from_websocket)]
+Assistant = t.Annotated[asst.Assistant,
+                        fastapi.Depends(get_assistant_from_request)]
+AssistantWs = t.Annotated[asst.Assistant,
+                          fastapi.Depends(get_assistant_from_websocket)]
