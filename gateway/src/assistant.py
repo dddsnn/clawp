@@ -227,10 +227,9 @@ class Consciousness:
             return await self._session.__aexit__(*args)
 
     async def _ensure_active_session(self):
-        session_seqs = self._message_store.list_sessions(
+        active_session_seq = self._message_store.get_active_session_seq(
             self._assistant_id, self._consciousness_id)
-        if session_seqs:
-            active_session_seq = session_seqs[-1]
+        if active_session_seq is not None:
             self._session = self._session_factory(active_session_seq)
             await self._session.__aenter__()
         else:

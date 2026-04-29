@@ -198,22 +198,40 @@ class TestMessageStore:
         assert message_store.list_consciousnesses(asst_id(1)) == [
             con_id(1), con_id(2)]
 
-    async def test_list_sessions_empty(self, message_store):
-        assert message_store.list_sessions(asst_id(1), con_id(1)) == []
+    async def test_get_active_session_seq_without_assistant(
+            self, message_store):
+        active_session_seq = message_store.get_active_session_seq(
+            asst_id(1), con_id(1))
+        assert active_session_seq is None
 
-    async def test_list_sessions(self, message_store):
+    async def test_get_active_session_seq_without_sessions(
+            self, message_store, session_file):
+        sessions_dir = session_file(1, 1, 0).parent
+        sessions_dir.mkdir(parents=True)
+        active_session_seq = message_store.get_active_session_seq(
+            asst_id(1), con_id(1))
+        assert active_session_seq is None
+
+    async def test_get_active_session_seq(self, message_store):
+        await message_store.create_session(asst_id(1), con_id(1), 2)
+        await message_store.create_session(asst_id(1), con_id(1), 0)
+        await message_store.create_session(asst_id(1), con_id(1), 1)
+        assert message_store.get_active_session_seq(asst_id(1), con_id(1)) == 2
+
+    async def test_get_active_session_seq_returns_latest_even_if_some_missing(
+            self, message_store):
         await message_store.create_session(asst_id(1), con_id(1), 3)
         await message_store.create_session(asst_id(1), con_id(1), 0)
         await message_store.create_session(asst_id(1), con_id(1), 1)
-        assert message_store.list_sessions(asst_id(1), con_id(1)) == [0, 1, 3]
+        assert message_store.get_active_session_seq(asst_id(1), con_id(1)) == 3
 
-    async def test_list_sessions_ignores_non_session_files(
+    async def test_get_active_session_seq_ignores_non_session_files(
             self, message_store, session_file):
         await message_store.create_session(asst_id(1), con_id(1), 0)
         sessions_dir = session_file(1, 1, 0).parent
         create_file(sessions_dir / "1.not_jsonl")
-        create_file(sessions_dir / "not_a_number.jsonl")
-        assert message_store.list_sessions(asst_id(1), con_id(1)) == [0]
+        create_file(sessions_dir / "1_then_not_a_number.jsonl")
+        assert message_store.get_active_session_seq(asst_id(1), con_id(1)) == 0
 
     async def test_multiple_assistants_are_independent(self, message_store):
         await message_store.create_session(asst_id(1), con_id(1), 0)
@@ -284,12 +302,10 @@ class TestMessageStore:
         async with make_message_store():
             pass
 
-    @pytest.mark.parametrize("seq", [1, -1])
     async def test_aenter_raises_if_session_seq_doesnt_start_at_0(
-            self, make_message_store, session_file, seq):
+            self, make_message_store, session_file):
         create_file(
-            session_file(1, 1, seq),
-            [json.dumps(session_file_header(1, 1, seq))])
+            session_file(1, 1, 1), [json.dumps(session_file_header(1, 1, 1))])
         with pytest.raises(store.MessageStoreFormatError):
             async with make_message_store():
                 pass

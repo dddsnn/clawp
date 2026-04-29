@@ -297,19 +297,19 @@ class MessageStore:
         return self._list_uuid_directories(
             self._consciousnesses_dir(assistant_id))
 
-    def list_sessions(
+    def get_active_session_seq(
             self, assistant_id: uuid.UUID,
-            consciousness_id: uuid.UUID) -> list[int]:
+            consciousness_id: uuid.UUID) -> t.Optional[int]:
         """
-        List all session sequence numbers for a consciousness.
+        Get the active session sequence number.
 
-        Returns a sorted list of sequence numbers, or an empty list if the
-        consciousness has no sessions yet.
+        Returns the sequence number of the active session, or None if there are
+        no sessions for this assistant and consciousness yet.
         """
         sessions_dir = self._sessions_dir(assistant_id, consciousness_id)
         if not sessions_dir.exists():
-            return []
-        seqs = []
+            return None
+        seqs = set()
         for entry in sessions_dir.iterdir():
             if not entry.is_file():
                 self._logger.warning(
@@ -318,20 +318,32 @@ class MessageStore:
                 continue
             try:
                 assert entry.name.endswith(".jsonl")
-                seqs.append(int(entry.name.removesuffix(".jsonl")))
+                seqs.add(int(entry.name.removesuffix(".jsonl")))
             except Exception:
                 self._logger.warning(
                     f"Unexpected file {entry} in sessions directory "
                     f"{sessions_dir}.", exc_info=True)
                 continue
-        return sorted(seqs)
+        active_session_seq = max(seqs, default=None)
+        if active_session_seq and active_session_seq + 1 != len(seqs):
+            self._logger.warning(
+                f"Missing session sequence numbers in {sorted(seqs)}.")
+        return active_session_seq
 
     def _list_all_sessions(
             self) -> cl_abc.Generator[tuple[uuid.UUID, uuid.UUID, int]]:
         for assistant_id in self.list_assistants():
             for consciousness_id in self.list_consciousnesses(assistant_id):
-                for seq in self.list_sessions(assistant_id, consciousness_id):
-                    yield assistant_id, consciousness_id, seq
+                active_session_seq = self.get_active_session_seq(
+                    assistant_id, consciousness_id)
+                for seq in range(active_session_seq + 1):
+                    session_file = self._session_path(
+                        assistant_id, consciousness_id, seq)
+                    if session_file.is_file():
+                        yield assistant_id, consciousness_id, seq
+                    else:
+                        self._logger.warning(
+                            f"Missing session file {session_file}.")
 
     def _list_all_session_files(self) -> cl_abc.Generator[pathlib.Path]:
         for assistant_id, consciousness_id, seq in self._list_all_sessions():
