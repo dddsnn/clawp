@@ -141,54 +141,61 @@ class MessageStore:
         return self._sessions_dir(
             assistant_id, consciousness_id) / f"{session_seq}.jsonl"
 
-    async def create_session(
-            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
-            session_seq: int) -> None:
-        """
-        Create a new session file with a header.
-
-        Creates the directory tree if it doesn't exist. Raises FileExistsError
-        if the session file already exists.
-        """
-        path = self._session_path(assistant_id, consciousness_id, session_seq)
-        header = {
-            "version": self.VERSION,
-            "assistant_id": str(assistant_id),
-            "consciousness_id": str(consciousness_id),
-            "session_seq": session_seq,}
-        await asyncio.to_thread(self._sync_create_session, path, header)
-
-    def _sync_create_session(self, path, header):
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if path.exists():
-            raise FileExistsError(f"session file already exists: {path}")
-        with open(path, "w") as f:
-            f.write(json.dumps(header) + "\n")
-            f.flush()
-            os.fsync(f.fileno())
-
     async def append_message(
             self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
             session_seq: int, message: msg.Message) -> None:
         """
         Append a message to a session file.
 
-        The message will be serialized as JSON using its model property. The
-        session must have been created first, or a FileNotFoundError is raised.
+        The message will be serialized as JSON using its model property. If the
+        session file doesn't exist yet, it is created first. If a session file
+        needs to be created but now all previous sessions exist within the
+        consciousness, a MessageStoreFormatError is raised.
         """
-        path = self._session_path(assistant_id, consciousness_id, session_seq)
-        await asyncio.to_thread(self._sync_append, path, await message.model)
+        await asyncio.to_thread(
+            self._sync_append_message, assistant_id, consciousness_id,
+            session_seq, await message.model)
 
-    def _sync_append(self, path, model):
-        f = self._open_files.get(path)
-        if f is None:
-            if not path.exists():
-                raise FileNotFoundError(f"session file does not exist: {path}")
+    def _sync_append_message(
+            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
+            session_seq: int, message_model: model.Message):
+        path = self._session_path(assistant_id, consciousness_id, session_seq)
+        try:
+            f = self._open_files[path]
+        except KeyError:
+            self._ensure_session_file(
+                assistant_id, consciousness_id, session_seq)
+            assert path.exists()
             f = open(path, "a")
             self._open_files[path] = f
-        f.write(model.model_dump_json() + "\n")
+        f.write(message_model.model_dump_json() + "\n")
         f.flush()
         os.fsync(f.fileno())
+
+    def _ensure_session_file(
+            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
+            session_seq: int):
+        path = self._session_path(assistant_id, consciousness_id, session_seq)
+        if path.exists():
+            return
+        for seq in range(session_seq):
+            if not path.with_name(f"{seq}.jsonl").exists():
+                raise MessageStoreFormatError(
+                    f"can't create session file {path}, because previous "
+                    f"session {seq} doesn't exist")
+        header = {
+            "version": self.VERSION,
+            "assistant_id": str(assistant_id),
+            "consciousness_id": str(consciousness_id),
+            "session_seq": session_seq,}
+        if not path.parent.exists():
+            self._logger.info(f"Creating sessions directory {path.parent}.")
+            path.parent.mkdir(parents=True)
+        with open(path, "w") as f:
+            f.write(json.dumps(header) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        self._logger.info(f"Created new session file {path}.")
 
     async def read_session_messages(
             self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
@@ -197,11 +204,11 @@ class MessageStore:
         Read all messages from a session file.
 
         Returns a list of messages parsed from the file. Skips past the header
-        (which has its own format) and parses each line as a message.
+        (which has its own format) and parses each line as a message. If the
+        session file doesn't exist, returns an empty list.
 
-        Raises FileNotFoundError if the session file doesn't exist. Raises a
-        MessageStoreFormatError if any line doesn't parse to a message (that
-        includes empty lines).
+        Raises a MessageStoreFormatError if any line doesn't parse to a message
+        (that includes empty lines).
         """
         path = self._session_path(assistant_id, consciousness_id, session_seq)
         json_lines = await asyncio.to_thread(self._sync_read_messages, path)
@@ -229,6 +236,15 @@ class MessageStore:
                         f"invalid line in session file {path}: {json_line}")
         return messages
 
+    def _sync_read_messages(self, path):
+        try:
+            with open(path, "r") as f:
+                lines = f.readlines()
+        except FileNotFoundError:
+            return []
+        # Skip the header (first line).
+        return lines[1:]
+
     def _delete_corrupted_last_line(self, path: pathlib.Path, line: str):
         with path.open("r+") as f:
             # Move the pointer to the end of the file and remember where it is.
@@ -254,14 +270,6 @@ class MessageStore:
             # there.
             f.seek(pos)
             f.truncate()
-
-    def _sync_read_messages(self, path):
-        if not path.exists():
-            raise FileNotFoundError(f"session file does not exist: {path}")
-        with open(path, "r") as f:
-            lines = f.readlines()
-        # Skip the header (first line).
-        return lines[1:]
 
     def list_assistants(self) -> list[uuid.UUID]:
         """

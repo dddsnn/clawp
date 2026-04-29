@@ -236,8 +236,6 @@ class Consciousness:
             self._logger.warning(
                 f"Existing consciousness {self._consciousness_id} has no "
                 "sessions. Starting the first one.")
-            await self._message_store.create_session(
-                self._assistant_id, self._consciousness_id, 0)
             self._session = self._session_factory(0)
             await self._start_new_session()
 

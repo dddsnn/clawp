@@ -44,7 +44,10 @@ def create_file(path: pathlib.Path, lines: list[str] = None) -> None:
 
 
 def write_file_content(path: pathlib.Path, lines: list[str] = None) -> None:
-    assert path.is_file()
+    if not path.parent.is_dir():
+        path.parent.mkdir(parents=True)
+    if not path.is_file():
+        path.open("x").close()
     with path.open("w") as f:
         f.writelines(line + "\n" for line in (lines or []))
 
@@ -134,19 +137,21 @@ class TestMessageStore:
 
         return getter
 
-    async def test_create_session_creates_file_with_header(
+    async def test_append_creates_file_with_header(
             self, message_store, session_file):
-        await message_store.create_session(asst_id(1), con_id(1), 0)
-        assert read_file_content(session_file(1, 1, 0)) == [
-            json.dumps(session_file_header(1, 1, 0))]
+        await message_store.append_message(
+            asst_id(1), con_id(1), 0, MockMessage(payload="a"))
+        lines = read_file_content(session_file(1, 1, 0))
+        assert len(lines) == 2
+        assert lines[0] == json.dumps(session_file_header(1, 1, 0))
 
-    async def test_create_session_raises_if_exists(self, message_store):
-        await message_store.create_session(asst_id(1), con_id(1), 0)
-        with pytest.raises(FileExistsError):
-            await message_store.create_session(asst_id(1), con_id(1), 0)
+    async def test_append_raises_if_previous_file_doesnt_exist(
+            self, message_store, session_file):
+        with pytest.raises(store.MessageStoreFormatError):
+            await message_store.append_message(
+                asst_id(1), con_id(1), 1, MockMessage(payload="a"))
 
     async def test_append_message(self, message_store, session_file):
-        await message_store.create_session(asst_id(1), con_id(1), 0)
         msg = MockMessage(payload="a")
         await message_store.append_message(asst_id(1), con_id(1), 0, msg)
         lines = read_file_content(session_file(1, 1, 0))
@@ -155,7 +160,6 @@ class TestMessageStore:
             MockMessageModel.model_validate_json(lines[1])) == msg
 
     async def test_append_multiple_messages(self, message_store):
-        await message_store.create_session(asst_id(1), con_id(1), 0)
         msg1 = MockMessage(payload="a")
         msg2 = MockMessage(payload="b")
         await message_store.append_message(asst_id(1), con_id(1), 0, msg1)
@@ -164,37 +168,49 @@ class TestMessageStore:
             asst_id(1), con_id(1), 0)
         assert messages == [msg1, msg2]
 
-    async def test_append_message_raises_if_session_missing(
-            self, message_store):
-        with pytest.raises(FileNotFoundError):
-            await message_store.append_message(
-                asst_id(1), con_id(1), 0, MockMessage(payload="a"))
-
-    async def test_read_session_messages_empty_session(self, message_store):
-        await message_store.create_session(asst_id(1), con_id(1), 0)
+    async def test_read_session_messages_empty_if_missing(self, message_store):
         messages = await message_store.read_session_messages(
             asst_id(1), con_id(1), 0)
         assert messages == []
 
-    async def test_read_session_messages_raises_if_missing(
-            self, message_store):
-        with pytest.raises(FileNotFoundError):
-            await message_store.read_session_messages(asst_id(1), con_id(1), 0)
+    async def test_read_session_messages_empty_session(
+            self, message_store, session_file):
+        write_file_content(
+            session_file(1, 1, 0), [json.dumps(session_file_header(1, 1, 0))])
+        messages = await message_store.read_session_messages(
+            asst_id(1), con_id(1), 0)
+        assert messages == []
 
-    async def test_list_assistants_empty(self, message_store):
+    async def test_list_assistants_empty_if_no_dir(self, message_store):
         assert message_store.list_assistants() == []
 
-    async def test_list_assistants(self, message_store):
-        await message_store.create_session(asst_id(2), con_id(1), 0)
-        await message_store.create_session(asst_id(1), con_id(1), 0)
+    async def test_list_assistants_empty_if_no_assistant(
+            self, message_store, base_dir):
+        (base_dir / "assistants").mkdir(parents=True)
+        assert message_store.list_assistants() == []
+
+    async def test_list_assistants(self, message_store, base_dir):
+        (base_dir / "assistants" / str(asst_id(2))).mkdir(parents=True)
+        (base_dir / "assistants" / str(asst_id(1))).mkdir(parents=True)
         assert message_store.list_assistants() == [asst_id(1), asst_id(2)]
 
-    async def test_list_consciousnesses_empty(self, message_store):
+    async def test_list_consciousnesses_empty_if_no_dir(
+            self, message_store, base_dir):
         assert message_store.list_consciousnesses(asst_id(1)) == []
 
-    async def test_list_consciousnesses(self, message_store):
-        await message_store.create_session(asst_id(1), con_id(2), 0)
-        await message_store.create_session(asst_id(1), con_id(1), 0)
+    async def test_list_consciousnesses_empty_if_no_consciousness(
+            self, message_store, base_dir):
+        (base_dir / "assistants" / str(asst_id(1))
+         / "consciousnesses").mkdir(parents=True)
+        assert message_store.list_consciousnesses(asst_id(1)) == []
+
+    async def test_list_consciousnesses(self, message_store, base_dir):
+        (
+            base_dir / "assistants" / str(asst_id(1)) / "consciousnesses"
+            / str(con_id(2))).mkdir(parents=True)
+        (
+            base_dir / "assistants" / str(asst_id(1)) / "consciousnesses"
+            / str(con_id(1))).mkdir(parents=True)
         assert message_store.list_consciousnesses(asst_id(1)) == [
             con_id(1), con_id(2)]
 
@@ -212,30 +228,28 @@ class TestMessageStore:
             asst_id(1), con_id(1))
         assert active_session_seq is None
 
-    async def test_get_active_session_seq(self, message_store):
-        await message_store.create_session(asst_id(1), con_id(1), 2)
-        await message_store.create_session(asst_id(1), con_id(1), 0)
-        await message_store.create_session(asst_id(1), con_id(1), 1)
+    async def test_get_active_session_seq(self, message_store, session_file):
+        create_file(session_file(1, 1, 2))
+        create_file(session_file(1, 1, 0))
+        create_file(session_file(1, 1, 1))
         assert message_store.get_active_session_seq(asst_id(1), con_id(1)) == 2
 
     async def test_get_active_session_seq_returns_latest_even_if_some_missing(
-            self, message_store):
-        await message_store.create_session(asst_id(1), con_id(1), 3)
-        await message_store.create_session(asst_id(1), con_id(1), 0)
-        await message_store.create_session(asst_id(1), con_id(1), 1)
+            self, message_store, session_file):
+        create_file(session_file(1, 1, 3))
+        create_file(session_file(1, 1, 0))
+        create_file(session_file(1, 1, 1))
         assert message_store.get_active_session_seq(asst_id(1), con_id(1)) == 3
 
     async def test_get_active_session_seq_ignores_non_session_files(
             self, message_store, session_file):
-        await message_store.create_session(asst_id(1), con_id(1), 0)
+        create_file(session_file(1, 1, 0))
         sessions_dir = session_file(1, 1, 0).parent
         create_file(sessions_dir / "1.not_jsonl")
         create_file(sessions_dir / "1_then_not_a_number.jsonl")
         assert message_store.get_active_session_seq(asst_id(1), con_id(1)) == 0
 
     async def test_multiple_assistants_are_independent(self, message_store):
-        await message_store.create_session(asst_id(1), con_id(1), 0)
-        await message_store.create_session(asst_id(2), con_id(1), 0)
         msg1 = MockMessage(payload="a")
         msg2 = MockMessage(payload="b")
         await message_store.append_message(asst_id(1), con_id(1), 0, msg1)
@@ -246,8 +260,6 @@ class TestMessageStore:
             asst_id(2), con_id(1), 0) == [msg2]
 
     async def test_multiple_sessions_are_independent(self, message_store):
-        await message_store.create_session(asst_id(1), con_id(1), 0)
-        await message_store.create_session(asst_id(1), con_id(1), 1)
         msg0 = MockMessage(payload="a")
         msg1 = MockMessage(payload="b")
         await message_store.append_message(asst_id(1), con_id(1), 0, msg0)
@@ -259,7 +271,6 @@ class TestMessageStore:
 
     async def test_aenter_after_aexit(self, make_message_store):
         async with make_message_store() as store:
-            await store.create_session(asst_id(1), con_id(1), 0)
             msg = MockMessage(payload="a")
             await store.append_message(asst_id(1), con_id(1), 0, msg)
         async with store:
@@ -269,7 +280,6 @@ class TestMessageStore:
 
     async def test_aenter_in_new_instance(self, make_message_store):
         async with make_message_store() as store:
-            await store.create_session(asst_id(1), con_id(1), 0)
             msg = MockMessage(payload="a")
             await store.append_message(asst_id(1), con_id(1), 0, msg)
         async with make_message_store() as store:
@@ -357,6 +367,7 @@ class TestMessageStore:
     async def test_aenter_upgrades_older_version(
             self, make_message_store, session_file, monkeypatch):
         def upgrade(path):
+            assert path.is_file()
             write_file_content(path, ["upgraded"])
 
         monkeypatch.setattr(store.MessageStore, "VERSION", 1)
@@ -374,10 +385,12 @@ class TestMessageStore:
     async def test_aenter_upgrades_multiple_version_steps(
             self, make_message_store, session_file, monkeypatch):
         def upgrade_0(path):
+            assert path.is_file()
             write_file_content(path, ["upgraded 0"])
 
         def upgrade_1(path):
             assert read_file_content(path) == ["upgraded 0"]
+            assert path.is_file()
             write_file_content(path, ["upgraded 1"])
 
         monkeypatch.setattr(store.MessageStore, "VERSION", 2)
@@ -392,6 +405,7 @@ class TestMessageStore:
     async def test_aenter_backs_up_before_upgrade(
             self, make_message_store, session_file, monkeypatch, base_dir):
         def upgrade(path):
+            assert path.is_file()
             write_file_content(path, ["upgraded"])
 
         monkeypatch.setattr(store.MessageStore, "VERSION", 1)
@@ -442,7 +456,6 @@ class TestMessageStore:
 
     async def test_append_after_reopen(self, make_message_store):
         async with make_message_store() as store:
-            await store.create_session(asst_id(1), con_id(1), 0)
             msg1 = MockMessage(payload="a")
             await store.append_message(asst_id(1), con_id(1), 0, msg1)
         async with store:
@@ -455,7 +468,6 @@ class TestMessageStore:
     async def test_read_discards_truncated_last_line(
             self, make_message_store, session_file):
         async with make_message_store() as store:
-            await store.create_session(asst_id(1), con_id(1), 0)
             msg = MockMessage(payload="a")
             await store.append_message(asst_id(1), con_id(1), 0, msg)
         # Simulate a crash by appending a partial line.
@@ -469,7 +481,6 @@ class TestMessageStore:
     async def test_read_deletes_truncated_last_line(
             self, make_message_store, session_file):
         async with make_message_store() as store:
-            await store.create_session(asst_id(1), con_id(1), 0)
             msg = MockMessage(payload="a")
             await store.append_message(asst_id(1), con_id(1), 0, msg)
         # Simulate a crash by appending a partial line.
@@ -484,7 +495,8 @@ class TestMessageStore:
     async def test_read_raises_on_corrupt_non_last_line(
             self, make_message_store, session_file):
         async with make_message_store() as message_store:
-            await message_store.create_session(asst_id(1), con_id(1), 0)
+            msg = MockMessage(payload="a")
+            await message_store.append_message(asst_id(1), con_id(1), 0, msg)
         # Write a corrupt line followed by a valid line.
         with open(session_file(1, 1, 0), "a") as f:
             f.write("not json\n")
@@ -497,7 +509,8 @@ class TestMessageStore:
     async def test_read_raises_on_empty_non_last_line(
             self, make_message_store, session_file):
         async with make_message_store() as message_store:
-            await message_store.create_session(asst_id(1), con_id(1), 0)
+            msg = MockMessage(payload="a")
+            await message_store.append_message(asst_id(1), con_id(1), 0, msg)
         with open(session_file(1, 1, 0), "a") as f:
             f.write("\n")
             f.write('{"payload":"a"}\n')
@@ -507,7 +520,6 @@ class TestMessageStore:
                     asst_id(1), con_id(1), 0)
 
     async def test_message_with_unicode_and_newlines(self, message_store):
-        await message_store.create_session(asst_id(1), con_id(1), 0)
         msg = MockMessage(payload="hello\nworld\n\ttab\u00e9\U0001f600")
         await message_store.append_message(asst_id(1), con_id(1), 0, msg)
         messages = await message_store.read_session_messages(
@@ -515,7 +527,6 @@ class TestMessageStore:
         assert messages == [msg]
 
     async def test_read_after_append_on_same_instance(self, message_store):
-        await message_store.create_session(asst_id(1), con_id(1), 0)
         msg = MockMessage(payload="a")
         await message_store.append_message(asst_id(1), con_id(1), 0, msg)
         # Read from the same store instance (which has the file open for
