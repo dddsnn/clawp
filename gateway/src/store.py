@@ -269,22 +269,24 @@ class MessageStore:
 
         Returns an empty list if the store has no assistants yet.
         """
+        return self._list_uuid_directories(self._assistants_dir())
+
+    def _list_uuid_directories(self, path: pathlib.Path) -> list[uuid.UUID]:
         try:
-            entries = self._assistants_dir().iterdir()
+            entries = path.iterdir()
         except FileNotFoundError:
             return []
-        assistant_ids = []
+        ids = []
         for entry in entries:
             if not entry.is_dir():
-                self._logger.warning(
-                    f"Unexpected file {entry} in assistants directory.")
+                self._logger.warning(f"Unexpected file {entry} in directory.")
             try:
-                assistant_ids.append(uuid.UUID(entry.name))
+                ids.append(uuid.UUID(entry.name))
             except ValueError:
                 self._logger.exception(
-                    f"Assistant subdirectory {entry} is not a valid UUID.")
+                    f"Subdirectory {entry} is not a valid UUID.")
                 continue
-        return sorted(assistant_ids)
+        return sorted(ids)
 
     def list_consciousnesses(self, assistant_id: uuid.UUID) -> list[uuid.UUID]:
         """
@@ -292,22 +294,8 @@ class MessageStore:
 
         Returns an empty list if the assistant has no consciousnesses yet.
         """
-        try:
-            entries = self._consciousnesses_dir(assistant_id).iterdir()
-        except FileNotFoundError:
-            return []
-        consciousness_ids = []
-        for entry in entries:
-            if not entry.is_dir():
-                self._logger.warning(
-                    f"Unexpected file {entry} in consciousnesses directory.")
-            try:
-                consciousness_ids.append(uuid.UUID(entry.name))
-            except ValueError:
-                self._logger.exception(
-                    f"Consciousness subdirectory {entry} is not a valid UUID.")
-                continue
-        return sorted(consciousness_ids)
+        return self._list_uuid_directories(
+            self._consciousnesses_dir(assistant_id))
 
     def list_sessions(
             self, assistant_id: uuid.UUID,
