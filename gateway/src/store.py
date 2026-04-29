@@ -81,6 +81,7 @@ class MessageStore:
         self._logger = logging.getLogger(type(self).__name__)
         self._base_dir = base_dir
         self._open_files: dict[pathlib.Path, t.IO] = {}
+        self._open_files_lock = asyncio.Lock()
 
     async def __aenter__(self) -> t.Self:
         try:
@@ -92,7 +93,8 @@ class MessageStore:
         return self
 
     async def __aexit__(self, *_) -> None:
-        await self._close_files()
+        async with self._open_files_lock:
+            await self._close_files()
         self._message_store_lock.release()
 
     async def _close_files(self):
@@ -152,9 +154,10 @@ class MessageStore:
         needs to be created but now all previous sessions exist within the
         consciousness, a MessageStoreFormatError is raised.
         """
-        await asyncio.to_thread(
-            self._sync_append_message, assistant_id, consciousness_id,
-            session_seq, await message.model)
+        async with self._open_files_lock:
+            await asyncio.to_thread(
+                self._sync_append_message, assistant_id, consciousness_id,
+                session_seq, await message.model)
 
     def _sync_append_message(
             self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
