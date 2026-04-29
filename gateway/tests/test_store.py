@@ -450,6 +450,21 @@ class TestMessageStore:
                 asst_id(1), con_id(1), 0)
             assert messages == [msg]
 
+    async def test_read_deletes_truncated_last_line(
+            self, make_message_store, session_file):
+        async with make_message_store() as store:
+            await store.create_session(asst_id(1), con_id(1), 0)
+            msg = MockMessage(payload="a")
+            await store.append_message(asst_id(1), con_id(1), 0, msg)
+        # Simulate a crash by appending a partial line.
+        with open(session_file(1, 1, 0), "a") as f:
+            f.write('{"payload": "some s')
+        async with store:
+            await store.read_session_messages(asst_id(1), con_id(1), 0)
+        content = read_file_content(session_file(1, 1, 0))
+        assert len(content) == 2
+        assert json.loads(content[1]) == (await msg.model).model_dump()
+
     async def test_read_raises_on_corrupt_non_last_line(
             self, make_message_store, session_file):
         async with make_message_store() as message_store:

@@ -219,12 +219,41 @@ class MessageStore:
                 # mid-write. Log a warning and discard it.
                 if i == len(json_lines) - 1:
                     self._logger.warning(
-                        f"Discarding truncated last line in {path}.",
-                        exc_info=True)
+                        f"Last line ({json_line}) in session file {path} is "
+                        "corrupt. Assuming an unclean shutdown, ignoring the "
+                        "line and deleting it from the file.", exc_info=True)
+                    await asyncio.to_thread(
+                        self._delete_corrupted_last_line, path, json_line)
                 else:
                     raise MessageStoreFormatError(
                         f"invalid line in session file {path}: {json_line}")
         return messages
+
+    def _delete_corrupted_last_line(self, path: pathlib.Path, line: str):
+        with path.open("r+") as f:
+            # Move the pointer to the end of the file and remember where it is.
+            f.seek(0, os.SEEK_END)
+            pos_past_end = f.tell() + 1
+            # Read the file backwards until we find a newline (except if it is
+            # the last character).
+            pos = f.tell()
+            while pos > 0 and f.read(1) != "\n" and pos != pos_past_end:
+                pos -= 1
+                f.seek(pos)
+            if pos == 0:
+                raise MessageStoreFormatError(
+                    f"header of session file {path} is corrupt")
+            # Check that the last line is actually the one we expected.
+            f.seek(pos + 1)
+            line_in_file = f.read()
+            if line_in_file != line:
+                raise MessageStoreFormatError(
+                    f"attempted to delete corrupted line '{line}' in {path}, "
+                    f"but last line was actually '{line_in_file}'")
+            # Go to the position where the last line starts and truncate from
+            # there.
+            f.seek(pos)
+            f.truncate()
 
     def _sync_read_messages(self, path):
         if not path.exists():
