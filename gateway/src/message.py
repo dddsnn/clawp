@@ -101,15 +101,29 @@ class Message(abc.ABC):
         return model.MessageMetadata(
             time=await self.time, seq_in_session=self.metadata.seq_in_session)
 
+    @classmethod
+    def from_model(cls, message_model: model.Message) -> t.Self:
+        if isinstance(message_model, model.AssistantMessage):
+            return AssistantMessage.from_model(message_model)
+        elif isinstance(message_model, model.DeveloperMessage):
+            return DeveloperMessage.from_model(message_model)
+        elif isinstance(message_model, model.SystemMessage):
+            return SystemMessage.from_model(message_model)
+        elif isinstance(message_model, model.ToolMessage):
+            return ToolMessage.from_model(message_model)
+        else:
+            assert isinstance(message_model, model.UserMessage)
+            return UserMessage.from_model(message_model)
+
 
 class SimpleMessage(Message):
     def __init__(
-            self, metadata: MessageMetadata, role: MessageRole,
-            content: str) -> None:
+            self, metadata: MessageMetadata, role: MessageRole, content: str,
+            time: t.Optional[we.Instant] = None) -> None:
         super().__init__(metadata)
         if role not in t.get_args(MessageRole):
             raise ValueError(f"invalid role {role}")
-        self._time = we.Instant.now()
+        self._time = time or we.Instant.now()
         self._role = role
         self._content = content
 
@@ -125,10 +139,18 @@ class SimpleMessage(Message):
     async def content(self) -> cl_abc.Awaitable[str]:
         return self._content
 
+    @classmethod
+    def from_model(cls, message_model: model.Message) -> t.Self:
+        metadata = MessageMetadata(message_model.metadata.seq_in_session)
+        return cls(
+            metadata, message_model.content, message_model.metadata.time)
+
 
 class SystemMessage(SimpleMessage):
-    def __init__(self, metadata: MessageMetadata, content: str) -> None:
-        super().__init__(metadata, "system", content)
+    def __init__(
+            self, metadata: MessageMetadata, content: str,
+            time: t.Optional[we.Instant] = None) -> None:
+        super().__init__(metadata, "system", content, time)
 
     @property
     async def model(self) -> cl_abc.Awaitable[model.SystemMessage]:
@@ -137,8 +159,10 @@ class SystemMessage(SimpleMessage):
 
 
 class DeveloperMessage(SimpleMessage):
-    def __init__(self, metadata: MessageMetadata, content: str) -> None:
-        super().__init__(metadata, "developer", content)
+    def __init__(
+            self, metadata: MessageMetadata, content: str,
+            time: t.Optional[we.Instant] = None) -> None:
+        super().__init__(metadata, "developer", content, time)
 
     @property
     async def model(self) -> cl_abc.Awaitable[model.DeveloperMessage]:
@@ -148,8 +172,10 @@ class DeveloperMessage(SimpleMessage):
 
 class UserMessage(SimpleMessage):
     """Message sent by the user."""
-    def __init__(self, metadata: MessageMetadata, content: str) -> None:
-        super().__init__(metadata, "user", content)
+    def __init__(
+            self, metadata: MessageMetadata, content: str,
+            time: t.Optional[we.Instant] = None) -> None:
+        super().__init__(metadata, "user", content, time)
 
     @property
     async def model(self) -> cl_abc.Awaitable[model.UserMessage]:
@@ -160,9 +186,9 @@ class UserMessage(SimpleMessage):
 class ToolMessage(SimpleMessage):
     """Message sent by the system in response to a tool call."""
     def __init__(
-            self, metadata: MessageMetadata, content: str,
-            tool_call_id: str) -> None:
-        super().__init__(metadata, "tool", content)
+            self, metadata: MessageMetadata, content: str, tool_call_id: str,
+            time: t.Optional[we.Instant] = None) -> None:
+        super().__init__(metadata, "tool", content, time)
         self._tool_call_id = tool_call_id
 
     @property
@@ -174,6 +200,13 @@ class ToolMessage(SimpleMessage):
         return model.ToolMessage(
             metadata=await self._metadata_model, content=await self.content,
             tool_call_id=self.tool_call_id)
+
+    @classmethod
+    def from_model(cls, message_model: model.ToolMessage) -> t.Self:
+        metadata = MessageMetadata(message_model.metadata.seq_in_session)
+        return cls(
+            metadata, message_model.content, message_model.tool_call_id,
+            message_model.metadata.time)
 
 
 @dc.dataclass
@@ -202,14 +235,17 @@ class AssistantMessagePart:
 
     AssistantMessageParts consist of fragments that can be streamed. The type
     of these fragments depends on the type of part.
+
+    A part can be initialized with fragments, but then it is immediately
+    finalized and nothing more can be appended.
     """
     VALID_TYPES = t.Literal["content", "error", "reasoning", "tool"]
 
-    def __init__(self, part_type: VALID_TYPES):
+    def __init__(self, part_type: VALID_TYPES, fragments: list | None = None):
         if part_type not in t.get_args(self.VALID_TYPES):
             raise ValueError(f"invalid type {part_type}")
         self._type = part_type
-        self._fragments = util.StreamableList()
+        self._fragments = util.StreamableList(fragments)
 
     @property
     def type(self) -> VALID_TYPES:
@@ -229,8 +265,9 @@ class AssistantMessagePart:
 class AssistantMessageTextPart(AssistantMessagePart):
     VALID_TYPES = t.Literal["content", "reasoning"]
 
-    def __init__(self, part_type: VALID_TYPES):
-        super().__init__(part_type)
+    def __init__(
+            self, part_type: VALID_TYPES, fragments: list[str] | None = None):
+        super().__init__(part_type, fragments)
 
     async def append(self, text: str) -> None:
         await super().append(text)
@@ -246,8 +283,8 @@ class AssistantMessageTextPart(AssistantMessagePart):
 class AssistantMessageToolPart(AssistantMessagePart):
     VALID_TYPES = t.Literal["tool"]
 
-    def __init__(self):
-        super().__init__("tool")
+    def __init__(self, fragments: list[ToolCall] | None = None):
+        super().__init__("tool", fragments)
 
     async def append(self, tool_call: ToolCall) -> None:
         await super().append(tool_call)
@@ -260,8 +297,8 @@ class AssistantMessageToolPart(AssistantMessagePart):
 class AssistantMessageErrorPart(AssistantMessagePart):
     VALID_TYPES = t.Literal["error"]
 
-    def __init__(self):
-        super().__init__("error")
+    def __init__(self, fragments: list[Exception] | None = None):
+        super().__init__("error", fragments)
 
     async def append(self, error: Exception) -> None:
         await super().append(error)
@@ -290,16 +327,16 @@ class AssistantMessage(Message):
     arrive and then sets the time. The property will block until then.
     """
     def __init__(
-            self, metadata: MessageMetadata,
-            parts: util.StreamableList) -> None:
+            self, metadata: MessageMetadata, parts: util.StreamableList,
+            time: t.Optional[we.Instant] = None) -> None:
         super().__init__(metadata)
         self._parts = parts
-        self._time = None
+        self._time = time
         self._set_time_task = asyncio.create_task(self._set_time())
 
     async def _set_time(self):
         await self._parts.wait_finalized()
-        self._time = we.Instant.now()
+        self._time = self._time or we.Instant.now()
         self._set_time_task = None
 
     @property
@@ -379,6 +416,27 @@ class AssistantMessage(Message):
             reasoning=await self.reasoning, tool_calls=tool_calls,
             errors=errors)
 
+    @classmethod
+    def from_model(cls, message_model: model.AssistantMessage) -> t.Self:
+        metadata = MessageMetadata(message_model.metadata.seq_in_session)
+        parts = [AssistantMessageTextPart("content", [message_model.content])]
+        if message_model.reasoning:
+            parts.append(
+                AssistantMessageTextPart(
+                    "reasoning", [message_model.reasoning]))
+        tool_calls = []
+        for tool_call in message_model.tool_calls:
+            function = ToolCallFunction(
+                tool_call.function.name, tool_call.function.arguments)
+            tool_calls.append(ToolCall(tool_call.id, function))
+        if tool_calls:
+            parts.append(AssistantMessageToolPart(tool_calls))
+        if message_model.errors:
+            parts.append(
+                AssistantMessageErrorPart([
+                    Exception(e) for e in message_model.errors]))
+        return cls(
+            metadata, util.StreamableList(parts), message_model.metadata.time)
 
 
 class Session:
