@@ -65,8 +65,10 @@ async def main():
     openrouter_provider = prov.OpenrouterProvider(
         OPENROUTER_API_KEY, "stepfun/step-3.5-flash:free")
     mcp_client = tool.Client()
+    assistant_id = uuid.UUID(int=0)
     assistant = asst.Assistant(
-        uuid.UUID(int=0), message_store=message_store,
+        assistant_id,
+        message_store=message_store.get_assistant_message_store(assistant_id),
         provider=openrouter_provider, mcp_client=mcp_client)
     clawp_api = api.Api(assistant, API_HOST, API_PORT, API_LOG_LEVEL)
     async with contextlib.AsyncExitStack() as stack:

@@ -52,12 +52,10 @@ class Session:
     finished streaming when it shuts down.
     """
     def __init__(
-            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
-            session_seq: int, *, message_store: store.MessageStore,
+            self, session_seq: int, *,
+            message_store: store.SessionMessageStore,
             provider: "prov.Provider", mcp_client: tool.Client) -> None:
         self._logger = logging.getLogger(type(self).__name__)
-        self._assistant_id = assistant_id
-        self._consciousness_id = consciousness_id
         self._session_seq = session_seq
         self._message_store = message_store
         self._provider = provider
@@ -70,9 +68,7 @@ class Session:
         self._publisher = util.Publisher()
 
     async def __aenter__(self) -> t.Self:
-        self._messages = (
-            await self._message_store.read_session_messages(
-                self._assistant_id, self._consciousness_id, self._session_seq))
+        self._messages = await self._message_store.read_session_messages()
         await self._publisher.__aenter__()
         return self
 
@@ -116,9 +112,7 @@ class Session:
         metadata = msg.MessageMetadata(seq_in_session=len(self._messages))
         message = message_factory(metadata, *args, **kwargs)
         self._messages.append(message)
-        await self._message_store.append_message(
-            self._assistant_id, self._consciousness_id, self._session_seq,
-            message)
+        await self._message_store.append_message(message)
         await self._publisher.append(message)
         return message
 
@@ -203,17 +197,14 @@ class Consciousness:
     are properly opened and closed.
     """
     def __init__(
-            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID, *,
-            message_store: store.MessageStore, provider: "prov.Provider",
-            mcp_client: tool.Client) -> None:
+            self, consciousness_id: uuid.UUID, *,
+            message_store: store.ConsciousnessMessageStore,
+            provider: "prov.Provider", mcp_client: tool.Client) -> None:
         self._logger = logging.getLogger(type(self).__name__)
-        self._assistant_id = assistant_id
         self._consciousness_id = consciousness_id
         self._message_store = message_store
         self._session_factory = ft.partial(
-            Session, self._assistant_id, self._consciousness_id,
-            message_store=message_store, provider=provider,
-            mcp_client=mcp_client)
+            Session, provider=provider, mcp_client=mcp_client)
         self._session = None
         self._lock = asyncio.Lock()
 
@@ -226,23 +217,27 @@ class Consciousness:
         async with self._lock:
             return await self._session.__aexit__(*args)
 
+    def _make_session(self, session_seq: int) -> Session:
+        message_store = self._message_store.get_session_message_store(
+            session_seq)
+        return self._session_factory(session_seq, message_store=message_store)
+
     async def _ensure_active_session(self):
-        active_session_seq = self._message_store.get_active_session_seq(
-            self._assistant_id, self._consciousness_id)
+        active_session_seq = self._message_store.get_active_session_seq()
         if active_session_seq is not None:
-            self._session = self._session_factory(active_session_seq)
+            self._session = self._make_session(active_session_seq)
             await self._session.__aenter__()
         else:
             self._logger.warning(
                 f"Existing consciousness {self._consciousness_id} has no "
                 "sessions. Starting the first one.")
-            self._session = self._session_factory(0)
+            self._session = self._make_session(0)
             await self._start_new_session()
 
     async def _start_new_session(self):
         if self._session:
             await self._session.__aexit__(None, None, None)
-        self._session = self._session_factory(0)
+        self._session = self._make_session(0)
         await self._session.__aenter__()
         await self._session.add_system_message(
             await self._read_message_file("init_system.md"))
@@ -270,14 +265,13 @@ class Consciousness:
 class Assistant:
     def __init__(
             self, assistant_id: uuid.UUID, *,
-            message_store: store.MessageStore, provider: "prov.Provider",
-            mcp_client: tool.Client) -> None:
+            message_store: store.AssistantMessageStore,
+            provider: "prov.Provider", mcp_client: tool.Client) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._assistant_id = assistant_id
         self._message_store = message_store
         self._consciousness_factory = ft.partial(
-            Consciousness, self._assistant_id, message_store=message_store,
-            provider=provider, mcp_client=mcp_client)
+            Consciousness, provider=provider, mcp_client=mcp_client)
         self._consciousnesses = {}
 
     async def __aenter__(self) -> t.Self:
@@ -289,9 +283,15 @@ class Assistant:
         for consciousness in self._consciousnesses.values():
             await consciousness.__aexit__(*args)
 
+    def _make_consciousness(
+            self, consciousness_id: uuid.UUID) -> Consciousness:
+        message_store = self._message_store.get_consciousness_message_store(
+            consciousness_id)
+        return self._consciousness_factory(
+            consciousness_id, message_store=message_store)
+
     async def _init_consciousnesses(self):
-        for consciousness_id in self._message_store.list_consciousnesses(
-                self._assistant_id):
+        for consciousness_id in self._message_store.list_consciousnesses():
             await self._add_consciousness(consciousness_id)
         if not self._consciousnesses:
             consciousness_id = uuid.uuid4()
@@ -302,7 +302,7 @@ class Assistant:
 
     async def _add_consciousness(self, consciousness_id):
         assert consciousness_id not in self._consciousnesses
-        consciousness = self._consciousness_factory(consciousness_id)
+        consciousness = self._make_consciousness(consciousness_id)
         self._consciousnesses[consciousness_id] = (
             await consciousness.__aenter__())
 
