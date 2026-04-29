@@ -362,6 +362,11 @@ class MessageStore:
             assert path.is_file()
             yield path
 
+    def get_assistant_message_store(
+            self, assistant_id: uuid.UUID) -> AssistantMessageStore:
+        """Get a message store specific to an assistant."""
+        return AssistantMessageStore(assistant_id, self)
+
     def _ensure_valid_store_format(self) -> None:
         """
         Ensure that base_dir is consistent and valid.
@@ -497,3 +502,104 @@ class MessageStore:
 
     for version_number in range(VERSION):
         assert version_number in _upgraders
+
+
+class AssistantMessageStore:
+    """
+    Persistent store for assistant messages.
+
+    This is a wrapper around MessageStore which makes the underlying methods
+    available for one specific assistant.
+    """
+    def __init__(
+            self, assistant_id: uuid.UUID,
+            message_store: MessageStore) -> None:
+        self._assistant_id = assistant_id
+        self._message_store = message_store
+
+    async def append_message(
+            self, consciousness_id: uuid.UUID, session_seq: int,
+            message: msg.Message) -> None:
+        return await self._message_store.append_message(
+            self._assistant_id, consciousness_id, session_seq, message)
+
+    async def read_session_messages(
+            self, consciousness_id: uuid.UUID,
+            session_seq: int) -> list[msg.Message]:
+        return await self._message_store.read_session_messages(
+            self._assistant_id, consciousness_id, session_seq)
+
+    def list_consciousnesses(self) -> list[uuid.UUID]:
+        return self._message_store.list_consciousnesses(self._assistant_id)
+
+    def get_active_session_seq(self,
+                               consciousness_id: uuid.UUID) -> t.Optional[int]:
+        return self._message_store.get_active_session_seq(
+            self._assistant_id, consciousness_id)
+
+    def get_consciousness_message_store(
+            self, consciousness_id: uuid.UUID) -> ConsciousnessMessageStore:
+        """Get a message store specific to a consciousness."""
+        return ConsciousnessMessageStore(
+            self._assistant_id, consciousness_id, self._message_store)
+
+
+class ConsciousnessMessageStore:
+    """
+    Persistent store for consciousness messages.
+
+    This is a wrapper around MessageStore which makes the underlying methods
+    available for one specific consciousness of an assistant.
+    """
+    def __init__(
+            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
+            message_store: MessageStore) -> None:
+        self._assistant_id = assistant_id
+        self._consciousness_id = consciousness_id
+        self._message_store = message_store
+
+    async def append_message(
+            self, session_seq: int, message: msg.Message) -> None:
+        return await self._message_store.append_message(
+            self._assistant_id, self._consciousness_id, session_seq, message)
+
+    async def read_session_messages(self,
+                                    session_seq: int) -> list[msg.Message]:
+        return await self._message_store.read_session_messages(
+            self._assistant_id, self._consciousness_id, session_seq)
+
+    def get_active_session_seq(self) -> t.Optional[int]:
+        return self._message_store.get_active_session_seq(
+            self._assistant_id, self._consciousness_id)
+
+    def get_session_message_store(
+            self, session_seq: int) -> SessionMessageStore:
+        """Get a message store specific to an consciousness."""
+        return SessionMessageStore(
+            self._assistant_id, self._consciousness_id, session_seq,
+            self._message_store)
+
+
+class SessionMessageStore:
+    """
+    Persistent store for session messages.
+
+    This is a wrapper around MessageStore which makes the underlying methods
+    available for one specific session in an assistant's consciousness.
+    """
+    def __init__(
+            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
+            session_seq: int, message_store: MessageStore) -> None:
+        self._assistant_id = assistant_id
+        self._consciousness_id = consciousness_id
+        self._session_seq = session_seq
+        self._message_store = message_store
+
+    async def append_message(self, message: msg.Message) -> None:
+        return await self._message_store.append_message(
+            self._assistant_id, self._consciousness_id, self._session_seq,
+            message)
+
+    async def read_session_messages(self) -> list[msg.Message]:
+        return await self._message_store.read_session_messages(
+            self._assistant_id, self._consciousness_id, self._session_seq)

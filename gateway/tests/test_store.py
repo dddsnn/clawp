@@ -96,39 +96,43 @@ class MockMessage:
         return MockMessageModel(payload=f"encoded {self.payload}")
 
 
+@pytest.fixture(autouse=True)
+def mock_message(monkeypatch):
+    import message
+    import model
+    monkeypatch.setattr(message, "Message", MockMessage)
+    monkeypatch.setattr(
+        model, "MessageTypeAdapter", pyd.TypeAdapter(MockMessageModel))
+
+
+@pytest.fixture
+def base_dir(tmp_path):
+    d = tmp_path / "store"
+    d.mkdir()
+    return d
+
+
+@pytest.fixture
+async def make_message_store(base_dir, monkeypatch):
+    # Set a new class-level _message_store_lock so it is bound to this
+    # test's event loop.
+    assert not store.MessageStore._message_store_lock.locked()
+    monkeypatch.setattr(
+        store.MessageStore, "_message_store_lock", asyncio.Lock())
+
+    def factory():
+        return store.MessageStore(base_dir)
+
+    return factory
+
+
+@pytest.fixture
+async def message_store(make_message_store):
+    async with make_message_store() as s:
+        yield s
+
+
 class TestMessageStore:
-    @pytest.fixture(autouse=True)
-    def mock_message(self, monkeypatch):
-        import message
-        import model
-        monkeypatch.setattr(message, "Message", MockMessage)
-        monkeypatch.setattr(
-            model, "MessageTypeAdapter", pyd.TypeAdapter(MockMessageModel))
-
-    @pytest.fixture
-    def base_dir(self, tmp_path):
-        d = tmp_path / "store"
-        d.mkdir()
-        return d
-
-    @pytest.fixture
-    async def make_message_store(self, base_dir, monkeypatch):
-        # Set a new class-level _message_store_lock so it is bound to this
-        # test's event loop.
-        assert not store.MessageStore._message_store_lock.locked()
-        monkeypatch.setattr(
-            store.MessageStore, "_message_store_lock", asyncio.Lock())
-
-        def factory():
-            return store.MessageStore(base_dir)
-
-        return factory
-
-    @pytest.fixture
-    async def message_store(self, make_message_store):
-        async with make_message_store() as s:
-            yield s
-
     @pytest.fixture
     def session_file(self, base_dir):
         def getter(assistant_id_int, consciousness_id_int, session_seq):
@@ -534,3 +538,97 @@ class TestMessageStore:
         messages = await message_store.read_session_messages(
             asst_id(1), con_id(1), 0)
         assert messages == [msg]
+
+    async def test_get_assistant_message_store(self, message_store):
+        msg1 = MockMessage(payload="a")
+        msg2 = MockMessage(payload="b")
+        await message_store.append_message(asst_id(1), con_id(1), 0, msg1)
+        assistant_message_store = message_store.get_assistant_message_store(
+            asst_id(1))
+        assert await assistant_message_store.read_session_messages(
+            con_id(1), 0) == [msg1]
+        await assistant_message_store.append_message(con_id(2), 0, msg2)
+        assert await message_store.read_session_messages(
+            asst_id(1), con_id(2), 0) == [msg2]
+        assert assistant_message_store.list_consciousnesses() == [
+            con_id(1), con_id(2)]
+        assert assistant_message_store.get_active_session_seq(con_id(1)) == 0
+
+
+class TestAssistantMessageStore:
+    @pytest.fixture
+    def assistant_message_store(self, message_store):
+        return store.AssistantMessageStore(asst_id(1), message_store)
+
+    async def test_assistant_message_store(
+            self, assistant_message_store, message_store):
+        msg1 = MockMessage(payload="a")
+        msg2 = MockMessage(payload="b")
+        await message_store.append_message(asst_id(1), con_id(1), 0, msg1)
+        assert await assistant_message_store.read_session_messages(
+            con_id(1), 0) == [msg1]
+        await assistant_message_store.append_message(con_id(2), 0, msg2)
+        assert await message_store.read_session_messages(
+            asst_id(1), con_id(2), 0) == [msg2]
+        assert assistant_message_store.list_consciousnesses() == [
+            con_id(1), con_id(2)]
+        assert assistant_message_store.get_active_session_seq(con_id(1)) == 0
+
+    async def test_get_consciousness_message_store(
+            self, assistant_message_store):
+        msg1 = MockMessage(payload="a")
+        msg2 = MockMessage(payload="b")
+        await assistant_message_store.append_message(con_id(1), 0, msg1)
+        consc_message_store = (
+            assistant_message_store.get_consciousness_message_store(con_id(1)))
+        assert await consc_message_store.read_session_messages(0) == [msg1]
+        await consc_message_store.append_message(1, msg2)
+        assert await assistant_message_store.read_session_messages(
+            con_id(1), 1) == [msg2]
+        assert consc_message_store.get_active_session_seq() == 1
+
+
+class TestConsciousnessMessageStore:
+    @pytest.fixture
+    def consc_message_store(self, message_store):
+        return store.ConsciousnessMessageStore(
+            asst_id(1), con_id(1), message_store)
+
+    async def test_consciousness_message_store(
+            self, consc_message_store, message_store):
+        msg1 = MockMessage(payload="a")
+        msg2 = MockMessage(payload="b")
+        await message_store.append_message(asst_id(1), con_id(1), 0, msg1)
+        assert await consc_message_store.read_session_messages(0) == [msg1]
+        await consc_message_store.append_message(1, msg2)
+        assert await message_store.read_session_messages(
+            asst_id(1), con_id(1), 1) == [msg2]
+        assert consc_message_store.get_active_session_seq() == 1
+
+    async def test_get_session_message_store(self, consc_message_store):
+        msg1 = MockMessage(payload="a")
+        msg2 = MockMessage(payload="b")
+        await consc_message_store.append_message(0, msg1)
+        session_message_store = consc_message_store.get_session_message_store(
+            0)
+        assert await session_message_store.read_session_messages() == [msg1]
+        await session_message_store.append_message(msg2)
+        assert await consc_message_store.read_session_messages(0) == [
+            msg1, msg2]
+
+
+class TestSessionMessageStore:
+    @pytest.fixture
+    def session_message_store(self, message_store):
+        return store.SessionMessageStore(
+            asst_id(1), con_id(1), 0, message_store)
+
+    async def test_session_message_store(
+            self, session_message_store, message_store):
+        msg1 = MockMessage(payload="a")
+        msg2 = MockMessage(payload="b")
+        await message_store.append_message(asst_id(1), con_id(1), 0, msg1)
+        assert await session_message_store.read_session_messages() == [msg1]
+        await session_message_store.append_message(msg2)
+        assert await message_store.read_session_messages(
+            asst_id(1), con_id(1), 0) == [msg1, msg2]
