@@ -103,7 +103,7 @@ class MessageStore:
                 asyncio.create_task(
                     asyncio.to_thread(self._safe_close_file, f)))
         if close_tasks:
-            _, pending = await asyncio.wait(close_tasks, timeout=2)
+            _, pending = await asyncio.wait(close_tasks, timeout=10)
             if pending:
                 self._logger.exception(
                     f"Timeout while closing files ({len(pending)} not done).")
