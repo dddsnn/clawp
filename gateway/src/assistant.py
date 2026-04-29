@@ -38,26 +38,36 @@ class Session:
     Session with an assistant.
 
     The session essentially encapsulates the assistant's context window. It can
-    generate responses to new user messages using it's provider, and also
-    manages which tools the assistant has available via the MCP client.
+    add messages to the context, generate assistant responses using its
+    provider, and also manages which tools the assistant has available via the
+    MCP client.
 
-    The session is an asynchronous context manager that ensures all assistant
-    messages have finished streaming when it shuts down.
+    The session is an asynchronous context manager that loads existing messages
+    from the store on aenter and also ensures all assistant messages have
+    finished streaming when it shuts down.
     """
     def __init__(
-            self, provider: "prov.Provider", mcp_client: tool.Client,
-            messages: list[msg.Message]) -> None:
+            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
+            session_seq: int, *, message_store: store.MessageStore,
+            provider: "prov.Provider", mcp_client: tool.Client) -> None:
         self._logger = logging.getLogger(type(self).__name__)
+        self._assistant_id = assistant_id
+        self._consciousness_id = consciousness_id
+        self._session_seq = session_seq
+        self._message_store = message_store
         self._provider = provider
         self._mcp_client = mcp_client
-        self._messages: list[msg.Message] = messages
+        self._messages = None
         self._is_shut_down = False
         self._num_incomplete_messages = 0
         self._message_wait_condition = asyncio.Condition()
         self._lock = asyncio.Lock()
         self._publisher = util.Publisher()
 
-    async def __aenter__(self) -> "Session":
+    async def __aenter__(self) -> t.Self:
+        self._messages = (
+            await self._message_store.read_session_messages(
+                self._assistant_id, self._consciousness_id, self._session_seq))
         await self._publisher.__aenter__()
         return self
 
@@ -85,39 +95,47 @@ class Session:
         This only adds the message, it doesn't make any API calls or return
         anything.
         """
+        await self._add_message(msg.SystemMessage, message_content)
+
+    async def add_user_message(self, message_content: str) -> None:
+        """Add a user message to the session, like add_system_message()."""
+        await self._add_message(msg.UserMessage, message_content)
+
+    async def _add_message(self, message_class, message_content):
         async with self._lock:
             if self._is_shut_down:
                 raise RuntimeError("shut down, can't process more messages")
-            await self._append_message(msg.SystemMessage, message_content)
-
-    async def process_user_message(
-            self, message_content: str
-    ) -> cl_abc.AsyncGenerator[msg.AssistantMessage]:
-        """
-        Process and respond to a user message.
-
-        This prepares the context with the new user message and calls the
-        provider to generate one or more AssistantMessages in response. Handles
-        any tool calls the assistant makes.
-        """
-        async with self._lock:
-            if self._is_shut_down:
-                raise RuntimeError("shut down, can't process more messages")
-            await self._append_message(msg.UserMessage, message_content)
-            async for assistant_message in self._request_assistant_messages():
-                yield assistant_message
+            await self._append_message(message_class, message_content)
 
     async def _append_message(self, message_factory, *args, **kwargs):
         metadata = msg.MessageMetadata(seq_in_session=len(self._messages))
         message = message_factory(metadata, *args, **kwargs)
         self._messages.append(message)
+        await self._message_store.append_message(
+            self._assistant_id, self._consciousness_id, self._session_seq,
+            message)
         await self._publisher.append(message)
         return message
+
+    async def request_response(self) -> None:
+        """
+        Request an assistant response.
+
+        Calls the provider to generate one or more AssistantMessages in
+        response to the current state of the session. Handles any tool calls
+        the assistant makes.
+
+        Generated messages are not returned directly but can be accessed via
+        subscribe().
+        """
+        async with self._lock:
+            if self._is_shut_down:
+                raise RuntimeError("shut down, can't make requests")
+            await self._request_assistant_messages()
 
     async def _request_assistant_messages(self):
         while True:
             assistant_message = await self._request_assistant_message()
-            yield assistant_message
             if not await assistant_message.tool_calls:
                 return
             for tool_call in await assistant_message.tool_calls:
@@ -174,36 +192,57 @@ class Consciousness:
     """
     A consciousness of an assistant.
 
-    A consiousness consists of the active session as well as a history of past
-    sessions.
+    A consiousness manages the active session.
 
     A consciousness is an asynchronous context manager that ensures sessions
     are properly opened and closed.
     """
     def __init__(
-            self, provider: "prov.Provider", mcp_client: tool.Client) -> None:
-        self._session_factory = ft.partial(Session, provider, mcp_client)
+            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID, *,
+            message_store: store.MessageStore, provider: "prov.Provider",
+            mcp_client: tool.Client) -> None:
+        self._logger = logging.getLogger(type(self).__name__)
+        self._assistant_id = assistant_id
+        self._consciousness_id = consciousness_id
+        self._message_store = message_store
+        self._session_factory = ft.partial(
+            Session, self._assistant_id, self._consciousness_id,
+            message_store=message_store, provider=provider,
+            mcp_client=mcp_client)
+        self._session = None
         self._lock = asyncio.Lock()
-        self._sessions = []
 
-    async def __aenter__(self) -> "Consciousness":
+    async def __aenter__(self) -> t.Self:
         async with self._lock:
-            await self._start_new_session()
+            await self._ensure_active_session()
             return self
 
     async def __aexit__(self, *args) -> bool:
         async with self._lock:
-            return await self._sessions[-1].__aexit__(*args)
+            return await self._session.__aexit__(*args)
+
+    async def _ensure_active_session(self):
+        session_seqs = self._message_store.list_sessions(
+            self._assistant_id, self._consciousness_id)
+        if session_seqs:
+            active_session_seq = session_seqs[-1]
+            self._session = self._session_factory(active_session_seq)
+            await self._session.__aenter__()
+        else:
+            self._logger.warning(
+                f"Existing consciousness {self._consciousness_id} has no "
+                "sessions. Starting the first one.")
+            await self._message_store.create_session(
+                self._assistant_id, self._consciousness_id, 0)
+            self._session = self._session_factory(0)
+            await self._start_new_session()
 
     async def _start_new_session(self):
-        try:
-            return await self._sessions[-1].__aexit__(None, None, None)
-        except IndexError:
-            pass
-        session = self._session_factory()
-        self._sessions.append(session)
-        await session.__aenter__()
-        await session.add_system_message(
+        if self._session:
+            await self._session.__aexit__(None, None, None)
+        self._session = self._session_factory(0)
+        await self._session.__aenter__()
+        await self._session.add_system_message(
             self._read_message_file("init_system.md"))
 
     def _read_message_file(self, file_name: str) -> str:
@@ -212,16 +251,17 @@ class Consciousness:
         with file_path.open() as f:
             return f.read()
 
-    async def process_user_message(
-            self, message_content: str
-    ) -> cl_abc.AsyncGenerator[msg.AssistantMessage]:
-        """Process and respond to a user message in the current session."""
+    async def process_user_message(self, message_content: str):
+        """
+        Process a user message in the current session.
+
+        Adds the message to the active session and requests an assistant
+        response to it which.
+        """
         async with self._lock:
-            assistant_messages = self._sessions[0].process_user_message(
-                message_content)
-            async for assistant_message in assistant_messages:
-                yield assistant_message
+            await self._session.add_user_message(message_content)
+            await self._session.request_response()
 
     def subscribe(self) -> cl_abc.AsyncGenerator[msg.Message]:
         """Subscribe to messages in this consciousness."""
-        return self._sessions[-1].subscribe()
+        return self._session.subscribe()
