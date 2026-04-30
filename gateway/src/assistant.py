@@ -199,7 +199,14 @@ class Consciousness:
     """
     A consciousness of an assistant.
 
-    A consiousness manages the active session.
+    A consiousness manages the active session. It represents the continuation
+    of multiple sessions that maintain the assistant's personality and
+    knowledge. New sessions may be started (e.g. for compaction), but the
+    assistant should maintain their core memories and personality throughout.
+
+    Since sessions are essentially append-only, when the history has to be
+    changed for a compaction or change in system message, a new session is
+    started.
 
     A consciousness is an asynchronous context manager that ensures sessions
     are properly opened and closed.
@@ -271,6 +278,14 @@ class Consciousness:
 
 
 class Assistant:
+    """
+    An assistant.
+
+    An assistant represents a kind of personality for the user to interact
+    with, defined through the initial files that the assistant is shown in the
+    beginning. An assistant can have multiple consciousnesses, essentially
+    copies of the assistant that are independent.
+    """
     def __init__(
             self, assistant_id: uuid.UUID, *,
             message_store: store.AssistantMessageStore,
