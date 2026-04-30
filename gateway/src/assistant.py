@@ -98,6 +98,12 @@ class Session:
         """
         await self._add_message(msg.SystemMessage, message_content)
 
+    async def add_developer_message(self, message_content: str) -> None:
+        """
+        Add a developer message to the session, like add_system_message().
+        """
+        await self._add_message(msg.DeveloperMessage, message_content)
+
     async def add_user_message(self, message_content: str) -> None:
         """Add a user message to the session, like add_system_message()."""
         await self._add_message(msg.UserMessage, message_content)
@@ -241,7 +247,7 @@ class Consciousness:
             await self._session.__aexit__(None, None, None)
         self._session = self._make_session(0)
         await self._session.__aenter__()
-        await self._session.add_system_message(
+        await self._session.add_developer_message(
             await self._read_message_file("init_system.md"))
 
     async def _read_message_file(self, file_name: str) -> str:
