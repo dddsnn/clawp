@@ -89,26 +89,19 @@ class Session:
         await self._publisher.__aexit__(*args)
         return False
 
-    async def add_system_message(self, message_content: str) -> None:
+    async def add_simple_message(
+            self, message_class: t.Literal[msg.DeveloperMessage,
+                                           msg.SystemMessage, msg.UserMessage],
+            message_content: str) -> None:
         """
-        Add a system message to the session.
+        Add a message to the session.
 
-        This only adds the message, it doesn't make any API calls or return
+        Adds the message to the session and sets the relevant metadata. This
+        only adds the message, it doesn't make any API calls or return
         anything.
         """
-        await self._add_message(msg.SystemMessage, message_content)
-
-    async def add_developer_message(self, message_content: str) -> None:
-        """
-        Add a developer message to the session, like add_system_message().
-        """
-        await self._add_message(msg.DeveloperMessage, message_content)
-
-    async def add_user_message(self, message_content: str) -> None:
-        """Add a user message to the session, like add_system_message()."""
-        await self._add_message(msg.UserMessage, message_content)
-
-    async def _add_message(self, message_class, message_content):
+        assert message_class in (
+            msg.DeveloperMessage, msg.SystemMessage, msg.UserMessage)
         async with self._lock:
             if self._is_shut_down:
                 raise RuntimeError("shut down, can't process more messages")
@@ -254,8 +247,9 @@ class Consciousness:
             await self._session.__aexit__(None, None, None)
         self._session = self._make_session(0)
         await self._session.__aenter__()
-        await self._session.add_developer_message(
-            await self._read_message_file("init_system.md"))
+        await self._session.add_simple_message(
+            msg.DeveloperMessage, await
+            self._read_message_file("init_system.md"))
 
     async def _read_message_file(self, file_name: str) -> str:
         messages_dir = pathlib.Path(__file__).parent.parent / "messages"
@@ -269,7 +263,8 @@ class Consciousness:
         response to it which.
         """
         async with self._lock:
-            await self._session.add_user_message(message_content)
+            await self._session.add_simple_message(
+                msg.UserMessage, message_content)
             await self._session.request_response()
 
     def subscribe(self) -> cl_abc.AsyncGenerator[msg.Message]:
