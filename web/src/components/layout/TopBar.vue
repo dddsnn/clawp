@@ -23,19 +23,23 @@ import { useChatStore } from '../../stores/chatStore';
 import { Eye, EyeOff, WifiOff, Loader2 } from 'lucide-vue-next';
 
 const chatStore = useChatStore();
-const { visibility, connectionStatus } = storeToRefs(chatStore);
+const { visibility, connectionState } = storeToRefs(chatStore);
 </script>
 
 <template>
   <div class="flex flex-col z-10 sticky top-0">
     <!-- Connection Status Banner -->
-    <div v-if="connectionStatus === 'error' || connectionStatus === 'disconnected'" class="bg-red-500 text-white px-4 py-1.5 text-sm flex items-center justify-center space-x-2 shadow-inner">
+    <div v-if="connectionState.status === 'disconnected'" class="bg-slate-500 text-white px-4 py-1.5 text-sm flex items-center justify-center space-x-2 shadow-inner">
       <WifiOff class="w-4 h-4" />
-      <span>Disconnected from API. Reconnecting...</span>
+      <span>Disconnected from API.</span>
     </div>
-    <div v-else-if="connectionStatus === 'connecting'" class="bg-blue-500 text-white px-4 py-1.5 text-sm flex items-center justify-center space-x-2 shadow-inner">
+    <div v-else-if="connectionState.status === 'connecting' && connectionState.error" class="bg-red-500 text-white px-4 py-1.5 text-sm flex items-center justify-center space-x-2 shadow-inner">
       <Loader2 class="w-4 h-4 animate-spin" />
-      <span>Connecting to API...</span>
+      <span>Error: {{ connectionState.error }}. Reconnecting... (Attempt {{ connectionState.attempt }})</span>
+    </div>
+    <div v-else-if="connectionState.status === 'connecting'" class="bg-blue-500 text-white px-4 py-1.5 text-sm flex items-center justify-center space-x-2 shadow-inner">
+      <Loader2 class="w-4 h-4 animate-spin" />
+      <span>Connecting to API... (Attempt {{ connectionState.attempt }})</span>
     </div>
 
     <!-- Main Header -->

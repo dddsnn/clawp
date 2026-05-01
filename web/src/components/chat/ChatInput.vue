@@ -31,7 +31,7 @@ const store = useChatStore();
 const { textarea, input } = useTextareaAutosize();
 const isSubmitting = ref(false);
 
-const isConnected = computed(() => store.connectionStatus === 'connected');
+const isConnected = computed(() => store.connectionState.status === 'connected');
 
 const handleKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Enter' && !e.shiftKey) {

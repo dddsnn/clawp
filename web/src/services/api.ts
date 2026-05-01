@@ -33,8 +33,8 @@ export class ApiService {
 
   init() {
     this.isIntentionallyClosed = false;
-    this.store.setConnectionStatus('connecting');
-    this.startWebSocketConnection();
+    this.store.setConnectionState({ status: 'connecting', attempt: 1 });
+    this.connectWebSocket();
   }
 
   disconnect() {
@@ -43,10 +43,12 @@ export class ApiService {
       this.ws.close();
       this.ws = null;
     }
-    this.store.setConnectionStatus('disconnected');
+    this.store.setConnectionState({ status: 'disconnected' });
   }
 
-  private startWebSocketConnection() {
+  private connectWebSocket() {
+    let attemptCounter = 1;
+
     const connect = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}/api/v1/stream`;
@@ -55,7 +57,8 @@ export class ApiService {
 
       this.ws.onopen = async () => {
         console.log('WebSocket connected.');
-        this.store.setConnectionStatus('connected');
+        attemptCounter = 1;
+        this.store.setConnectionState({ status: 'connected' });
         // Fetch the entire history every time we connect (even on a
         // reconnect) to ensure we've not missed anything.
         await this.fetchHistory();
@@ -77,17 +80,41 @@ export class ApiService {
           return;
         }
 
-        console.log('WebSocket disconnected. Reconnecting in 3s...');
-        this.store.setConnectionStatus('connecting');
+        console.log(`WebSocket disconnected. Reconnecting in 3s... (Attempt ${attemptCounter})`);
 
+        // Preserve existing error message if present, otherwise clear it on close.
+        const currentState = this.store.connectionState;
+        const errorMessage = currentState.status === 'connecting' ? currentState.error : undefined;
+
+        this.store.setConnectionState({
+          status: 'connecting', 
+          attempt: attemptCounter,
+          error: errorMessage
+        });
+
+        attemptCounter++;
         setTimeout(() => connect(), 3000);
       };
 
       this.ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        this.store.setConnectionStatus('error');
-        // We don't reject here; we let onclose handle the rejection for the initial connection
-        // because onerror is always followed by onclose.
+        const currentState = this.store.connectionState;
+        const isNormalReconnection = currentState.status === 'connecting' && !currentState.error;
+        let errorMessage;
+        if (isNormalReconnection) {
+          // We were already reconnecting, this error is just letting us know
+          // that the server is unreachable, which shouldn't get logged as an
+          // error.
+          errorMessage = undefined;
+        } else {
+          // We were previously connected and an error has occured.
+          errorMessage = "Websocket connection error";
+          console.error('WebSocket error:', error);
+        }
+        this.store.setConnectionState({
+          status: 'connecting',
+          attempt: attemptCounter,
+          error: errorMessage
+        });
       };
     };
 
