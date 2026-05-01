@@ -25,24 +25,16 @@ const MessagesResponseSchema = z.array(MessageSchema);
 export class ApiService {
   private store: ReturnType<typeof useChatStore>;
   private ws: WebSocket | null = null;
-  private wsConnectionPromise: Promise<void> | null = null;
   private isIntentionallyClosed = false;
 
   constructor() {
     this.store = useChatStore();
   }
 
-  async init() {
+  init() {
     this.isIntentionallyClosed = false;
     this.store.setConnectionStatus('connecting');
-    try {
-      await this.connectWebSocket();
-      await this.fetchHistory();
-      this.store.setConnectionStatus('connected');
-    } catch (e) {
-      console.error("Failed to initialize API:", e);
-      this.store.setConnectionStatus('error');
-    }
+    this.startWebSocketConnection();
   }
 
   disconnect() {
@@ -54,19 +46,19 @@ export class ApiService {
     this.store.setConnectionStatus('disconnected');
   }
 
-  private connectWebSocket(): Promise<void> {
-    if (this.wsConnectionPromise) return this.wsConnectionPromise;
-
-    this.wsConnectionPromise = new Promise((resolve, reject) => {
+  private startWebSocketConnection() {
+    const connect = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}/api/v1/stream`;
-      
+
       this.ws = new WebSocket(wsUrl);
 
-      this.ws.onopen = () => {
-        console.log('WebSocket connected');
+      this.ws.onopen = async () => {
+        console.log('WebSocket connected.');
         this.store.setConnectionStatus('connected');
-        resolve();
+        // Fetch the entire history every time we connect (even on a
+        // reconnect) to ensure we've not missed anything.
+        await this.fetchHistory();
       };
 
       this.ws.onmessage = (event) => {
@@ -84,20 +76,22 @@ export class ApiService {
           console.log('WebSocket intentionally disconnected.');
           return;
         }
+
         console.log('WebSocket disconnected. Reconnecting in 3s...');
         this.store.setConnectionStatus('connecting');
-        this.wsConnectionPromise = null;
-        setTimeout(() => this.connectWebSocket(), 3000);
+
+        setTimeout(() => connect(), 3000);
       };
 
       this.ws.onerror = (error) => {
         console.error('WebSocket error:', error);
         this.store.setConnectionStatus('error');
-        reject(error);
+        // We don't reject here; we let onclose handle the rejection for the initial connection
+        // because onerror is always followed by onclose.
       };
-    });
+    };
 
-    return this.wsConnectionPromise;
+    connect();
   }
 
   private async fetchHistory() {
@@ -111,6 +105,8 @@ export class ApiService {
       const messages = MessagesResponseSchema.parse(rawData);
       
       for (const msg of messages) {
+        // The store's addMessage() is idempotent, it checks whether the
+        // message exists already before adding it.
         this.store.addMessage(msg);
       }
 
