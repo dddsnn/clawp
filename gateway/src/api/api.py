@@ -80,9 +80,10 @@ async def get_messages(
     return result
 
 
-@router.websocket("/stream")
+@router.websocket("/stream/{cachebuster_to_circumvent_reconnection_delay}")
 async def websocket_stream(
-        websocket: fastapi.WebSocket, assistant: dep.AssistantWs) -> None:
+        websocket: fastapi.WebSocket, assistant: dep.AssistantWs,
+        cachebuster_to_circumvent_reconnection_delay: str) -> None:
     """
     Open a websocket to stream messages.
 
@@ -107,6 +108,14 @@ async def websocket_stream(
     The websocket can receive new user messages which will be appended to the
     consciousness and prompt a response. These must be JSON objects conforming
     to the UserInputMessage model.
+
+    The cachebuster_to_circumvent_reconnection_delay path parameter is ignored
+    and can be any value. It is there to provide a mechanism to circumvent
+    Firefox's (and possibly other browsers') builtin websocket reconnection
+    delay. If connecting to a websocket fails repeatedly, Firefox will impose
+    delays that are outside the control of the application, leading to very
+    long annoying wait times. Adding a path parameter that can change between
+    requests circumvents this restriction.
     """
     assert len(assistant._consciousnesses) == 1
     consciousness_id = next(iter(assistant._consciousnesses))

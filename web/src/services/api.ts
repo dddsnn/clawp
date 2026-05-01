@@ -51,7 +51,11 @@ export class ApiService {
 
     const connect = () => {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/api/v1/stream`;
+      // Add a timestamp as a way to circumvent Firefox's websocket reconnection restrictions.
+      // After a few failed connection attempts, Firefox will delay further attempts in a way that
+      // is outside our control. Adding this path parameter (which the API ignores) circumvents
+      // that check.
+      const wsUrl = `${protocol}//${window.location.host}/api/v1/stream/${Date.now()}`;
 
       this.ws = new WebSocket(wsUrl);
 
