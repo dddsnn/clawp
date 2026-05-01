@@ -22,7 +22,6 @@ import functools as ft
 import json
 import logging
 import pathlib
-import textwrap
 import typing as t
 import uuid
 
@@ -33,6 +32,11 @@ import util
 
 if t.TYPE_CHECKING:
     import provider as prov
+
+
+async def _read_message_file(file_name: str) -> str:
+    messages_dir = pathlib.Path(__file__).parent.parent / "messages"
+    return await asyncio.to_thread(_read_file, messages_dir / file_name)
 
 
 def _read_file(path: pathlib.Path) -> str:
@@ -122,12 +126,10 @@ class Session:
         header_dict = dc.asdict(user_message.metadata)
         header_dict["time"] = (await user_message.time).format_iso(
             unit="millisecond")
-        message_content = textwrap.dedent(
-            f"""
-            Type: message metadata
-
-            This data pertains to the message immediately following this one
-            {json.dumps(header_dict)}""")
+        message_template = await _read_message_file(
+            "message_metadata.template")
+        message_content = message_template.format(
+            metadata_json=json.dumps(header_dict, separators=(',', ':')))
         message = self._make_message(msg.SystemMessage, message_content)
         await self._append_message(message)
 
@@ -272,21 +274,11 @@ class Consciousness:
         self._session = self._make_session(0)
         await self._session.__aenter__()
         await self._session.add_simple_message(
-            msg.DeveloperMessage, await
-            self._read_message_file("init_system.md"))
-        message_content = textwrap.dedent(
-            """
-            Type: system information
-
-            This is the start of a new session.
-            Reason: Initialization (this is the first session ever in your consciousness)."""
-        )
+            msg.DeveloperMessage, await _read_message_file("init_system.md"))
+        # Tell the assistant that this is a new session.
         await self._session.add_simple_message(
-            msg.SystemMessage, message_content)
-
-    async def _read_message_file(self, file_name: str) -> str:
-        messages_dir = pathlib.Path(__file__).parent.parent / "messages"
-        return await asyncio.to_thread(_read_file, messages_dir / file_name)
+            msg.SystemMessage, await
+            _read_message_file("session_initialization.template"))
 
     async def process_user_message(self, message_content: str):
         """
