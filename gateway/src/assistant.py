@@ -17,10 +17,12 @@
 
 import asyncio
 import collections.abc as cl_abc
+import dataclasses as dc
 import functools as ft
 import json
 import logging
 import pathlib
+import textwrap
 import typing as t
 import uuid
 
@@ -96,8 +98,10 @@ class Session:
         """
         Add a message to the session.
 
-        Adds the message to the session and sets the relevant metadata. This
-        only adds the message, it doesn't make any API calls or return
+        Adds the message to the session and sets the relevant metadata. For
+        user messages, also prepends the system message containing metadata.
+
+        This only adds the message, it doesn't make any API calls or return
         anything.
         """
         assert message_class in (
@@ -105,11 +109,29 @@ class Session:
         async with self._lock:
             if self._is_shut_down:
                 raise RuntimeError("shut down, can't process more messages")
-            await self._append_message(message_class, message_content)
+            message = self._make_message(message_class, message_content)
+            if isinstance(message, msg.UserMessage):
+                await self._add_metadata_for_user_message(message)
+            await self._append_message(message)
 
-    async def _append_message(self, message_factory, *args, **kwargs):
+    def _make_message(self, message_class, *args, **kwargs):
         metadata = msg.MessageMetadata(seq_in_session=len(self._messages))
-        message = message_factory(metadata, *args, **kwargs)
+        return message_class(metadata, *args, **kwargs)
+
+    async def _add_metadata_for_user_message(self, user_message):
+        header_dict = dc.asdict(user_message.metadata)
+        header_dict["time"] = (await user_message.time).format_iso(
+            unit="millisecond")
+        message_content = textwrap.dedent(
+            f"""
+            Type: message metadata
+
+            This data pertains to the message immediately following this one
+            {json.dumps(header_dict)}""")
+        message = self._make_message(msg.SystemMessage, message_content)
+        await self._append_message(message)
+
+    async def _append_message(self, message):
         self._messages.append(message)
         # First, let the store finish writing the message before we send it to
         # the user.
@@ -145,13 +167,15 @@ class Session:
                     result = await self._mcp_client.call_tool(
                         tool_call.function.name, arguments_dict)
                     await self._append_message(
-                        msg.ToolMessage, content=str(result.data),
-                        tool_call_id=tool_call.id)
+                        self._make_message(
+                            msg.ToolMessage, content=str(result.data),
+                            tool_call_id=tool_call.id))
                 except Exception as e:
                     await self._append_message(
-                        msg.ToolMessage,
-                        content="Error in tool call: " + str(e),
-                        tool_call_id=tool_call.id)
+                        self._make_message(
+                            msg.ToolMessage,
+                            content="Error in tool call: " + str(e),
+                            tool_call_id=tool_call.id))
                     self._logger.exception("Error in tool call.")
 
     async def _request_assistant_message(self):
@@ -161,7 +185,7 @@ class Session:
                 assistant_message_parts, self._messages,
                 self._mcp_client.tools.values()))
         assistant_message = await self._append_message(
-            msg.AssistantMessage, assistant_message_parts)
+            self._make_message(msg.AssistantMessage, assistant_message_parts))
         self._num_incomplete_messages += 1
         asyncio.create_task(
             self._wait_for_message_completion(

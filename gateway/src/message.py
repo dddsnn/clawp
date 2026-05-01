@@ -19,8 +19,6 @@ import abc
 import asyncio
 import collections.abc as cl_abc
 import dataclasses as dc
-import json
-import textwrap
 import typing as t
 
 import whenever as we
@@ -48,23 +46,6 @@ class Message(abc.ABC):
     @property
     def metadata(self) -> MessageMetadata:
         return self._metadata
-
-    @property
-    async def content_with_header(self) -> cl_abc.Awaitable[str]:
-        """
-        The content of the message with a metadata header.
-
-        The metadata prefix is meant to be served to the assistant, giving it
-        some information about the message (most notable the time).
-        """
-        header_dict = dc.asdict(self.metadata)
-        header_dict["time"] = (await self.time).format_iso(unit="millisecond")
-        return textwrap.dedent(
-            f"""
-            --- start message metadata ---
-            {json.dumps(header_dict)}
-            --- end message metadata ---
-            {await self.content}""")
 
     @property
     @abc.abstractmethod
