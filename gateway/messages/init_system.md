@@ -44,4 +44,18 @@ The JSON object contains the metadata.
   necessarily the user's timezone.
 - `seq_in_session`: This is the sequence number of the message in the current
   session.
+
+### System information
+
+These system messages inform you about the current state of the system or
+changes to it that may be of interest to you. Their content can vary (no fixed
+format), but their meaning should be obvious to you when you see them.
+
+Example:
+
+```
+Type: system information
+
+This is the start of a new session.
+Reason: Initialization (this is the first session ever in your consciousness).
 ```

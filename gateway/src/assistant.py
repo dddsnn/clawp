@@ -274,6 +274,15 @@ class Consciousness:
         await self._session.add_simple_message(
             msg.DeveloperMessage, await
             self._read_message_file("init_system.md"))
+        message_content = textwrap.dedent(
+            """
+            Type: system information
+
+            This is the start of a new session.
+            Reason: Initialization (this is the first session ever in your consciousness)."""
+        )
+        await self._session.add_simple_message(
+            msg.SystemMessage, message_content)
 
     async def _read_message_file(self, file_name: str) -> str:
         messages_dir = pathlib.Path(__file__).parent.parent / "messages"
