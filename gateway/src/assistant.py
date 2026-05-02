@@ -113,13 +113,20 @@ class Session:
         async with self._lock:
             if self._is_shut_down:
                 raise RuntimeError("shut down, can't process more messages")
-            message = self._make_message(message_class, message_content)
-            if isinstance(message, msg.UserMessage):
+            if message_class is msg.UserMessage:
+                # Offset the seq_in_session by one to make space for the
+                # metadata system message we need to add before it.
+                message = self._make_message(
+                    message_class, message_content, seq_in_session_offset=1)
                 await self._add_metadata_for_user_message(message)
+            else:
+                message = self._make_message(message_class, message_content)
             await self._append_message(message)
 
-    def _make_message(self, message_class, *args, **kwargs):
-        metadata = msg.MessageMetadata(seq_in_session=len(self._messages))
+    def _make_message(
+            self, message_class, *args, seq_in_session_offset=0, **kwargs):
+        metadata = msg.MessageMetadata(
+            seq_in_session=len(self._messages) + seq_in_session_offset)
         return message_class(metadata, *args, **kwargs)
 
     async def _add_metadata_for_user_message(self, user_message):
