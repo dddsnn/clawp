@@ -28,3 +28,4 @@ minversion = "9.0"
 addopts = ["-v", "-l"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+log_level = "debug"
