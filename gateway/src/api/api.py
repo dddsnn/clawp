@@ -124,7 +124,7 @@ async def websocket_stream(
         _send_websocket(websocket, assistant, consciousness_id))
     try:
         while True:
-            input_message = model.UserInputMessage.validate(
+            input_message = model.UserInputMessage.model_validate(
                 await websocket.receive_json())
             await assistant.process_user_message(
                 consciousness_id, input_message.content)
