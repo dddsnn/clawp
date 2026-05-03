@@ -17,13 +17,14 @@
 
 import asyncio
 import collections.abc as cl_abc
-import dataclasses as dc
 import functools as ft
 import json
 import logging
 import pathlib
 import typing as t
 import uuid
+
+import whenever as we
 
 import message as msg
 import store
@@ -124,15 +125,23 @@ class Session:
             await self._append_message(message)
 
     def _make_message(
-            self, message_class, *args, seq_in_session_offset=0, **kwargs):
+            self, message_class, *args, seq_in_session_offset=0,
+            set_time_to_now=True, **kwargs):
+        if set_time_to_now:
+            time = util.ImmediateValue(we.Instant.now())
+        else:
+            time = util.FutureValue()
         metadata = msg.MessageMetadata(
-            seq_in_session=len(self._messages) + seq_in_session_offset)
+            seq_in_session=len(self._messages) + seq_in_session_offset,
+            time=time)
         return message_class(metadata, *args, **kwargs)
 
     async def _add_metadata_for_user_message(self, user_message):
-        header_dict = dc.asdict(user_message.metadata)
-        header_dict["time"] = (await user_message.time).format_iso(
-            unit="millisecond")
+        time = await user_message.metadata.time.value
+        formatted_time = time.format_iso(unit="millisecond")
+        header_dict = {
+            "seq_in_session": user_message.metadata.seq_in_session,
+            "time": formatted_time}
         message_template = await _read_message_file(
             "message_metadata.template")
         message_content = message_template.format(
@@ -194,7 +203,9 @@ class Session:
                 assistant_message_parts, self._messages,
                 self._mcp_client.tools.values()))
         assistant_message = await self._append_message(
-            self._make_message(msg.AssistantMessage, assistant_message_parts))
+            self._make_message(
+                msg.AssistantMessage, assistant_message_parts,
+                set_time_to_now=False))
         self._num_incomplete_messages += 1
         asyncio.create_task(
             self._wait_for_message_completion(
@@ -204,9 +215,8 @@ class Session:
     async def _wait_for_message_completion(self, message_stream_task, message):
         try:
             await message_stream_task
-            # There is a separate task setting the message's time which we also
-            # have to wait for.
-            await message.time
+            # The message itself also has tasks that need to finish.
+            await message.wait_finalized()
         except (Exception, asyncio.CancelledError):
             self._logger.exception(
                 "Error streaming assistant message, the message may be empty "

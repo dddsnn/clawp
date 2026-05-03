@@ -75,7 +75,7 @@ async def get_messages(
     for message in consciousness._session._messages:
         if message.metadata.seq_in_session >= lt_seq:
             break
-        if await message.time >= ge_time:
+        if await message.metadata.time.value >= ge_time:
             result.append(await message.model)
     return result
 
@@ -198,7 +198,8 @@ async def _generate_message_chunks(
             yield mdl.WebsocketChunkAssistantMessageFragment(payload=fragment)
         yield mdl.WebsocketChunkAssistantMessageMarker(
             payload=mdl.StreamingMessageMarkerPartEnd())
-    end_metadata = mdl.EndMessageMetadata(time=await message.time)
+    end_metadata = mdl.EndMessageMetadata(
+        time=await message.metadata.time.value)
     yield mdl.WebsocketChunkAssistantMessageMarker(
         payload=mdl.StreamingMessageMarkerMessageEnd(metadata=end_metadata))
 

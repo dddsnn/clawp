@@ -15,10 +15,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+import abc
 import asyncio
 import collections as cl
 import collections.abc as cl_abc
 import itertools as it
+import typing as t
 
 
 class StreamableList:
@@ -223,3 +225,43 @@ class Publisher:
             self._subscriber_next_seq.values(), default=float("inf"))
         prune_count = sum(1 for se in self._history if se.seq < min_next_seq)
         del self._history[:prune_count]
+
+
+ValueType = t.TypeVar("ValueType")
+
+
+class Value(t.Generic[ValueType], metaclass=abc.ABCMeta):
+    """A value wrapper."""
+    @property
+    @abc.abstractmethod
+    async def value(self) -> ValueType:
+        raise NotImplementedError
+
+
+class ImmediateValue(Value):
+    """A value that is immediately available."""
+    def __init__(self, value):
+        self._value = value
+
+    @property
+    async def value(self) -> ValueType:
+        return self._value
+
+
+class FutureValue(Value):
+    """A value that will be available in the future."""
+    def __init__(self):
+        self._set_event = asyncio.Event()
+        self._value = None
+
+    @property
+    async def value(self) -> ValueType:
+        await self._set_event.wait()
+        return self._value
+
+    @value.setter
+    def value(self, value) -> None:
+        if self._set_event.is_set():
+            raise ValueError("value has already been set")
+        self._value = value
+        self._set_event.set()

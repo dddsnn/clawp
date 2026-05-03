@@ -29,6 +29,7 @@ import util
 MessageRole = t.Literal["assistant", "developer", "system", "tool", "user"]
 
 
+
 @dc.dataclass
 class MessageMetadata:
     seq_in_session: t.Optional[int]
@@ -37,6 +38,8 @@ class MessageMetadata:
 
     A None value means the message is transient and will disappear again.
     """
+    time: util.Value[we.Instant]
+    """The time the message was fully received."""
 
 
 class Message(abc.ABC):
@@ -46,12 +49,6 @@ class Message(abc.ABC):
     @property
     def metadata(self) -> MessageMetadata:
         return self._metadata
-
-    @property
-    @abc.abstractmethod
-    async def time(self) -> we.Instant:
-        """The time the message was fully received."""
-        raise NotImplementedError
 
     @property
     @abc.abstractmethod
@@ -73,7 +70,8 @@ class Message(abc.ABC):
     @property
     async def _metadata_model(self) -> mdl.MessageMetadata:
         return mdl.MessageMetadata(
-            time=await self.time, seq_in_session=self.metadata.seq_in_session)
+            seq_in_session=self.metadata.seq_in_session, time=await
+            self.metadata.time.value)
 
     @classmethod
     def from_model(cls, message_model: mdl.Message) -> t.Self:
@@ -92,18 +90,13 @@ class Message(abc.ABC):
 
 class SimpleMessage(Message):
     def __init__(
-            self, metadata: MessageMetadata, role: MessageRole, content: str,
-            time: t.Optional[we.Instant] = None) -> None:
+            self, metadata: MessageMetadata, role: MessageRole,
+            content: str) -> None:
         super().__init__(metadata)
         if role not in t.get_args(MessageRole):
             raise ValueError(f"invalid role {role}")
-        self._time = time or we.Instant.now()
         self._role = role
         self._content = content
-
-    @property
-    async def time(self) -> we.Instant:
-        return self._time
 
     @property
     def role(self) -> MessageRole:
@@ -114,17 +107,16 @@ class SimpleMessage(Message):
         return self._content
 
     @classmethod
-    def from_model(cls, message_model: mdl.Message) -> t.Self:
-        metadata = MessageMetadata(message_model.metadata.seq_in_session)
-        return cls(
-            metadata, message_model.content, message_model.metadata.time)
+    def from_model(cls, model: mdl.Message) -> t.Self:
+        metadata = MessageMetadata(
+            seq_in_session=model.metadata.seq_in_session,
+            time=util.ImmediateValue(model.metadata.time))
+        return cls(metadata, model.content)
 
 
 class SystemMessage(SimpleMessage):
-    def __init__(
-            self, metadata: MessageMetadata, content: str,
-            time: t.Optional[we.Instant] = None) -> None:
-        super().__init__(metadata, "system", content, time)
+    def __init__(self, metadata: MessageMetadata, content: str) -> None:
+        super().__init__(metadata, "system", content)
 
     @property
     async def model(self) -> mdl.SystemMessage:
@@ -133,10 +125,8 @@ class SystemMessage(SimpleMessage):
 
 
 class DeveloperMessage(SimpleMessage):
-    def __init__(
-            self, metadata: MessageMetadata, content: str,
-            time: t.Optional[we.Instant] = None) -> None:
-        super().__init__(metadata, "developer", content, time)
+    def __init__(self, metadata: MessageMetadata, content: str) -> None:
+        super().__init__(metadata, "developer", content)
 
     @property
     async def model(self) -> mdl.DeveloperMessage:
@@ -146,10 +136,8 @@ class DeveloperMessage(SimpleMessage):
 
 class UserMessage(SimpleMessage):
     """Message sent by the user."""
-    def __init__(
-            self, metadata: MessageMetadata, content: str,
-            time: t.Optional[we.Instant] = None) -> None:
-        super().__init__(metadata, "user", content, time)
+    def __init__(self, metadata: MessageMetadata, content: str) -> None:
+        super().__init__(metadata, "user", content)
 
     @property
     async def model(self) -> mdl.UserMessage:
@@ -160,9 +148,9 @@ class UserMessage(SimpleMessage):
 class ToolMessage(SimpleMessage):
     """Message sent by the system in response to a tool call."""
     def __init__(
-            self, metadata: MessageMetadata, content: str, tool_call_id: str,
-            time: t.Optional[we.Instant] = None) -> None:
-        super().__init__(metadata, "tool", content, time)
+            self, metadata: MessageMetadata, content: str,
+            tool_call_id: str) -> None:
+        super().__init__(metadata, "tool", content)
         self._tool_call_id = tool_call_id
 
     @property
@@ -176,11 +164,11 @@ class ToolMessage(SimpleMessage):
             tool_call_id=self.tool_call_id)
 
     @classmethod
-    def from_model(cls, message_model: mdl.ToolMessage) -> t.Self:
-        metadata = MessageMetadata(message_model.metadata.seq_in_session)
-        return cls(
-            metadata, message_model.content, message_model.tool_call_id,
-            message_model.metadata.time)
+    def from_model(cls, model: mdl.ToolMessage) -> t.Self:
+        metadata = MessageMetadata(
+            seq_in_session=model.metadata.seq_in_session,
+            time=util.ImmediateValue(model.metadata.time))
+        return cls(metadata, model.content, model.tool_call_id)
 
 
 @dc.dataclass
@@ -297,28 +285,33 @@ class AssistantMessage(Message):
     streamed as they arrive. Then, the fragments of the parts themselves can be
     streamed.
 
-    Since the time property should show the time the messages has fully
-    arrived, a task is started on construction that waits for the final part to
-    arrive and then sets the time. The property will block until then.
+    Since the time property of the message metadata should show the time the
+    message has fully arrived, a task is started on construction that waits for
+    the final part to arrive and then sets the time. The property on the
+    metadata will block until then. The task can be awaited as part of
+    wait_finalized().
     """
     def __init__(
-            self, metadata: MessageMetadata, parts: util.StreamableList,
-            time: t.Optional[we.Instant] = None) -> None:
+            self, metadata: MessageMetadata,
+            parts: util.StreamableList) -> None:
         super().__init__(metadata)
         self._parts = parts
-        self._time = time
         self._set_time_task = asyncio.create_task(self._set_time())
 
     async def _set_time(self):
-        await self._parts.wait_finalized()
-        self._time = self._time or we.Instant.now()
+        if isinstance(self.metadata.time, util.FutureValue):
+            # This message is streaming (and not loaded from storage), so we
+            # have to set the time in the metadata when the message has
+            # arrived.
+            await self._parts.wait_finalized()
+            self.metadata.time.value = we.Instant.now()
         self._set_time_task = None
 
-    @property
-    async def time(self) -> we.Instant:
+    async def wait_finalized(self) -> None:
+        """Wait until the message has finished streaming."""
+        await self._parts.wait_finalized()
         if self._set_time_task:
             await self._set_time_task
-        return self._time
 
     @property
     def role(self) -> t.Literal["assistant"]:
@@ -392,24 +385,24 @@ class AssistantMessage(Message):
             errors=errors)
 
     @classmethod
-    def from_model(cls, message_model: mdl.AssistantMessage) -> t.Self:
-        metadata = MessageMetadata(message_model.metadata.seq_in_session)
+    def from_model(cls, model: mdl.AssistantMessage) -> t.Self:
+        metadata = MessageMetadata(
+            seq_in_session=model.metadata.seq_in_session,
+            time=util.ImmediateValue(model.metadata.time))
         parts: list[AssistantMessagePart] = [
-            AssistantMessageTextPart("content", [message_model.content])]
-        if message_model.reasoning:
+            AssistantMessageTextPart("content", [model.content])]
+        if model.reasoning:
             parts.append(
-                AssistantMessageTextPart(
-                    "reasoning", [message_model.reasoning]))
+                AssistantMessageTextPart("reasoning", [model.reasoning]))
         tool_calls = []
-        for tool_call in message_model.tool_calls:
+        for tool_call in model.tool_calls:
             function = ToolCallFunction(
                 tool_call.function.name, tool_call.function.arguments)
             tool_calls.append(ToolCall(tool_call.id, function))
         if tool_calls:
             parts.append(AssistantMessageToolPart(tool_calls))
-        if message_model.errors:
+        if model.errors:
             parts.append(
-                AssistantMessageErrorPart([
-                    Exception(e) for e in message_model.errors]))
-        return cls(
-            metadata, util.StreamableList(parts), message_model.metadata.time)
+                AssistantMessageErrorPart([Exception(e)
+                                           for e in model.errors]))
+        return cls(metadata, util.StreamableList(parts))

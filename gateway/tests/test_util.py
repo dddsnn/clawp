@@ -384,3 +384,31 @@ class TestPublisher:
         assert subscription_task
         await subscription_task
         assert output == ["end"]
+
+
+class TestImmediateValue:
+    async def test_get_value(self):
+        v = util.ImmediateValue(5)
+        assert await v.value == 5
+
+
+class TestFutureValue:
+    async def test_set_and_get_value(self):
+        v = util.FutureValue()
+        v.value = 5
+        assert await v.value == 5
+
+    async def test_get_blocks_until_set(self):
+        v = util.FutureValue()
+        get_task = asyncio.create_task(v.value)
+        with pytest.raises(TimeoutError):
+            async with asyncio.timeout(10**-3):
+                await asyncio.shield(get_task)
+        v.value = 5
+        assert await v.value == 5
+
+    async def test_set_raises_if_already_set(self):
+        v = util.FutureValue()
+        v.value = 5
+        with pytest.raises(ValueError):
+            v.value = 5
