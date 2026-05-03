@@ -16,12 +16,12 @@ classifiers = [
     "Environment :: Web Environment",
 ]
 dependencies = [
-    "fastmcp>=3.1.1",
-    "fastapi>=0.135.3",
+    "fastmcp>=3.2.4, <4",
+    "fastapi>=0.136.1",
     "matrix-nio[e2e]>=0.25.2",
-    "openrouter>=0.7.11",
-    "pydantic>=2.12.5",
-    "uvicorn[standard]>=0.42.0",
+    "openrouter>=0.9.1, <0.10.0",
+    "pydantic>=2.13.3, <3",
+    "uvicorn[standard]>=0.46.0",
     "whenever>=0.10.0",
 ]
 
