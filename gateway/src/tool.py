@@ -15,8 +15,6 @@
 # You should have received a copy of the GNU Affero General Public License along
 # with clawp. If not, see <https://www.gnu.org/licenses/>.
 
-import collections.abc as cl_abc
-
 import fastmcp
 import fastmcp.tools
 
@@ -52,8 +50,7 @@ class Client:
         return self._tools
 
     async def call_tool(
-            self, name: str, *args,
-            **kwargs) -> cl_abc.Awaitable[fastmcp.tools.CallToolResult]:
+            self, name: str, *args, **kwargs) -> fastmcp.tools.CallToolResult:
         if name not in self._tools:
             raise ValueError(f"unknown tool {name}")
         return await self._client.call_tool(name, *args, **kwargs)

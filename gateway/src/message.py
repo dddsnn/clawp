@@ -23,7 +23,7 @@ import typing as t
 
 import whenever as we
 
-import model
+import model as mdl
 import util
 
 MessageRole = t.Literal["assistant", "developer", "system", "tool", "user"]
@@ -49,7 +49,7 @@ class Message(abc.ABC):
 
     @property
     @abc.abstractmethod
-    async def time(self) -> cl_abc.Awaitable[we.Instant]:
+    async def time(self) -> we.Instant:
         """The time the message was fully received."""
         raise NotImplementedError
 
@@ -60,33 +60,33 @@ class Message(abc.ABC):
 
     @property
     @abc.abstractmethod
-    async def content(self) -> cl_abc.Awaitable[str]:
+    async def content(self) -> str:
         """The full content of the message."""
         raise NotImplementedError
 
     @property
     @abc.abstractmethod
-    async def model(self) -> cl_abc.Awaitable[model.Message]:
+    async def model(self) -> mdl.Message:
         """Model representation of this message."""
         raise NotImplementedError
 
     @property
-    async def _metadata_model(self) -> model.MessageMetadata:
-        return model.MessageMetadata(
+    async def _metadata_model(self) -> mdl.MessageMetadata:
+        return mdl.MessageMetadata(
             time=await self.time, seq_in_session=self.metadata.seq_in_session)
 
     @classmethod
-    def from_model(cls, message_model: model.Message) -> t.Self:
-        if isinstance(message_model, model.AssistantMessage):
+    def from_model(cls, message_model: mdl.Message) -> t.Self:
+        if isinstance(message_model, mdl.AssistantMessage):
             return AssistantMessage.from_model(message_model)
-        elif isinstance(message_model, model.DeveloperMessage):
+        elif isinstance(message_model, mdl.DeveloperMessage):
             return DeveloperMessage.from_model(message_model)
-        elif isinstance(message_model, model.SystemMessage):
+        elif isinstance(message_model, mdl.SystemMessage):
             return SystemMessage.from_model(message_model)
-        elif isinstance(message_model, model.ToolMessage):
+        elif isinstance(message_model, mdl.ToolMessage):
             return ToolMessage.from_model(message_model)
         else:
-            assert isinstance(message_model, model.UserMessage)
+            assert isinstance(message_model, mdl.UserMessage)
             return UserMessage.from_model(message_model)
 
 
@@ -102,7 +102,7 @@ class SimpleMessage(Message):
         self._content = content
 
     @property
-    async def time(self) -> cl_abc.Awaitable[we.Instant]:
+    async def time(self) -> we.Instant:
         return self._time
 
     @property
@@ -110,11 +110,11 @@ class SimpleMessage(Message):
         return self._role
 
     @property
-    async def content(self) -> cl_abc.Awaitable[str]:
+    async def content(self) -> str:
         return self._content
 
     @classmethod
-    def from_model(cls, message_model: model.Message) -> t.Self:
+    def from_model(cls, message_model: mdl.Message) -> t.Self:
         metadata = MessageMetadata(message_model.metadata.seq_in_session)
         return cls(
             metadata, message_model.content, message_model.metadata.time)
@@ -127,8 +127,8 @@ class SystemMessage(SimpleMessage):
         super().__init__(metadata, "system", content, time)
 
     @property
-    async def model(self) -> cl_abc.Awaitable[model.SystemMessage]:
-        return model.SystemMessage(
+    async def model(self) -> mdl.SystemMessage:
+        return mdl.SystemMessage(
             metadata=await self._metadata_model, content=await self.content)
 
 
@@ -139,8 +139,8 @@ class DeveloperMessage(SimpleMessage):
         super().__init__(metadata, "developer", content, time)
 
     @property
-    async def model(self) -> cl_abc.Awaitable[model.DeveloperMessage]:
-        return model.DeveloperMessage(
+    async def model(self) -> mdl.DeveloperMessage:
+        return mdl.DeveloperMessage(
             metadata=await self._metadata_model, content=await self.content)
 
 
@@ -152,8 +152,8 @@ class UserMessage(SimpleMessage):
         super().__init__(metadata, "user", content, time)
 
     @property
-    async def model(self) -> cl_abc.Awaitable[model.UserMessage]:
-        return model.UserMessage(
+    async def model(self) -> mdl.UserMessage:
+        return mdl.UserMessage(
             metadata=await self._metadata_model, content=await self.content)
 
 
@@ -170,13 +170,13 @@ class ToolMessage(SimpleMessage):
         return self._tool_call_id
 
     @property
-    async def model(self) -> cl_abc.Awaitable[model.ToolMessage]:
-        return model.ToolMessage(
+    async def model(self) -> mdl.ToolMessage:
+        return mdl.ToolMessage(
             metadata=await self._metadata_model, content=await self.content,
             tool_call_id=self.tool_call_id)
 
     @classmethod
-    def from_model(cls, message_model: model.ToolMessage) -> t.Self:
+    def from_model(cls, message_model: mdl.ToolMessage) -> t.Self:
         metadata = MessageMetadata(message_model.metadata.seq_in_session)
         return cls(
             metadata, message_model.content, message_model.tool_call_id,
@@ -197,9 +197,9 @@ class ToolCall:
     function: ToolCallFunction = dc.field(default_factory=ToolCallFunction)
 
     @property
-    def model(self) -> model.ToolCall:
-        return model.ToolCall(
-            id=self.id, function=model.ToolCallFunction(
+    def model(self) -> mdl.ToolCall:
+        return mdl.ToolCall(
+            id=self.id, function=mdl.ToolCallFunction(
                 name=self.function.name, arguments=self.function.arguments))
 
 
@@ -225,10 +225,11 @@ class AssistantMessagePart:
     def type(self) -> VALID_TYPES:
         return self._type
 
-    async def append(self, fragment: str | ToolCall) -> None:
+    async def append(self, fragment: str | ToolCall | Exception) -> None:
         await self._fragments.append(fragment)
 
-    async def stream_fragments(self) -> cl_abc.AsyncGenerator[str | ToolCall]:
+    async def stream_fragments(
+            self) -> cl_abc.AsyncGenerator[str | ToolCall | Exception]:
         async for fragment in self._fragments.stream():
             yield fragment
 
@@ -314,7 +315,7 @@ class AssistantMessage(Message):
         self._set_time_task = None
 
     @property
-    async def time(self) -> cl_abc.Awaitable[we.Instant]:
+    async def time(self) -> we.Instant:
         if self._set_time_task:
             await self._set_time_task
         return self._time
@@ -324,12 +325,12 @@ class AssistantMessage(Message):
         return "assistant"
 
     @property
-    async def content(self) -> cl_abc.Awaitable[str]:
+    async def content(self) -> str:
         """The final content of the message (the one that "counts")."""
         return await self._concat_part_text("content")
 
     @property
-    async def reasoning(self) -> cl_abc.Awaitable[str]:
+    async def reasoning(self) -> str:
         """The reasoning of the assistant in producing the content."""
         return await self._concat_part_text("reasoning")
 
@@ -350,7 +351,7 @@ class AssistantMessage(Message):
                 yield fragment
 
     @property
-    async def tool_calls(self) -> cl_abc.Awaitable[list[ToolCall]]:
+    async def tool_calls(self) -> list[ToolCall]:
         """
         Tool calls made in this message.
 
@@ -363,7 +364,7 @@ class AssistantMessage(Message):
         return tool_calls
 
     @property
-    async def errors(self) -> cl_abc.Awaitable[list[Exception]]:
+    async def errors(self) -> list[Exception]:
         """
         Errors in this message.
 
@@ -382,18 +383,19 @@ class AssistantMessage(Message):
             yield part
 
     @property
-    async def model(self) -> cl_abc.Awaitable[model.AssistantMessage]:
+    async def model(self) -> mdl.AssistantMessage:
         tool_calls = [tool_call.model for tool_call in await self.tool_calls]
         errors = [f"Error: {exc}" for exc in await self.errors]
-        return model.AssistantMessage(
+        return mdl.AssistantMessage(
             metadata=await self._metadata_model, content=await self.content,
             reasoning=await self.reasoning, tool_calls=tool_calls,
             errors=errors)
 
     @classmethod
-    def from_model(cls, message_model: model.AssistantMessage) -> t.Self:
+    def from_model(cls, message_model: mdl.AssistantMessage) -> t.Self:
         metadata = MessageMetadata(message_model.metadata.seq_in_session)
-        parts = [AssistantMessageTextPart("content", [message_model.content])]
+        parts: list[AssistantMessagePart] = [
+            AssistantMessageTextPart("content", [message_model.content])]
         if message_model.reasoning:
             parts.append(
                 AssistantMessageTextPart(

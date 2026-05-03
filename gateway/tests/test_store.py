@@ -37,13 +37,14 @@ def con_id(id_int):
     return uuid.UUID(int=1 << 8 + id_int)
 
 
-def create_file(path: pathlib.Path, lines: list[str] = None) -> None:
+def create_file(path: pathlib.Path, lines: list[str] | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.open("x").close()
     write_file_content(path, lines)
 
 
-def write_file_content(path: pathlib.Path, lines: list[str] = None) -> None:
+def write_file_content(
+        path: pathlib.Path, lines: list[str] | None = None) -> None:
     if not path.parent.is_dir():
         path.parent.mkdir(parents=True)
     if not path.is_file():
@@ -424,6 +425,7 @@ class TestMessageStore:
             backup_dir_match = re.match(
                 f"backup_{base_dir.name}_version_(?P<version>[0-9]+)"
                 "_(?P<timestamp>.*)", backup_dirs[0].name)
+            assert backup_dir_match
             assert backup_dir_match.group("version") == "0"
             # Make sure the timestamp parses.
             we.Instant(backup_dir_match.group("timestamp"))

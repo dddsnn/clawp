@@ -30,7 +30,7 @@ import pydantic as pyd
 import whenever as we
 
 import message as msg
-import model
+import model as mdl
 
 
 class MessageStoreError(Exception):
@@ -161,7 +161,7 @@ class MessageStore:
 
     def _sync_append_message(
             self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
-            session_seq: int, message_model: model.Message):
+            session_seq: int, message_model: mdl.Message):
         path = self._session_path(assistant_id, consciousness_id, session_seq)
         try:
             f = self._open_files[path]
@@ -222,7 +222,7 @@ class MessageStore:
         for i, json_line in enumerate(json_lines):
             try:
                 message = msg.Message.from_model(
-                    model.MessageTypeAdapter.validate_json(json_line))
+                    mdl.MessageTypeAdapter.validate_json(json_line))
                 messages.append(message)
             except pyd.ValidationError:
                 # A truncated last line likely means the app crashed
@@ -347,6 +347,10 @@ class MessageStore:
             for consciousness_id in self.list_consciousnesses(assistant_id):
                 active_session_seq = self.get_active_session_seq(
                     assistant_id, consciousness_id)
+                if active_session_seq is None:
+                    self._logger.warning(
+                        f"No sessions for consciousness {consciousness_id}")
+                    continue
                 for seq in range(active_session_seq + 1):
                     session_file = self._session_path(
                         assistant_id, consciousness_id, seq)

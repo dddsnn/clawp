@@ -224,6 +224,7 @@ class TestPublisher:
     async def test_subscription_yields_new_elements(self):
         output = []
         stream_start_event = asyncio.Event()
+        subscription_task = None
         async with util.Publisher() as publisher:
             subscription_task = asyncio.create_task(
                 self.stream_into_list(publisher, output, stream_start_event))
@@ -232,12 +233,13 @@ class TestPublisher:
             await self.wait_for_list_content(output, [1])
             await publisher.append(2)
             await self.wait_for_list_content(output, [1, 2])
-
+        assert subscription_task
         await subscription_task
 
     async def test_subscription_doesnt_include_old_elements(self):
         output = []
         stream_start_event = asyncio.Event()
+        subscription_task = None
         async with util.Publisher() as publisher:
             await publisher.append("old")
             subscription_task = asyncio.create_task(
@@ -245,7 +247,7 @@ class TestPublisher:
             await stream_start_event.wait()
             await publisher.append("new")
             await self.wait_for_list_content(output, ["new"])
-
+        assert subscription_task
         await subscription_task
         assert output == ["new", "end"]
 
@@ -253,6 +255,7 @@ class TestPublisher:
         output_1, output_2 = [], []
         stream_start_event_1 = asyncio.Event()
         stream_start_event_2 = asyncio.Event()
+        subscription_task_1 = subscription_task_2 = None
         async with util.Publisher() as publisher:
             subscription_task_1 = asyncio.create_task(
                 self.stream_into_list(
@@ -267,6 +270,8 @@ class TestPublisher:
             await self.wait_for_list_content(output_1, ["a", "b"])
             await self.wait_for_list_content(output_2, ["b"])
 
+        assert subscription_task_1
+        assert subscription_task_2
         await subscription_task_1
         await subscription_task_2
         assert output_1 == ["a", "b", "end"]
@@ -278,7 +283,7 @@ class TestPublisher:
         slow_element_queue = asyncio.Queue()
         fast_start_event = asyncio.Event()
         slow_start_event = asyncio.Event()
-
+        slow_task = fast_task = None
         async with util.Publisher() as publisher:
             slow_task = asyncio.create_task(
                 self.stream_with_manual_continue(
@@ -306,7 +311,8 @@ class TestPublisher:
         async with continue_condition:
             continue_condition.notify_all()
         assert await slow_element_queue.get() == "end"
-
+        assert slow_task
+        assert fast_task
         await slow_task
         await fast_task
         assert fast_output == [1, 2, "end"]
@@ -315,7 +321,7 @@ class TestPublisher:
         continue_condition = asyncio.Condition()
         element_queue = asyncio.Queue()
         stream_start_event = asyncio.Event()
-
+        read_task = None
         async with util.Publisher() as publisher:
             read_task = asyncio.create_task(
                 self.stream_with_manual_continue(
@@ -339,7 +345,7 @@ class TestPublisher:
             async with continue_condition:
                 continue_condition.notify_all()
             await self.wait_until(lambda: len(publisher._history) == 1)
-
+        assert read_task
         await read_task
 
     async def test_cleans_up_on_subscriber_exit(self):
@@ -367,6 +373,7 @@ class TestPublisher:
     async def test_subscriptions_exit_on_aexit(self):
         output = []
         stream_start_event = asyncio.Event()
+        subscription_task = None
         async with util.Publisher() as publisher:
             subscription_task = asyncio.create_task(
                 self.stream_into_list(publisher, output, stream_start_event))
@@ -374,6 +381,6 @@ class TestPublisher:
             with pytest.raises(TimeoutError):
                 async with asyncio.timeout(10**-3):
                     await asyncio.shield(subscription_task)
-
+        assert subscription_task
         await subscription_task
         assert output == ["end"]

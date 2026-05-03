@@ -337,6 +337,7 @@ class Assistant:
                 await asyncio.wait(exit_tasks, timeout=120)
             except Exception:
                 self._logger.exception("Error shutting down consciousnesses.")
+        return False
 
     def _make_consciousness(
             self, consciousness_id: uuid.UUID) -> Consciousness:
