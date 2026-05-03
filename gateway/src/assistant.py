@@ -151,10 +151,11 @@ class Session:
 
     async def _append_message(self, message):
         self._messages.append(message)
-        # First, let the store finish writing the message before we send it to
-        # the user.
-        await self._message_store.append_message(message)
+        # First, publish the message, so clients streaming it can get it before
+        # it has fully arrived. Only then append it to the message store, which
+        # requires the message to have finished streaming.
         await self._publisher.append(message)
+        await self._message_store.append_message(message)
         return message
 
     async def request_response(self) -> None:
