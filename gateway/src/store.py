@@ -367,7 +367,7 @@ class MessageStore:
             yield path
 
     def get_assistant_message_store(
-            self, assistant_id: uuid.UUID) -> AssistantMessageStore:
+            self, assistant_id: uuid.UUID) -> "AssistantMessageStore":
         """Get a message store specific to an assistant."""
         return AssistantMessageStore(assistant_id, self)
 
@@ -542,7 +542,7 @@ class AssistantMessageStore:
             self._assistant_id, consciousness_id)
 
     def get_consciousness_message_store(
-            self, consciousness_id: uuid.UUID) -> ConsciousnessMessageStore:
+            self, consciousness_id: uuid.UUID) -> "ConsciousnessMessageStore":
         """Get a message store specific to a consciousness."""
         return ConsciousnessMessageStore(
             self._assistant_id, consciousness_id, self._message_store)
@@ -577,7 +577,7 @@ class ConsciousnessMessageStore:
             self._assistant_id, self._consciousness_id)
 
     def get_session_message_store(
-            self, session_seq: int) -> SessionMessageStore:
+            self, session_seq: int) -> "SessionMessageStore":
         """Get a message store specific to an consciousness."""
         return SessionMessageStore(
             self._assistant_id, self._consciousness_id, session_seq,
