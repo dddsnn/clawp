@@ -58,6 +58,10 @@ class Session:
     The session is an asynchronous context manager that loads existing messages
     from the store on aenter and also ensures all assistant messages have
     finished streaming when it shuts down.
+
+    A session can only handle one request at a time (adding messages or
+    requesting a response). Concurrent calls will block until the current one
+    is done.
     """
     def __init__(
             self, session_seq: int, *,
@@ -69,10 +73,8 @@ class Session:
         self._provider = provider
         self._mcp_client = mcp_client
         self._messages = None
-        self._is_shut_down = False
-        self._num_incomplete_messages = 0
-        self._message_wait_condition = asyncio.Condition()
         self._lock = asyncio.Lock()
+        self._is_shut_down = False
         self._publisher = util.Publisher()
 
     async def __aenter__(self) -> t.Self:
@@ -82,18 +84,10 @@ class Session:
 
     async def __aexit__(self, *args) -> bool:
         async with self._lock:
+            # Now that we've acquired the lock, we can be sure all message
+            # streaming is done. Prevent any subsequent requests by setting the
+            # shutdown flag.
             self._is_shut_down = True
-            if self._num_incomplete_messages:
-                self._logger.info(
-                    f"Waiting for {self._num_incomplete_messages} messages to "
-                    "finish streaming before shutdown.")
-            try:
-                async with asyncio.timeout(120), self._message_wait_condition:
-                    await self._message_wait_condition.wait_for(
-                        lambda: self._num_incomplete_messages == 0)
-            except asyncio.TimeoutError:
-                self._logger.warning(
-                    "Timeout waiting for incomplete messages.")
         await self._publisher.__aexit__(*args)
         return False
 
@@ -183,62 +177,46 @@ class Session:
         async with self._lock:
             if self._is_shut_down:
                 raise RuntimeError("shut down, can't make requests")
-            await self._request_assistant_messages()
-
-    async def _request_assistant_messages(self):
-        while True:
-            assistant_message = await self._request_assistant_message()
-            if not await assistant_message.tool_calls:
-                return
-            for tool_call in await assistant_message.tool_calls:
-                self._logger.debug(f"Handling tool call {tool_call}.")
-                try:
-                    arguments_dict = json.loads(tool_call.function.arguments)
-                    result = await self._mcp_client.call_tool(
-                        tool_call.function.name, arguments_dict)
-                    await self._append_message(
-                        self._make_message(
-                            msg.ToolMessage, content=str(result.data),
-                            tool_call_id=tool_call.id,
-                            channel=mdl.SystemChannelDescriptor()))
-                except Exception as e:
-                    await self._append_message(
-                        self._make_message(
-                            msg.ToolMessage,
-                            content="Error in tool call: " + str(e),
-                            tool_call_id=tool_call.id,
-                            channel=mdl.SystemChannelDescriptor()))
-                    self._logger.exception("Error in tool call.")
+            do_request = True
+            while do_request:
+                assistant_message = await self._request_assistant_message()
+                # Wait for the message to completely arrive before handling
+                # tool calls etc.
+                await assistant_message.wait_finalized()
+                do_request = await self._handle_tool_calls(assistant_message)
 
     async def _request_assistant_message(self):
-        assistant_message_parts = util.StreamableList()
-        message_stream_task = (
-            await self._provider.stream_assistant_message(
-                assistant_message_parts, self._messages,
-                self._mcp_client.tools.values()))
-        assistant_message = await self._append_message(
+        parts = util.StreamableList()
+        await self._provider.stream_assistant_message(
+            parts, self._messages, self._mcp_client.tools.values())
+        return await self._append_message(
             self._make_message(
-                msg.AssistantMessage, assistant_message_parts,
-                set_time_to_now=False))
-        self._num_incomplete_messages += 1
-        asyncio.create_task(
-            self._wait_for_message_completion(
-                message_stream_task, assistant_message))
-        return assistant_message
+                msg.AssistantMessage, parts, set_time_to_now=False))
 
-    async def _wait_for_message_completion(self, message_stream_task, message):
-        try:
-            await message_stream_task
-            # The message itself also has tasks that need to finish.
-            await message.wait_finalized()
-        except (Exception, asyncio.CancelledError):
-            self._logger.exception(
-                "Error streaming assistant message, the message may be empty "
-                "or incomplete.")
-        finally:
-            self._num_incomplete_messages -= 1
-            async with self._message_wait_condition:
-                self._message_wait_condition.notify()
+    async def _handle_tool_calls(
+            self, assistant_message: msg.AssistantMessage) -> bool:
+        if not await assistant_message.tool_calls:
+            return False
+        for tool_call in await assistant_message.tool_calls:
+            self._logger.debug(f"Handling tool call {tool_call}.")
+            try:
+                arguments_dict = json.loads(tool_call.function.arguments)
+                result = await self._mcp_client.call_tool(
+                    tool_call.function.name, arguments_dict)
+                await self._append_message(
+                    self._make_message(
+                        msg.ToolMessage, content=str(result.data),
+                        tool_call_id=tool_call.id,
+                        channel=mdl.SystemChannelDescriptor()))
+            except Exception as e:
+                await self._append_message(
+                    self._make_message(
+                        msg.ToolMessage,
+                        content="Error in tool call: " + str(e),
+                        tool_call_id=tool_call.id,
+                        channel=mdl.SystemChannelDescriptor()))
+                self._logger.exception("Error in tool call.")
+        return True
 
     def subscribe(self) -> cl_abc.AsyncGenerator[msg.Message]:
         """Subscribe to messages in this session."""
