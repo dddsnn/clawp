@@ -105,3 +105,7 @@ is HIGHLY RECOMMENDED that you always include a header even if it is technically
 unnecessary, to avoid confusion or erroneous delivery, and to build a good
 habit. The way the system decides that the header is missing is if the first
 characters of your response aren't the literal string `channel:`.
+
+One exception where you should leave out the channel header is if your message
+has no content (e.g. because you are just making tool calls). In that case,
+don't send anything, not even the header.

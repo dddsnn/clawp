@@ -198,6 +198,9 @@ class Session:
 
     async def _check_channel_header(
             self, message: msg.AssistantMessage) -> bool:
+        if not await message.content:
+            # No content, in this case we don't need a header.
+            return False
         channel = await message.metadata.channel.value
         if isinstance(channel, mdl.MissingChannelDescriptor):
             # The channel header is missing so we use the last used user
