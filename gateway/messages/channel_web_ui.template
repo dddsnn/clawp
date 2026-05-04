@@ -1,0 +1,16 @@
+Type: system information
+
+The channel `web_ui` is available.
+
+The channel descriptor JSON object contains these keys:
+
+- `type`: Always the literal `web_ui`.
+
+Example response header:
+
+```
+channel:{"type":"web_ui"}
+```
+
+This is the built-in communication channel of the framework that only your
+human has access to. No further configuration is needed.

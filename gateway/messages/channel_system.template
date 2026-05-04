@@ -1,0 +1,21 @@
+Type: system information
+
+The channel `system` is available.
+
+The channel descriptor JSON object contains these keys:
+
+- `type`: Always the literal `system`.
+
+Example response header:
+
+```
+channel:{"type":"system"}
+```
+
+This is a special channel that allows you to send messages to the system
+instead of a human.
+
+An example where this can be useful is if the system tells you that message
+delivery resulted in an error. If you decide there is no point in trying again,
+you can just tell the system "Ok, I understand." Your responses will be logged
+internally and not shown to a human directly.

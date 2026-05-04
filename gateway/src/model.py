@@ -30,6 +30,31 @@ class BaseModel(pyd.BaseModel):
     pass
 
 
+ChannelType = t.Literal["last_used_user_channel", "system", "web_ui"]
+
+
+class BaseChannelDescriptor(pyd.BaseModel):
+    type: ChannelType
+
+
+class LastUsedChannelDescriptor(BaseChannelDescriptor):
+    type: t.Literal["last_used_user_channel"] = "last_used_user_channel"
+
+
+class SystemChannelDescriptor(BaseChannelDescriptor):
+    type: t.Literal["system"] = "system"
+
+
+class WebUiChannelDescriptor(BaseChannelDescriptor):
+    type: t.Literal["web_ui"] = "web_ui"
+
+
+ChannelDescriptor = t.Annotated[SystemChannelDescriptor
+                                | WebUiChannelDescriptor,
+                                pyd.Field(discriminator="type")]
+ChannelDescriptorTypeAdapter = pyd.TypeAdapter(ChannelDescriptor)
+
+
 class StartMessageMetadata(BaseModel):
     """Metadata available when a message is first created."""
     seq_in_session: t.Optional[int]
@@ -38,6 +63,7 @@ class StartMessageMetadata(BaseModel):
 class EndMessageMetadata(BaseModel):
     """Metadata available when a message is fully received."""
     time: Iso8601Millis
+    channel: t.Optional[ChannelDescriptor]
 
 
 class MessageMetadata(StartMessageMetadata, EndMessageMetadata):

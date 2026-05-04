@@ -27,6 +27,7 @@ import uuid
 import whenever as we
 
 import message as msg
+import model as mdl
 import store
 import tool
 import util
@@ -99,7 +100,7 @@ class Session:
     async def add_simple_message(
             self, message_class: t.Literal[msg.DeveloperMessage,
                                            msg.SystemMessage, msg.UserMessage],
-            message_content: str) -> None:
+            message_content: str, channel: mdl.ChannelDescriptor) -> None:
         """
         Add a message to the session.
 
@@ -118,35 +119,45 @@ class Session:
                 # Offset the seq_in_session by one to make space for the
                 # metadata system message we need to add before it.
                 message = self._make_message(
-                    message_class, message_content, seq_in_session_offset=1)
+                    message_class, message_content, seq_in_session_offset=1,
+                    channel=channel)
                 await self._add_metadata_for_user_message(message)
             else:
-                message = self._make_message(message_class, message_content)
+                message = self._make_message(
+                    message_class, message_content, channel=channel)
             await self._append_message(message)
 
     def _make_message(
             self, message_class, *args, seq_in_session_offset=0,
-            set_time_to_now=True, **kwargs):
+            set_time_to_now=True, channel=None, **kwargs):
         if set_time_to_now:
             time = util.ImmediateValue(we.Instant.now())
         else:
             time = util.FutureValue()
+        if channel:
+            channel = util.ImmediateValue(channel)
+        else:
+            channel = util.FutureValue()
         metadata = msg.MessageMetadata(
             seq_in_session=len(self._messages) + seq_in_session_offset,
-            time=time)
+            time=time, channel=channel)
         return message_class(metadata, *args, **kwargs)
 
     async def _add_metadata_for_user_message(self, user_message):
         time = await user_message.metadata.time.value
         formatted_time = time.format_iso(unit="millisecond")
+        channel = await user_message.metadata.channel.value
         header_dict = {
             "seq_in_session": user_message.metadata.seq_in_session,
-            "time": formatted_time}
+            "time": formatted_time,
+            "channel": channel.model_dump(),}
         message_template = await _read_message_file(
             "message_metadata.template")
         message_content = message_template.format(
             metadata_json=json.dumps(header_dict, separators=(',', ':')))
-        message = self._make_message(msg.SystemMessage, message_content)
+        message = self._make_message(
+            msg.SystemMessage, message_content,
+            channel=mdl.SystemChannelDescriptor())
         await self._append_message(message)
 
     async def _append_message(self, message):
@@ -188,13 +199,15 @@ class Session:
                     await self._append_message(
                         self._make_message(
                             msg.ToolMessage, content=str(result.data),
-                            tool_call_id=tool_call.id))
+                            tool_call_id=tool_call.id,
+                            channel=mdl.SystemChannelDescriptor()))
                 except Exception as e:
                     await self._append_message(
                         self._make_message(
                             msg.ToolMessage,
                             content="Error in tool call: " + str(e),
-                            tool_call_id=tool_call.id))
+                            tool_call_id=tool_call.id,
+                            channel=mdl.SystemChannelDescriptor()))
                     self._logger.exception("Error in tool call.")
 
     async def _request_assistant_message(self):
@@ -292,13 +305,24 @@ class Consciousness:
         self._session = self._make_session(0)
         await self._session.__aenter__()
         await self._session.add_simple_message(
-            msg.DeveloperMessage, await _read_message_file("init_system.md"))
+            msg.DeveloperMessage, await _read_message_file("init_system.md"),
+            mdl.SystemChannelDescriptor())
         # Tell the assistant that this is a new session.
         await self._session.add_simple_message(
             msg.SystemMessage, await
-            _read_message_file("session_initialization.template"))
+            _read_message_file("session_initialization.template"),
+            mdl.SystemChannelDescriptor())
+        await self._session.add_simple_message(
+            msg.SystemMessage, await
+            _read_message_file("channel_web_ui.template"),
+            mdl.SystemChannelDescriptor())
+        await self._session.add_simple_message(
+            msg.SystemMessage, await
+            _read_message_file("channel_system.template"),
+            mdl.SystemChannelDescriptor())
 
-    async def process_user_message(self, message_content: str):
+    async def process_user_message(
+            self, message_content: str, channel: mdl.ChannelDescriptor):
         """
         Process a user message in the current session.
 
@@ -307,7 +331,7 @@ class Consciousness:
         """
         async with self._lock:
             await self._session.add_simple_message(
-                msg.UserMessage, message_content)
+                msg.UserMessage, message_content, channel)
             await self._session.request_response()
 
     def subscribe(self) -> cl_abc.AsyncGenerator[msg.Message]:
@@ -374,10 +398,11 @@ class Assistant:
             await consciousness.__aenter__())
 
     async def process_user_message(
-            self, consciousness_id: uuid.UUID, message_content: str):
+            self, consciousness_id: uuid.UUID, message_content: str,
+            channel: mdl.ChannelDescriptor):
         """Process and respond to a user message in the consciousness."""
         consciousness = self._consciousnesses[consciousness_id]
-        await consciousness.process_user_message(message_content)
+        await consciousness.process_user_message(message_content, channel)
 
     def subscribe(
             self,

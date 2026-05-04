@@ -127,7 +127,8 @@ async def websocket_stream(
             input_message = mdl.UserInputMessage.model_validate(
                 await websocket.receive_json())
             await assistant.process_user_message(
-                consciousness_id, input_message.content)
+                consciousness_id, input_message.content,
+                mdl.WebUiChannelDescriptor())
     except fastapi.WebSocketDisconnect:
         # The client closed the connection.
         return
@@ -199,7 +200,8 @@ async def _generate_message_chunks(
         yield mdl.WebsocketChunkAssistantMessageMarker(
             payload=mdl.StreamingMessageMarkerPartEnd())
     end_metadata = mdl.EndMessageMetadata(
-        time=await message.metadata.time.value)
+        time=await message.metadata.time.value, channel=await
+        message.metadata.channel.value)
     yield mdl.WebsocketChunkAssistantMessageMarker(
         payload=mdl.StreamingMessageMarkerMessageEnd(metadata=end_metadata))
 

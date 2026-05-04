@@ -19,6 +19,7 @@ import abc
 import asyncio
 import collections.abc as cl_abc
 import dataclasses as dc
+import logging
 import typing as t
 
 import whenever as we
@@ -40,6 +41,8 @@ class MessageMetadata:
     """
     time: util.Value[we.Instant]
     """The time the message was fully received."""
+    channel: util.Value[mdl.ChannelDescriptor]
+    """The channel the message is on."""
 
 
 class Message(abc.ABC):
@@ -70,8 +73,10 @@ class Message(abc.ABC):
     @property
     async def _metadata_model(self) -> mdl.MessageMetadata:
         return mdl.MessageMetadata(
-            seq_in_session=self.metadata.seq_in_session, time=await
-            self.metadata.time.value)
+            seq_in_session=self.metadata.seq_in_session,
+            time=await self.metadata.time.value,
+            channel=await self.metadata.channel.value,
+        )
 
     @classmethod
     def from_model(cls, message_model: mdl.Message) -> t.Self:
@@ -86,6 +91,14 @@ class Message(abc.ABC):
         else:
             assert isinstance(message_model, mdl.UserMessage)
             return UserMessage.from_model(message_model)
+
+    @classmethod
+    def _metadata_from_model(cls, model: mdl.Message) -> MessageMetadata:
+        return MessageMetadata(
+            seq_in_session=model.metadata.seq_in_session,
+            time=util.ImmediateValue(model.metadata.time),
+            channel=util.ImmediateValue(model.metadata.channel),
+        )
 
 
 class SimpleMessage(Message):
@@ -108,10 +121,7 @@ class SimpleMessage(Message):
 
     @classmethod
     def from_model(cls, model: mdl.Message) -> t.Self:
-        metadata = MessageMetadata(
-            seq_in_session=model.metadata.seq_in_session,
-            time=util.ImmediateValue(model.metadata.time))
-        return cls(metadata, model.content)
+        return cls(cls._metadata_from_model(model), model.content)
 
 
 class SystemMessage(SimpleMessage):
@@ -165,10 +175,8 @@ class ToolMessage(SimpleMessage):
 
     @classmethod
     def from_model(cls, model: mdl.ToolMessage) -> t.Self:
-        metadata = MessageMetadata(
-            seq_in_session=model.metadata.seq_in_session,
-            time=util.ImmediateValue(model.metadata.time))
-        return cls(metadata, model.content, model.tool_call_id)
+        return cls(
+            cls._metadata_from_model(model), model.content, model.tool_call_id)
 
 
 @dc.dataclass
@@ -285,33 +293,88 @@ class AssistantMessage(Message):
     streamed as they arrive. Then, the fragments of the parts themselves can be
     streamed.
 
-    Since the time property of the message metadata should show the time the
-    message has fully arrived, a task is started on construction that waits for
-    the final part to arrive and then sets the time. The property on the
-    metadata will block until then. The task can be awaited as part of
-    wait_finalized().
+    Some of the message's metadata isn't immediately available, since part or
+    all of it needs to be parsed first. For this reason, the constructor starts
+    tasks to set this data once it is available. The properties on the metadata
+    will block until then. The tasks are awaited as part of wait_finalized().
     """
+    _logger = logging.getLogger("AssistantMessage")
+
     def __init__(
             self, metadata: MessageMetadata,
             parts: util.StreamableList) -> None:
         super().__init__(metadata)
         self._parts = parts
-        self._set_time_task = asyncio.create_task(self._set_time())
+        self._deferred_set_tasks = {
+            asyncio.create_task(self._deferred_set(self._set_time())),
+            asyncio.create_task(self._deferred_set(self._set_channel()))}
+
+    async def _deferred_set(self, setter):
+        try:
+            await setter
+        except Exception:
+            self._logger.exception(f"Error running {setter}.")
+        self._deferred_set_tasks.discard(asyncio.current_task())
+        if not self._deferred_set_tasks:
+            self._deferred_set_tasks = None
 
     async def _set_time(self):
-        if isinstance(self.metadata.time, util.FutureValue):
-            # This message is streaming (and not loaded from storage), so we
-            # have to set the time in the metadata when the message has
-            # arrived.
-            await self._parts.wait_finalized()
-            self.metadata.time.value = we.Instant.now()
-        self._set_time_task = None
+        if isinstance(self.metadata.time, util.ImmediateValue):
+            # The time is already available (probably loaded from storage), no
+            # need to do anything.
+            return
+        assert isinstance(self.metadata.time, util.FutureValue)
+        await self._parts.wait_finalized()
+        self.metadata.time.value = we.Instant.now()
+
+    async def _set_channel(self):
+        if isinstance(self.metadata.channel, util.ImmediateValue):
+            # The channel is already available (probably loaded from storage),
+            # no need to do anything.
+            return
+        assert isinstance(self.metadata.channel, util.FutureValue)
+        async for part in self.stream_parts():
+            if (not isinstance(part, AssistantMessageTextPart)
+                    or part.type != "content"):
+                continue
+            channel = await self._parse_channel_from_content_fragments(
+                part.stream_fragments())
+            self.metadata.channel.value = channel
+            return
+
+    async def _parse_channel_from_content_fragments(self, fragments):
+        content = ""
+        async for fragment in fragments:
+            content += fragment
+            # First, make sure the message starts with "channel:", indicating
+            # the channel descriptor header.
+            if not "channel:".startswith(content[:8]):
+                self._logger.warning(
+                    'No channel descriptor found (missing "channel:" prefix).')
+                return mdl.LastUsedChannelDescriptor()
+            # Now wait for the next newline. Anything before it should be our
+            # JSON object.
+            try:
+                newline_index = content.index("\n")
+            except ValueError:
+                continue
+            channel_descriptor_json = content[:newline_index].removeprefix(
+                "channel:")
+            try:
+                return mdl.ChannelDescriptorTypeAdapter.validate_json(
+                    channel_descriptor_json)
+            except Exception:
+                self._logger.exception(
+                    "Error when parsing channel descriptor.")
+                return mdl.LastUsedChannelDescriptor()
+        self._logger.warning("No channel descriptor found (too short).")
+        return mdl.LastUsedChannelDescriptor()
 
     async def wait_finalized(self) -> None:
         """Wait until the message has finished streaming."""
         await self._parts.wait_finalized()
-        if self._set_time_task:
-            await self._set_time_task
+        for task in self._deferred_set_tasks or []:
+            await task
 
     @property
     def role(self) -> t.Literal["assistant"]:
@@ -386,9 +449,6 @@ class AssistantMessage(Message):
 
     @classmethod
     def from_model(cls, model: mdl.AssistantMessage) -> t.Self:
-        metadata = MessageMetadata(
-            seq_in_session=model.metadata.seq_in_session,
-            time=util.ImmediateValue(model.metadata.time))
         parts: list[AssistantMessagePart] = [
             AssistantMessageTextPart("content", [model.content])]
         if model.reasoning:
@@ -405,4 +465,4 @@ class AssistantMessage(Message):
             parts.append(
                 AssistantMessageErrorPart([Exception(e)
                                            for e in model.errors]))
-        return cls(metadata, util.StreamableList(parts))
+        return cls(cls._metadata_from_model(model), util.StreamableList(parts))
