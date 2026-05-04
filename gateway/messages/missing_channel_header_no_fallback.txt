@@ -1,0 +1,20 @@
+Type: system information
+
+In your previous message, you neglected to specify a channel header. No
+fallback channel could be determined, which means your message was not
+delivered (though your human will be able to find it in the debug logs).
+
+Please take appropriate action, e.g. retrying the message with a proper channel
+header, or simply acknowledging this error message on the system channel.
+
+As a reminder, a well-formed channel header to send your message to the
+framework's built-in web UI looks like this:
+
+```
+channel:{"type":"web_ui"}
+```
+
+The header must be the first line of your message.
+
+In the future, it is HIGHLY RECOMMENDED that you always specify a channel
+header to avoid potential confusion.

@@ -339,8 +339,11 @@ class AssistantMessage(Message):
                 continue
             channel = await self._parse_channel_from_content_fragments(
                 part.stream_fragments())
-            self.metadata.channel.value = channel
-            return
+            break
+        else:
+            self._logger.warning("No channel descriptor found (no content).")
+            channel = mdl.MissingChannelDescriptor()
+        self.metadata.channel.value = channel
 
     async def _parse_channel_from_content_fragments(self, fragments):
         content = ""
@@ -351,7 +354,7 @@ class AssistantMessage(Message):
             if not "channel:".startswith(content[:8]):
                 self._logger.warning(
                     'No channel descriptor found (missing "channel:" prefix).')
-                return mdl.LastUsedChannelDescriptor()
+                return mdl.MissingChannelDescriptor()
             # Now wait for the next newline. Anything before it should be our
             # JSON object.
             try:
@@ -363,12 +366,12 @@ class AssistantMessage(Message):
             try:
                 return mdl.ChannelDescriptorTypeAdapter.validate_json(
                     channel_descriptor_json)
-            except Exception:
+            except Exception as e:
                 self._logger.exception(
                     "Error when parsing channel descriptor.")
-                return mdl.LastUsedChannelDescriptor()
+                return mdl.MalformedChannelDescriptor(error_message=str(e))
         self._logger.warning("No channel descriptor found (too short).")
-        return mdl.LastUsedChannelDescriptor()
+        return mdl.MissingChannelDescriptor()
 
     async def wait_finalized(self) -> None:
         """Wait until the message has finished streaming."""

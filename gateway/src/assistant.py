@@ -169,7 +169,8 @@ class Session:
 
         Calls the provider to generate one or more AssistantMessages in
         response to the current state of the session. Handles any tool calls
-        the assistant makes.
+        the assistant makes, and also gives the assistant feedback if they
+        forgot the channel header or it was malformed.
 
         Generated messages are not returned directly but can be accessed via
         subscribe().
@@ -183,7 +184,9 @@ class Session:
                 # Wait for the message to completely arrive before handling
                 # tool calls etc.
                 await assistant_message.wait_finalized()
-                do_request = await self._handle_tool_calls(assistant_message)
+                do_request = await self._check_channel_header(
+                    assistant_message)
+                do_request |= await self._handle_tool_calls(assistant_message)
 
     async def _request_assistant_message(self):
         parts = util.StreamableList()
@@ -193,11 +196,52 @@ class Session:
             self._make_message(
                 msg.AssistantMessage, parts, set_time_to_now=False))
 
-    async def _handle_tool_calls(
-            self, assistant_message: msg.AssistantMessage) -> bool:
-        if not await assistant_message.tool_calls:
+    async def _check_channel_header(
+            self, message: msg.AssistantMessage) -> bool:
+        channel = await message.metadata.channel.value
+        if isinstance(channel, mdl.MissingChannelDescriptor):
+            # The channel header is missing so we use the last used user
+            # channel.
+            for message in reversed(self._messages):
+                if isinstance(message, msg.UserMessage):
+                    channel.fallback_channel = (
+                        await message.metadata.channel.value)
+                    self._logger.info(
+                        "Assistant omitted channel header, message will be "
+                        f"sent to {channel.fallback_channel} instead.")
+                    template = await _read_message_file(
+                        "missing_channel_header.template")
+                    system_message_content = template.format(
+                        fallback_channel=channel.fallback_channel
+                        .model_dump_json())
+                    break
+            else:
+                self._logger.warning(
+                    "Assistant omitted channel header, but no fallback "
+                    "channel could be determined, message will not be sent.")
+                system_message_content = await _read_message_file(
+                    "missing_channel_header_no_fallback.txt")
+            await self._append_message(
+                self._make_message(
+                    msg.SystemMessage, content=system_message_content,
+                    channel=mdl.SystemChannelDescriptor()))
+            return True
+        elif isinstance(channel, mdl.MalformedChannelDescriptor):
+            template = await _read_message_file(
+                "malformed_channel_header.template")
+            system_message_content = template.format(
+                error_message=channel.error_message)
+            await self._append_message(
+                self._make_message(
+                    msg.SystemMessage, content=system_message_content,
+                    channel=mdl.SystemChannelDescriptor()))
+            return True
+        return False
+
+    async def _handle_tool_calls(self, message: msg.AssistantMessage) -> bool:
+        if not await message.tool_calls:
             return False
-        for tool_call in await assistant_message.tool_calls:
+        for tool_call in await message.tool_calls:
             self._logger.debug(f"Handling tool call {tool_call}.")
             try:
                 arguments_dict = json.loads(tool_call.function.arguments)
@@ -288,15 +332,13 @@ class Consciousness:
         # Tell the assistant that this is a new session.
         await self._session.add_simple_message(
             msg.SystemMessage, await
-            _read_message_file("session_initialization.template"),
+            _read_message_file("session_initialization.txt"),
             mdl.SystemChannelDescriptor())
         await self._session.add_simple_message(
-            msg.SystemMessage, await
-            _read_message_file("channel_web_ui.template"),
+            msg.SystemMessage, await _read_message_file("channel_web_ui.txt"),
             mdl.SystemChannelDescriptor())
         await self._session.add_simple_message(
-            msg.SystemMessage, await
-            _read_message_file("channel_system.template"),
+            msg.SystemMessage, await _read_message_file("channel_system.txt"),
             mdl.SystemChannelDescriptor())
 
     async def process_user_message(

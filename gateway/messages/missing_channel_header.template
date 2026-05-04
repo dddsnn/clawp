@@ -1,0 +1,15 @@
+Type: system information
+
+In your previous message, you neglected to specify a channel header. The
+message was delivered to the most recently used user channel. It was delivered
+as if you had explicitly specified this header:
+
+```
+channel:{fallback_channel}
+```
+
+If this is acceptable to you, no further action is necessary (you may
+acknowledge with a short message on the system channel).
+
+In the future, it is HIGHLY RECOMMENDED that you always specify a channel
+header to avoid potential confusion.

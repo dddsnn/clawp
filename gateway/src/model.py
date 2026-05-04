@@ -30,26 +30,39 @@ class BaseModel(pyd.BaseModel):
     pass
 
 
-ChannelType = t.Literal["last_used_user_channel", "system", "web_ui"]
+ChannelType = t.Literal["malformed", "missing", "system", "unknown", "web_ui"]
 
 
 class BaseChannelDescriptor(pyd.BaseModel):
     type: ChannelType
 
 
-class LastUsedChannelDescriptor(BaseChannelDescriptor):
-    type: t.Literal["last_used_user_channel"] = "last_used_user_channel"
+class MalformedChannelDescriptor(BaseChannelDescriptor):
+    type: t.Literal["malformed"] = "malformed"
+    error_message: t.Optional[str]
 
 
 class SystemChannelDescriptor(BaseChannelDescriptor):
     type: t.Literal["system"] = "system"
 
 
+class UnknownChannelDescriptor(BaseChannelDescriptor):
+    type: t.Literal["unknown"] = "unknown"
+
+
 class WebUiChannelDescriptor(BaseChannelDescriptor):
     type: t.Literal["web_ui"] = "web_ui"
 
 
-ChannelDescriptor = t.Annotated[SystemChannelDescriptor
+class MissingChannelDescriptor(BaseChannelDescriptor):
+    type: t.Literal["missing"] = "missing"
+    fallback_channel: "ChannelDescriptor" = UnknownChannelDescriptor()
+
+
+ChannelDescriptor = t.Annotated[MalformedChannelDescriptor
+                                | MissingChannelDescriptor
+                                | SystemChannelDescriptor
+                                | UnknownChannelDescriptor
                                 | WebUiChannelDescriptor,
                                 pyd.Field(discriminator="type")]
 ChannelDescriptorTypeAdapter = pyd.TypeAdapter(ChannelDescriptor)
