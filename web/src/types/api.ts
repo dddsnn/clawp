@@ -23,8 +23,51 @@ export const StartMessageMetadataSchema = z.object({
   seq_in_session: z.number().nullable().optional(),
 });
 
+export const BaseChannelDescriptorSchema = z.object({
+  type: z.enum(['malformed', 'missing', 'system', 'unknown', 'web_ui']),
+});
+
+export const MalformedChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
+  type: z.literal('malformed'),
+  error_message: z.string(),
+});
+
+export const SystemChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
+  type: z.literal('system'),
+});
+
+export const UnknownChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
+  type: z.literal('unknown'),
+});
+
+export const WebUiChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
+  type: z.literal('web_ui'),
+});
+
+export type ChannelDescriptor =
+  | z.infer<typeof MalformedChannelDescriptorSchema>
+  | z.infer<typeof SystemChannelDescriptorSchema>
+  | z.infer<typeof UnknownChannelDescriptorSchema>
+  | z.infer<typeof WebUiChannelDescriptorSchema>
+  | { type: 'missing'; fallback_channel: ChannelDescriptor };
+
+// Using z.lazy because MissingChannelDescriptor references the union
+export const MissingChannelDescriptorSchema: z.ZodType<Extract<ChannelDescriptor, { type: 'missing' }>> = BaseChannelDescriptorSchema.extend({
+  type: z.literal('missing'),
+  fallback_channel: z.lazy(() => ChannelDescriptorSchema),
+});
+
+export const ChannelDescriptorSchema: z.ZodType<ChannelDescriptor> = z.lazy(() => z.union([
+  MalformedChannelDescriptorSchema,
+  MissingChannelDescriptorSchema,
+  SystemChannelDescriptorSchema,
+  UnknownChannelDescriptorSchema,
+  WebUiChannelDescriptorSchema,
+]));
+
 export const EndMessageMetadataSchema = z.object({
   time: Iso8601Schema,
+  channel: ChannelDescriptorSchema,
 });
 
 export const MessageMetadataSchema = StartMessageMetadataSchema.merge(EndMessageMetadataSchema);

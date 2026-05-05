@@ -167,7 +167,7 @@ export class ApiService {
         this.store.clearActivePartType();
       } 
       else if (marker.marker_type === 'message_end') {
-        this.store.endStreamingMessage(marker.metadata.time);
+        this.store.endStreamingMessage(marker.metadata.time, marker.metadata.channel);
       }
       return;
     }

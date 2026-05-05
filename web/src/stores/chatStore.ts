@@ -17,7 +17,14 @@
 
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { Message, AssistantMessage, ToolCall, StreamingMessageMarkerPartStart, StreamingAssistantMessage } from '../types/api';
+import type {
+  AssistantMessage,
+  ChannelDescriptor,
+  Message,
+  ToolCall,
+  StreamingMessageMarkerPartStart,
+  StreamingAssistantMessage,
+} from "../types/api";
 
 type ActivePartType = StreamingMessageMarkerPartStart['part_type'];
 
@@ -95,7 +102,7 @@ export const useChatStore = defineStore('chat', () => {
     };
   }
 
-  function endStreamingMessage(time: Date) {
+  function endStreamingMessage(time: Date, channel: ChannelDescriptor) {
     if (!activeStreamingMessage.value) return;
     
     const finalizedMessage: AssistantMessage = {
@@ -103,6 +110,7 @@ export const useChatStore = defineStore('chat', () => {
       metadata: {
         ...activeStreamingMessage.value.metadata,
         time,
+        channel,
       },
     };
     
