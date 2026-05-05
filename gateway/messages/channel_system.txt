@@ -6,7 +6,7 @@ The channel descriptor JSON object contains these keys:
 
 - `type`: Always the literal `system`.
 
-Example response header:
+Example channel header:
 
 ```
 channel:{"type":"system"}

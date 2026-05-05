@@ -6,7 +6,7 @@ The channel descriptor JSON object contains these keys:
 
 - `type`: Always the literal `web_ui`.
 
-Example response header:
+Example channel header:
 
 ```
 channel:{"type":"web_ui"}
