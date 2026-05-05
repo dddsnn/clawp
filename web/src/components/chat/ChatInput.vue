@@ -18,7 +18,7 @@ with clawp. If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch, nextTick, onMounted } from 'vue';
 import { useTextareaAutosize } from '@vueuse/core';
 import { SendHorizontal } from 'lucide-vue-next';
 import { useChatStore } from '../../stores/chatStore';
@@ -32,6 +32,19 @@ const { textarea, input } = useTextareaAutosize();
 const isSubmitting = ref(false);
 
 const isConnected = computed(() => store.connectionState.status === 'connected');
+
+watch(isConnected, async (newVal, oldVal) => {
+  if (newVal && !oldVal) {
+    await nextTick();
+    textarea.value?.focus();
+  }
+});
+
+onMounted(() => {
+  if (isConnected.value) {
+    textarea.value?.focus();
+  }
+});
 
 const handleKeydown = (e: KeyboardEvent) => {
   if (e.key === 'Enter' && !e.shiftKey) {
