@@ -60,6 +60,16 @@ const formattedTime = computed(() => {
         <component :is="roleConfig.icon" class="w-5 h-5" />
         <span class="capitalize tracking-wide">{{ message.role }}</span>
       </div>
+
+      <!-- Metadata Button / Popup -->
+      <details class="relative" v-if="message.metadata">
+        <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer p-1.5 rounded-md hover:bg-black/5 text-slate-400 hover:text-slate-600 transition-colors" title="View Metadata">
+          <Braces class="w-4 h-4" />
+        </summary>
+        <div class="absolute right-0 top-full mt-1 z-10 w-80 bg-white border border-slate-200 rounded-lg shadow-lg p-3 text-xs text-slate-600 font-mono overflow-auto max-h-96">
+          <pre class="whitespace-pre-wrap">{{ JSON.stringify(message.metadata, null, 2) }}</pre>
+        </div>
+      </details>
     </div>
 
     <!-- Errors -->
@@ -100,18 +110,6 @@ const formattedTime = computed(() => {
       </summary>
       <div class="px-4 pb-4 pt-1 text-xs text-slate-700 font-mono bg-slate-50/50">
         <pre class="overflow-x-auto">{{ JSON.stringify((message as any).tool_calls, null, 2) }}</pre>
-      </div>
-    </details>
-
-    <!-- Metadata Dropdown -->
-    <details class="mt-4 bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200 group/metadata" v-if="message.metadata">
-      <summary class="flex items-center space-x-2 px-3 py-2 cursor-pointer hover:bg-slate-50 select-none text-xs font-semibold text-slate-500 uppercase tracking-wider">
-        <Braces class="w-3.5 h-3.5" />
-        <span>Metadata</span>
-        <ChevronDown class="w-3.5 h-3.5 transition-transform duration-300 group-open/metadata:rotate-180 ml-auto" />
-      </summary>
-      <div class="p-3 text-xs text-slate-600 font-mono bg-slate-50 border-t border-slate-200">
-        <pre class="overflow-x-auto">{{ JSON.stringify(message.metadata, null, 2) }}</pre>
       </div>
     </details>
 
