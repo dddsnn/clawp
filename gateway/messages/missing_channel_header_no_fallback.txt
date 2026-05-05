@@ -14,7 +14,10 @@ framework's built-in web UI looks like this:
 channel:{"type":"web_ui"}
 ```
 
-The header must be the first line of your message.
+The header must be the first line of your message and there must be nothing
+before it, or the system won't be able to parse it. Remember the channel header
+examples given to you in the beginning. **DO NOT output anything before
+`channel:`.**
 
 In the future, it is HIGHLY RECOMMENDED that you always specify a channel
 header to avoid potential confusion.

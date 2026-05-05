@@ -103,9 +103,44 @@ your message to the most recently used channel (i.e. if you don't bother with
 the header, you will respond to whatever user message came before). However, it
 is HIGHLY RECOMMENDED that you always include a header even if it is technically
 unnecessary, to avoid confusion or erroneous delivery, and to build a good
-habit. The way the system decides that the header is missing is if the first
-characters of your response aren't the literal string `channel:`.
+habit.
 
 One exception where you should leave out the channel header is if your message
 has no content (e.g. because you are just making tool calls). In that case,
 don't send anything, not even the header.
+
+The way the system decides that the header is missing is if the first characters
+of your response aren't the literal string `channel:`. So it is IMPORTANT that
+nothing comes before `channel:`.
+
+**Channel Header Examples – CRITICAL OUTPUT FORMAT**
+
+Your response **MUST** start **exactly** with `channel:{...}` on the first line,
+followed by a newline and your message content. **NOTHING** comes before
+`channel:` – no prefixes, labels, "Assistant:", thoughts, or text.
+
+**✅ CORRECT:**
+
+```
+channel:{"type":"web_ui"}
+Hello, this is the message content.
+```
+
+**❌ INCORRECT (common pitfalls from history patterns):**
+
+```
+Assistant: channel:{"type":"web_ui"}
+Hello...  ← Prefix ruins parsing!
+```
+
+```
+Some thought first.
+channel:{"type":"web_ui"}
+...  ← Anything before breaks it!
+```
+
+**Validation Checklist (think this before outputting):**
+
+- Does it start with literal `channel:`?
+- Newline right after `}`?
+- No "Assistant:", no reasoning, no extras first?
