@@ -30,7 +30,7 @@ class BaseChannelDescriptor(base.BaseModel):
 
 class MalformedChannelDescriptor(BaseChannelDescriptor):
     type: t.Literal["malformed"] = "malformed"
-    error_message: t.Optional[str]
+    error_message: str
 
 
 class SystemChannelDescriptor(BaseChannelDescriptor):
