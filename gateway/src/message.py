@@ -274,34 +274,27 @@ class AssistantMessageContentPart(AssistantMessageTextPart):
     async def stream_fragments(self) -> cl_abc.AsyncGenerator[str]:
         """Stream fragments, but strip off the channel header."""
         header_handled = False
-        content = ""
-        fragments = self.stream_fragments_raw()
-        try:
-            while True:
-                fragment = await anext(fragments)
-                if header_handled:
-                    # We've already taken care of the header, yield as normal.
-                    yield fragment
-                    continue
-                content += fragment
-                status, _, header_length = _find_channel(content)
-                header_handled = status != "too_short"
-                if status == "too_short":
-                    continue
-                elif status in ["missing_prefix", "parsing_error"]:
-                    # There's no header or it's malformed. Yield everything
-                    # we've already seen as the first fragment.
-                    yield content
-                else:
-                    assert status == "found"
-                    # We have a header. Skip past it and yield whatever we've
-                    # already seen as the first fragment, then continue with
-                    # the loop.
-                    yield content[header_length:]
-        except StopAsyncIteration:
-            pass
-        finally:
-            await fragments.aclose()
+        header_string = ""
+        async for fragment in self.stream_fragments_raw():
+            if header_handled:
+                # We've already taken care of the header, yield as normal.
+                yield fragment
+                continue
+            header_string += fragment
+            status, _, header_length = _find_channel(header_string)
+            header_handled = status != "too_short"
+            if status == "too_short":
+                continue
+            elif status in ["missing_prefix", "parsing_error"]:
+                # There's no header or it's malformed. Yield everything
+                # we've already seen as the first fragment.
+                yield header_string
+            else:
+                assert status == "found"
+                # We have a header. Skip past it and yield whatever we've
+                # already seen as the first fragment, then continue with
+                # the loop.
+                yield header_string[header_length:]
 
 
 def _find_channel(
@@ -441,31 +434,23 @@ class AssistantMessage(Message):
     async def _parse_channel_from_content_part(
             self, part: AssistantMessageContentPart):
         content = ""
-        fragments = part.stream_fragments_raw()
-        try:
-            while True:
-                content += await anext(fragments)
-                status, result, _ = _find_channel(content)
-                if status == "too_short":
-                    continue
-                elif status == "missing_prefix":
-                    self._logger.warning(
-                        'No channel descriptor found (missing "channel:" '
-                        "prefix).")
-                    return mdl.MissingChannelDescriptor()
-                elif status == "parsing_error":
-                    self._logger.error(
-                        "Error when parsing channel descriptor.",
-                        exc_info=result)
-                    return mdl.MalformedChannelDescriptor(
-                        error_message=str(result))
-                else:
-                    assert status == "found"
-                    return result
-        except StopAsyncIteration:
-            pass
-        finally:
-            await fragments.aclose()
+        async for fragment in part.stream_fragments_raw():
+            content += fragment
+            status, result, _ = _find_channel(content)
+            if status == "too_short":
+                continue
+            elif status == "missing_prefix":
+                self._logger.warning(
+                    'No channel descriptor found (missing "channel:" prefix).')
+                return mdl.MissingChannelDescriptor()
+            elif status == "parsing_error":
+                self._logger.error(
+                    "Error when parsing channel descriptor.", exc_info=result)
+                return mdl.MalformedChannelDescriptor(
+                    error_message=str(result))
+            else:
+                assert status == "found"
+                return result
         self._logger.warning("No channel descriptor found (too short).")
         return mdl.MissingChannelDescriptor()
 
