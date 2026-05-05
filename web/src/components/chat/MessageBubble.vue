@@ -85,11 +85,11 @@ const formattedTime = computed(() => {
       </div>
     </div>
 
-    <!-- Reasoning / Thought block -->
+    <!-- Reasoning block -->
     <details v-if="hasReasoning" class="mb-3 bg-white/50 border border-slate-300 rounded-lg overflow-hidden transition-all duration-300 group/reasoning">
       <summary class="flex items-center space-x-2 p-3 cursor-pointer hover:bg-white/80 select-none text-sm font-medium text-slate-600">
         <ChevronDown class="w-4 h-4 transition-transform duration-300 group-open/reasoning:rotate-180" />
-        <span>Thought</span>
+        <span>Reasoning</span>
       </summary>
       <div class="px-4 pb-4 pt-1 text-sm text-slate-700 font-mono whitespace-pre-wrap">
         {{ (message as any).reasoning }}
