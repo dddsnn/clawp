@@ -270,28 +270,29 @@ class Session:
         return self._publisher.subscribe()
 
 
-class Consciousness:
+class Assistant:
     """
-    A consciousness of an assistant.
+    An assistant.
 
-    A consiousness manages the active session. It represents the continuation
     of multiple sessions that maintain the assistant's personality and
-    knowledge. New sessions may be started (e.g. for compaction), but the
-    assistant should maintain their core memories and personality throughout.
+    knowledge. It always has an active session, which represents the model's
+    current context window. New sessions may be started (e.g. for compaction),
+    but the assistant should maintain their core memories and personality
+    throughout.
 
     Since sessions are essentially append-only, when the history has to be
     changed for a compaction or change in system message, a new session is
     started.
 
-    A consciousness is an asynchronous context manager that ensures sessions
-    are properly opened and closed.
+    An assistant is an asynchronous context manager that ensures sessions are
+    properly opened and closed.
     """
     def __init__(
-            self, consciousness_id: uuid.UUID, *,
-            message_store: store.ConsciousnessMessageStore,
+            self, assistant_id: uuid.UUID, *,
+            message_store: store.AssistantMessageStore,
             provider: "prov.Provider", mcp_client: tool.Client) -> None:
         self._logger = logging.getLogger(type(self).__name__)
-        self._consciousness_id = consciousness_id
+        self._assistant_id = assistant_id
         self._message_store = message_store
         self._session_factory = ft.partial(
             Session, provider=provider, mcp_client=mcp_client)
@@ -305,7 +306,12 @@ class Consciousness:
 
     async def __aexit__(self, *args) -> bool:
         async with self._lock:
-            return await self._session.__aexit__(*args)
+            try:
+                async with asyncio.timeout(120):
+                    return await self._session.__aexit__(*args)
+            except Exception:
+                self._logger.exception("Error shutting down session.")
+        return False
 
     def _make_session(self, session_seq: int) -> Session:
         message_store = self._message_store.get_session_message_store(
@@ -319,8 +325,8 @@ class Consciousness:
             await self._session.__aenter__()
         else:
             self._logger.info(
-                f"Existing consciousness {self._consciousness_id} has no "
-                "sessions. Starting the first one.")
+                f"Existing assistant {self._assistant_id} has no sessions. "
+                "Starting the first one.")
             self._session = self._make_session(0)
             await self._start_new_session()
 
@@ -345,12 +351,14 @@ class Consciousness:
             mdl.SystemChannelDescriptor())
 
     async def process_user_message(
-            self, message_content: str, channel: mdl.ChannelDescriptor):
+            self, message_content: str,
+            channel: mdl.ChannelDescriptor) -> None:
         """
         Process a user message in the current session.
 
         Adds the message to the active session and requests an assistant
-        response to it which.
+        response to it. The response is not returned, rather it is available
+        via subscribe().
         """
         async with self._lock:
             await self._session.add_simple_message(
@@ -358,81 +366,10 @@ class Consciousness:
             await self._session.request_response()
 
     def subscribe(self) -> cl_abc.AsyncGenerator[msg.Message]:
-        """Subscribe to messages in this consciousness."""
+        """
+        Subscribe to the this assistant's messages.
+
+        This includes all kinds of messages, also user/system/developer/tool
+        messages.
+        """
         return self._session.subscribe()
-
-
-class Assistant:
-    """
-    An assistant.
-
-    An assistant represents a kind of personality for the user to interact
-    with, defined through the initial files that the assistant is shown in the
-    beginning. An assistant can have multiple consciousnesses, essentially
-    copies of the assistant that are independent.
-    """
-    def __init__(
-            self, assistant_id: uuid.UUID, *,
-            message_store: store.AssistantMessageStore,
-            provider: "prov.Provider", mcp_client: tool.Client) -> None:
-        self._logger = logging.getLogger(type(self).__name__)
-        self._assistant_id = assistant_id
-        self._message_store = message_store
-        self._consciousness_factory = ft.partial(
-            Consciousness, provider=provider, mcp_client=mcp_client)
-        self._consciousnesses = {}
-
-    async def __aenter__(self) -> t.Self:
-        self._consciousnesses.clear()
-        await self._init_consciousnesses()
-        return self
-
-    async def __aexit__(self, *args) -> bool:
-        exit_tasks = set()
-        for consciousness in self._consciousnesses.values():
-            exit_tasks.add(asyncio.create_task(consciousness.__aexit__(*args)))
-            try:
-                await asyncio.wait(exit_tasks, timeout=120)
-            except Exception:
-                self._logger.exception("Error shutting down consciousnesses.")
-        return False
-
-    def _make_consciousness(
-            self, consciousness_id: uuid.UUID) -> Consciousness:
-        message_store = self._message_store.get_consciousness_message_store(
-            consciousness_id)
-        return self._consciousness_factory(
-            consciousness_id, message_store=message_store)
-
-    async def _init_consciousnesses(self):
-        for consciousness_id in self._message_store.list_consciousnesses():
-            await self._add_consciousness(consciousness_id)
-        if not self._consciousnesses:
-            consciousness_id = uuid.uuid4()
-            self._logger.info(
-                "No existing consciousnesses, adding new one with ID "
-                f"{consciousness_id}.")
-            await self._add_consciousness(consciousness_id)
-
-    async def _add_consciousness(self, consciousness_id):
-        assert consciousness_id not in self._consciousnesses
-        consciousness = self._make_consciousness(consciousness_id)
-        self._consciousnesses[consciousness_id] = (
-            await consciousness.__aenter__())
-
-    async def process_user_message(
-            self, consciousness_id: uuid.UUID, message_content: str,
-            channel: mdl.ChannelDescriptor):
-        """Process and respond to a user message in the consciousness."""
-        consciousness = self._consciousnesses[consciousness_id]
-        await consciousness.process_user_message(message_content, channel)
-
-    def subscribe(
-            self,
-            consciousness_id: uuid.UUID) -> cl_abc.AsyncGenerator[msg.Message]:
-        """
-        Subscribe to messages in the consciousness.
-
-        Raises a KeyError if the consciousness doesn't exist.
-        """
-        return self._consciousnesses[consciousness_id].subscribe()

@@ -70,9 +70,7 @@ async def get_messages(
     the given one).
     """
     result = []
-    assert len(assistant._consciousnesses) == 1
-    consciousness = next(iter(assistant._consciousnesses.values()))
-    for message in consciousness._session._messages:
+    for message in assistant._session._messages:
         if message.metadata.seq_in_session >= lt_seq:
             break
         if await message.metadata.time.value >= ge_time:
@@ -106,8 +104,8 @@ async def websocket_stream(
           end of the message, including some final metadata
 
     The websocket can receive new user messages which will be appended to the
-    consciousness and prompt a response. These must be JSON objects conforming
-    to the UserInputMessage model.
+    assistant's session and prompt a response. These must be JSON objects
+    conforming to the UserInputMessage model.
 
     The cachebuster_to_circumvent_reconnection_delay path parameter is ignored
     and can be any value. It is there to provide a mechanism to circumvent
@@ -117,18 +115,14 @@ async def websocket_stream(
     long annoying wait times. Adding a path parameter that can change between
     requests circumvents this restriction.
     """
-    assert len(assistant._consciousnesses) == 1
-    consciousness_id = next(iter(assistant._consciousnesses))
     await websocket.accept()
-    send_task = asyncio.create_task(
-        _send_websocket(websocket, assistant, consciousness_id))
+    send_task = asyncio.create_task(_send_websocket(websocket, assistant))
     try:
         while True:
             input_message = mdl.UserInputMessage.model_validate(
                 await websocket.receive_json())
             await assistant.process_user_message(
-                consciousness_id, input_message.content,
-                mdl.WebUiChannelDescriptor())
+                input_message.content, mdl.WebUiChannelDescriptor())
     except fastapi.WebSocketDisconnect:
         # The client closed the connection.
         return
@@ -145,10 +139,9 @@ async def websocket_stream(
 
 
 async def _send_websocket(
-        websocket: fastapi.WebSocket, assistant: asst.Assistant,
-        consciousness_id: uuid.UUID) -> None:
+        websocket: fastapi.WebSocket, assistant: asst.Assistant) -> None:
     try:
-        async for message in assistant.subscribe(consciousness_id):
+        async for message in assistant.subscribe():
             async for chunk in _generate_message_chunks(message):
                 # For some reason, we have to schedule the send as a task and
                 # then immediately await that task. If we just await the send,

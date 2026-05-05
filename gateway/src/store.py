@@ -50,8 +50,7 @@ class MessageStore:
     Persistent store for messages using JSONL files.
 
     The store uses a directory tree that mirrors the domain hierarchy:
-    <base_dir>/assistants/<assistant_id>/consciousnesses/<consciousness_id>/
-    sessions/<session_seq>.jsonl
+    <base_dir>/assistants/<assistant_id>/sessions/<session_seq>.jsonl
 
     Each JSONL file starts with a header line containing the format version
     and session metadata, followed by one JSON object per message.
@@ -123,51 +122,40 @@ class MessageStore:
     def _assistant_dir(self, assistant_id: uuid.UUID) -> pathlib.Path:
         return self._assistants_dir() / str(assistant_id)
 
-    def _consciousnesses_dir(self, assistant_id: uuid.UUID) -> pathlib.Path:
-        return self._assistant_dir(assistant_id) / "consciousnesses"
-
-    def _consciousness_dir(
-            self, assistant_id: uuid.UUID,
-            consciousness_id: uuid.UUID) -> pathlib.Path:
-        return self._consciousnesses_dir(assistant_id) / str(consciousness_id)
-
     def _sessions_dir(
-            self, assistant_id: uuid.UUID,
-            consciousness_id: uuid.UUID) -> pathlib.Path:
-        return self._consciousness_dir(
-            assistant_id, consciousness_id) / "sessions"
+        self,
+        assistant_id: uuid.UUID,
+    ) -> pathlib.Path:
+        return self._assistant_dir(assistant_id) / "sessions"
 
     def _session_path(
-            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
-            session_seq: int) -> pathlib.Path:
-        return self._sessions_dir(
-            assistant_id, consciousness_id) / f"{session_seq}.jsonl"
+            self, assistant_id: uuid.UUID, session_seq: int) -> pathlib.Path:
+        return self._sessions_dir(assistant_id) / f"{session_seq}.jsonl"
 
     async def append_message(
-            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
-            session_seq: int, message: msg.Message) -> None:
+            self, assistant_id: uuid.UUID, session_seq: int,
+            message: msg.Message) -> None:
         """
         Append a message to a session file.
 
         The message will be serialized as JSON using its model property. If the
         session file doesn't exist yet, it is created first. If a session file
-        needs to be created but now all previous sessions exist within the
-        consciousness, a MessageStoreFormatError is raised.
+        needs to be created but now all previous sessions exist for the
+        assistant, a MessageStoreFormatError is raised.
         """
         async with self._open_files_lock:
             await asyncio.to_thread(
-                self._sync_append_message, assistant_id, consciousness_id,
-                session_seq, await message.model)
+                self._sync_append_message, assistant_id, session_seq, await
+                message.model)
 
     def _sync_append_message(
-            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
-            session_seq: int, message_model: mdl.Message):
-        path = self._session_path(assistant_id, consciousness_id, session_seq)
+            self, assistant_id: uuid.UUID, session_seq: int,
+            message_model: mdl.Message):
+        path = self._session_path(assistant_id, session_seq)
         try:
             f = self._open_files[path]
         except KeyError:
-            self._ensure_session_file(
-                assistant_id, consciousness_id, session_seq)
+            self._ensure_session_file(assistant_id, session_seq)
             assert path.exists()
             f = open(path, "a")
             self._open_files[path] = f
@@ -175,10 +163,8 @@ class MessageStore:
         f.flush()
         os.fsync(f.fileno())
 
-    def _ensure_session_file(
-            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
-            session_seq: int):
-        path = self._session_path(assistant_id, consciousness_id, session_seq)
+    def _ensure_session_file(self, assistant_id: uuid.UUID, session_seq: int):
+        path = self._session_path(assistant_id, session_seq)
         if path.exists():
             return
         for seq in range(session_seq):
@@ -189,7 +175,6 @@ class MessageStore:
         header = {
             "version": self.VERSION,
             "assistant_id": str(assistant_id),
-            "consciousness_id": str(consciousness_id),
             "session_seq": session_seq,}
         if not path.parent.exists():
             self._logger.info(f"Creating sessions directory {path.parent}.")
@@ -201,7 +186,7 @@ class MessageStore:
         self._logger.info(f"Created new session file {path}.")
 
     async def read_session_messages(
-            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
+            self, assistant_id: uuid.UUID,
             session_seq: int) -> list[msg.Message]:
         """
         Read all messages from a session file.
@@ -213,7 +198,7 @@ class MessageStore:
         Raises a MessageStoreFormatError if any line doesn't parse to a message
         (that includes empty lines).
         """
-        path = self._session_path(assistant_id, consciousness_id, session_seq)
+        path = self._session_path(assistant_id, session_seq)
         json_lines = await asyncio.to_thread(self._sync_read_messages, path)
         # Do the parsing in the async method here because we need an event loop
         # for the messages' from_model() (which wants to schedule a task for
@@ -280,11 +265,8 @@ class MessageStore:
 
         Returns an empty list if the store has no assistants yet.
         """
-        return self._list_uuid_directories(self._assistants_dir())
-
-    def _list_uuid_directories(self, path: pathlib.Path) -> list[uuid.UUID]:
         try:
-            entries = path.iterdir()
+            entries = self._assistants_dir().iterdir()
         except FileNotFoundError:
             return []
         ids = []
@@ -299,25 +281,15 @@ class MessageStore:
                 continue
         return sorted(ids)
 
-    def list_consciousnesses(self, assistant_id: uuid.UUID) -> list[uuid.UUID]:
-        """
-        List all consciousness IDs for an assistant.
-
-        Returns an empty list if the assistant has no consciousnesses yet.
-        """
-        return self._list_uuid_directories(
-            self._consciousnesses_dir(assistant_id))
-
-    def get_active_session_seq(
-            self, assistant_id: uuid.UUID,
-            consciousness_id: uuid.UUID) -> t.Optional[int]:
+    def get_active_session_seq(self,
+                               assistant_id: uuid.UUID) -> t.Optional[int]:
         """
         Get the active session sequence number.
 
         Returns the sequence number of the active session, or None if there are
-        no sessions for this assistant and consciousness yet.
+        no sessions for this assistant yet.
         """
-        sessions_dir = self._sessions_dir(assistant_id, consciousness_id)
+        sessions_dir = self._sessions_dir(assistant_id)
         if not sessions_dir.exists():
             return None
         seqs = set()
@@ -341,28 +313,24 @@ class MessageStore:
                 f"Missing session sequence numbers in {sorted(seqs)}.")
         return active_session_seq
 
-    def _list_all_sessions(
-            self) -> cl_abc.Generator[tuple[uuid.UUID, uuid.UUID, int]]:
+    def _list_all_sessions(self) -> cl_abc.Generator[tuple[uuid.UUID, int]]:
         for assistant_id in self.list_assistants():
-            for consciousness_id in self.list_consciousnesses(assistant_id):
-                active_session_seq = self.get_active_session_seq(
-                    assistant_id, consciousness_id)
-                if active_session_seq is None:
+            active_session_seq = self.get_active_session_seq(assistant_id)
+            if active_session_seq is None:
+                self._logger.warning(
+                    f"No sessions for assistant {assistant_id}")
+                continue
+            for seq in range(active_session_seq + 1):
+                session_file = self._session_path(assistant_id, seq)
+                if session_file.is_file():
+                    yield assistant_id, seq
+                else:
                     self._logger.warning(
-                        f"No sessions for consciousness {consciousness_id}")
-                    continue
-                for seq in range(active_session_seq + 1):
-                    session_file = self._session_path(
-                        assistant_id, consciousness_id, seq)
-                    if session_file.is_file():
-                        yield assistant_id, consciousness_id, seq
-                    else:
-                        self._logger.warning(
-                            f"Missing session file {session_file}.")
+                        f"Missing session file {session_file}.")
 
     def _list_all_session_files(self) -> cl_abc.Generator[pathlib.Path]:
-        for assistant_id, consciousness_id, seq in self._list_all_sessions():
-            path = self._session_path(assistant_id, consciousness_id, seq)
+        for assistant_id, seq in self._list_all_sessions():
+            path = self._session_path(assistant_id, seq)
             assert path.is_file()
             yield path
 
@@ -375,16 +343,16 @@ class MessageStore:
         """
         Ensure that base_dir is consistent and valid.
 
-        Goes through each consciousness directory of every assistant and checks
-        that the session files in it are consistent. This is the case if
+        Goes through the session directory of every assistant and checks that
+        the session files in it are consistent. This is the case if
 
-        - the assistant_id, consciouness_id and session_seq in the session
-          file's header is consistent with the directory/file name
+        - the assistant_id and session_seq in the session file's header is
+          consistent with the directory/file name
         - all session files have the version number
         - the session files' version number is not greater than
           MessageStore.VERSION
 
-        Additionally, in each consiousness directory the following must hold:
+        Additionally, in each session directory the following must hold:
 
         - session sequence numbers start at 0
         - no session sequence numbers are missing
@@ -401,23 +369,22 @@ class MessageStore:
                 "creating it.")
             self._base_dir.mkdir()
         session_file_versions = set()
-        sessions_by_consciousness = it.groupby(
-            self._list_all_sessions(), key=lambda acs: (acs[0], acs[1]))
-        for (assistant_id, consciousness_id), acs in sessions_by_consciousness:
+        sessions_by_assistant = it.groupby(
+            self._list_all_sessions(), key=lambda asst_seq: asst_seq[0])
+        for assistant_id, asst_seq in sessions_by_assistant:
             prev_seq = None
-            for _, _, seq in acs:
+            for _, seq in asst_seq:
                 if prev_seq is None and seq != 0:
                     raise MessageStoreFormatError(
-                        f"session sequence numbers of {assistant_id}:"
-                        f"{consciousness_id} doesn't start at 0")
+                        f"session sequence numbers of {assistant_id} doesn't "
+                        "start at 0")
                 if prev_seq is not None and prev_seq + 1 != seq:
                     raise MessageStoreFormatError(
                         "broken session sequence numbers of "
-                        f"{assistant_id}:{consciousness_id} after "
-                        f"{prev_seq}")
+                        f"{assistant_id} after {prev_seq}")
                 prev_seq = seq
                 session_file_version = self._ensure_valid_session_format(
-                    assistant_id, consciousness_id, seq)
+                    assistant_id, seq)
                 session_file_versions.add(session_file_version)
         if len(session_file_versions) > 1:
             raise MessageStoreFormatError(
@@ -438,17 +405,15 @@ class MessageStore:
                 f"Found valid message store at {self._base_dir} with version "
                 f"{self.VERSION}.")
 
-    def _ensure_valid_session_format(
-            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
-            seq: int):
-        path = self._session_path(assistant_id, consciousness_id, seq)
+    def _ensure_valid_session_format(self, assistant_id: uuid.UUID, seq: int):
+        path = self._session_path(assistant_id, seq)
         try:
             with path.open() as f:
                 header_dict = json.loads(f.readline())
             assert isinstance(header_dict["version"], int)
             assert isinstance(header_dict["session_seq"], int)
-            for uuid_key in ["assistant_id", "consciousness_id"]:
-                header_dict[uuid_key] = uuid.UUID(header_dict[uuid_key])
+            header_dict["assistant_id"] = uuid.UUID(
+                header_dict["assistant_id"])
         except Exception as e:
             raise MessageStoreFormatError("invalid header format") from e
         if assistant_id != header_dict["assistant_id"]:
@@ -456,11 +421,6 @@ class MessageStore:
                 f"inconsistent session file {path}: directory suggests "
                 f"assistant {assistant_id}, but file header says "
                 f"{header_dict['assistant_id']}")
-        if consciousness_id != header_dict["consciousness_id"]:
-            raise MessageStoreFormatError(
-                f"inconsistent session file {path}: directory suggests "
-                f"consciousness {consciousness_id}, but file header says "
-                f"{header_dict['consciousness_id']}")
         if seq != header_dict["session_seq"]:
             raise MessageStoreFormatError(
                 f"inconsistent session file {path}: directory suggests "
@@ -522,66 +482,23 @@ class AssistantMessageStore:
         self._message_store = message_store
 
     async def append_message(
-            self, consciousness_id: uuid.UUID, session_seq: int,
-            message: msg.Message) -> None:
-        return await self._message_store.append_message(
-            self._assistant_id, consciousness_id, session_seq, message)
-
-    async def read_session_messages(
-            self, consciousness_id: uuid.UUID,
-            session_seq: int) -> list[msg.Message]:
-        return await self._message_store.read_session_messages(
-            self._assistant_id, consciousness_id, session_seq)
-
-    def list_consciousnesses(self) -> list[uuid.UUID]:
-        return self._message_store.list_consciousnesses(self._assistant_id)
-
-    def get_active_session_seq(self,
-                               consciousness_id: uuid.UUID) -> t.Optional[int]:
-        return self._message_store.get_active_session_seq(
-            self._assistant_id, consciousness_id)
-
-    def get_consciousness_message_store(
-            self, consciousness_id: uuid.UUID) -> "ConsciousnessMessageStore":
-        """Get a message store specific to a consciousness."""
-        return ConsciousnessMessageStore(
-            self._assistant_id, consciousness_id, self._message_store)
-
-
-class ConsciousnessMessageStore:
-    """
-    Persistent store for consciousness messages.
-
-    This is a wrapper around MessageStore which makes the underlying methods
-    available for one specific consciousness of an assistant.
-    """
-    def __init__(
-            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
-            message_store: MessageStore) -> None:
-        self._assistant_id = assistant_id
-        self._consciousness_id = consciousness_id
-        self._message_store = message_store
-
-    async def append_message(
             self, session_seq: int, message: msg.Message) -> None:
         return await self._message_store.append_message(
-            self._assistant_id, self._consciousness_id, session_seq, message)
+            self._assistant_id, session_seq, message)
 
     async def read_session_messages(self,
                                     session_seq: int) -> list[msg.Message]:
         return await self._message_store.read_session_messages(
-            self._assistant_id, self._consciousness_id, session_seq)
+            self._assistant_id, session_seq)
 
     def get_active_session_seq(self) -> t.Optional[int]:
-        return self._message_store.get_active_session_seq(
-            self._assistant_id, self._consciousness_id)
+        return self._message_store.get_active_session_seq(self._assistant_id)
 
     def get_session_message_store(
             self, session_seq: int) -> "SessionMessageStore":
-        """Get a message store specific to an consciousness."""
+        """Get a message store specific to a session."""
         return SessionMessageStore(
-            self._assistant_id, self._consciousness_id, session_seq,
-            self._message_store)
+            self._assistant_id, session_seq, self._message_store)
 
 
 class SessionMessageStore:
@@ -589,21 +506,19 @@ class SessionMessageStore:
     Persistent store for session messages.
 
     This is a wrapper around MessageStore which makes the underlying methods
-    available for one specific session in an assistant's consciousness.
+    available for one specific session of an assistant.
     """
     def __init__(
-            self, assistant_id: uuid.UUID, consciousness_id: uuid.UUID,
-            session_seq: int, message_store: MessageStore) -> None:
+            self, assistant_id: uuid.UUID, session_seq: int,
+            message_store: MessageStore) -> None:
         self._assistant_id = assistant_id
-        self._consciousness_id = consciousness_id
         self._session_seq = session_seq
         self._message_store = message_store
 
     async def append_message(self, message: msg.Message) -> None:
         return await self._message_store.append_message(
-            self._assistant_id, self._consciousness_id, self._session_seq,
-            message)
+            self._assistant_id, self._session_seq, message)
 
     async def read_session_messages(self) -> list[msg.Message]:
         return await self._message_store.read_session_messages(
-            self._assistant_id, self._consciousness_id, self._session_seq)
+            self._assistant_id, self._session_seq)
