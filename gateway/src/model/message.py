@@ -18,72 +18,26 @@
 import typing as t
 
 import pydantic as pyd
-import whenever as we
 
-Iso8601Millis = t.Annotated[
-    we.Instant,
-    pyd.PlainSerializer(
-        lambda i: i.format_iso(unit="millisecond"), return_type=str)]
+from . import base, channel
 
 
-class BaseModel(pyd.BaseModel):
-    pass
-
-
-ChannelType = t.Literal["malformed", "missing", "system", "unknown", "web_ui"]
-
-
-class BaseChannelDescriptor(pyd.BaseModel):
-    type: ChannelType
-
-
-class MalformedChannelDescriptor(BaseChannelDescriptor):
-    type: t.Literal["malformed"] = "malformed"
-    error_message: t.Optional[str]
-
-
-class SystemChannelDescriptor(BaseChannelDescriptor):
-    type: t.Literal["system"] = "system"
-
-
-class UnknownChannelDescriptor(BaseChannelDescriptor):
-    type: t.Literal["unknown"] = "unknown"
-
-
-class WebUiChannelDescriptor(BaseChannelDescriptor):
-    type: t.Literal["web_ui"] = "web_ui"
-
-
-class MissingChannelDescriptor(BaseChannelDescriptor):
-    type: t.Literal["missing"] = "missing"
-    fallback_channel: "ChannelDescriptor" = UnknownChannelDescriptor()
-
-
-ChannelDescriptor = t.Annotated[MalformedChannelDescriptor
-                                | MissingChannelDescriptor
-                                | SystemChannelDescriptor
-                                | UnknownChannelDescriptor
-                                | WebUiChannelDescriptor,
-                                pyd.Field(discriminator="type")]
-ChannelDescriptorTypeAdapter = pyd.TypeAdapter(ChannelDescriptor)
-
-
-class StartMessageMetadata(BaseModel):
+class StartMessageMetadata(base.BaseModel):
     """Metadata available when a message is first created."""
     seq_in_session: t.Optional[int]
 
 
-class EndMessageMetadata(BaseModel):
+class EndMessageMetadata(base.BaseModel):
     """Metadata available when a message is fully received."""
-    time: Iso8601Millis
-    channel: t.Optional[ChannelDescriptor]
+    time: base.Iso8601Millis
+    channel: t.Optional[channel.ChannelDescriptor]
 
 
 class MessageMetadata(StartMessageMetadata, EndMessageMetadata):
     """Full message metadata."""
 
 
-class BaseMessage(BaseModel):
+class BaseMessage(base.BaseModel):
     metadata: MessageMetadata
     role: t.Literal["assistant", "developer", "system", "tool", "user"]
     content: str
@@ -110,13 +64,13 @@ class UserMessage(BaseMessage):
     role: t.Literal["user"] = "user"
 
 
-class ToolCallFunction(BaseModel):
+class ToolCallFunction(base.BaseModel):
     """A named function used in the assistant's tool call."""
     name: str = ""
     arguments: str = ""
 
 
-class ToolCall(BaseModel):
+class ToolCall(base.BaseModel):
     """A tool call requested by the assistant."""
     id: str
     function: ToolCallFunction
@@ -139,7 +93,7 @@ Message = t.Annotated[AssistantMessage | NonStreamableMessage,
 MessageTypeAdapter = pyd.TypeAdapter(Message)
 
 
-class BaseStreamingMessageMarker(BaseModel):
+class BaseStreamingMessageMarker(base.BaseModel):
     """A marker in the stream of a streamable message."""
     marker_type: t.Literal["message_start", "message_end", "part_start",
                            "part_end"]
@@ -173,7 +127,7 @@ StreamingMessageMarker = (
     | StreamingMessageMarkerPartStart | StreamingMessageMarkerPartEnd)
 
 
-class BaseStreamingMessageFragment(BaseModel):
+class BaseStreamingMessageFragment(base.BaseModel):
     """A fragment of a message part."""
     fragment_type: t.Literal["text", "tool_call"]
     fragment: str | ToolCall
@@ -195,7 +149,7 @@ StreamingMessageFragment = (
     StreamingMessageFragmentText | StreamingMessageFragmentToolCall)
 
 
-class BaseWebsocketChunk(BaseModel):
+class BaseWebsocketChunk(base.BaseModel):
     """A chunk of data sent in a websocket stream."""
     chunk_type: t.Literal["full_message", "assistant_message_marker",
                           "assistant_message_fragment"]
@@ -229,6 +183,6 @@ WebsocketChunk = (
     | WebsocketChunkAssistantMessageFragment)
 
 
-class UserInputMessage(BaseModel):
+class UserInputMessage(base.BaseModel):
     """A message sent from the user to the system."""
     content: str
