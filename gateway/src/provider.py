@@ -18,7 +18,6 @@
 import abc
 import asyncio
 import collections.abc as cl_abc
-import functools as ft
 
 import fastmcp.tools
 import openrouter
@@ -157,10 +156,17 @@ class OpenrouterStreamReader:
                 part_type, text = self._parse_chunk(chunk, tool_calls_kwargs)
                 if not part_type:
                     continue
-                current_part = await self._ensure_current_text_part(part_type)
+                if part_type == "reasoning":
+                    current_part = await self._ensure_current_part(
+                        msg.AssistantMessageReasoningPart)
+                else:
+                    assert part_type == "content"
+                    current_part = await self._ensure_current_part(
+                        msg.AssistantMessageContentPart)
                 await current_part.append(text)
             if tool_calls_kwargs:
-                tool_part = await self._ensure_current_tool_part()
+                tool_part = await self._ensure_current_part(
+                    msg.AssistantMessageToolPart)
                 for _, tool_call_kwargs in sorted(tool_calls_kwargs.items()):
                     function = msg.ToolCallFunction(
                         name=tool_call_kwargs["name"],
@@ -169,7 +175,8 @@ class OpenrouterStreamReader:
                         msg.ToolCall(
                             id=tool_call_kwargs["id"], function=function))
         except (Exception, asyncio.CancelledError) as e:
-            error_part = await self._ensure_current_error_part()
+            error_part = await self._ensure_current_part(
+                msg.AssistantMessageErrorPart)
             await error_part.append(e)
             raise e
         finally:
@@ -211,26 +218,11 @@ class OpenrouterStreamReader:
         text = delta.content or delta.reasoning
         return part_type, text
 
-    async def _ensure_current_text_part(self, part_type):
-        return await self._ensure_current_part(
-            lambda part: part.type == part_type,
-            ft.partial(msg.AssistantMessageTextPart, part_type))
-
-    async def _ensure_current_tool_part(self):
-        return await self._ensure_current_part(
-            lambda part: isinstance(part, msg.AssistantMessageToolPart),
-            msg.AssistantMessageToolPart)
-
-    async def _ensure_current_error_part(self):
-        return await self._ensure_current_part(
-            lambda part: isinstance(part, msg.AssistantMessageErrorPart),
-            msg.AssistantMessageErrorPart)
-
-    async def _ensure_current_part(self, part_is_correct_type, part_factory):
+    async def _ensure_current_part(self, part_type):
         try:
-            if not part_is_correct_type(self._message_parts[-1]):
+            if not isinstance(self._message_parts[-1], part_type):
                 await self._message_parts[-1].finalize()
-                await self._message_parts.append(part_factory())
+                await self._message_parts.append(part_type())
         except IndexError:
-            await self._message_parts.append(part_factory())
+            await self._message_parts.append(part_type())
         return self._message_parts[-1]

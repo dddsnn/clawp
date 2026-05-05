@@ -251,6 +251,101 @@ class AssistantMessageTextPart(AssistantMessagePart):
         await self._fragments.finalize(compact=lambda list_: ["".join(list_)])
 
 
+class AssistantMessageReasoningPart(AssistantMessageTextPart):
+    def __init__(self, fragments: list[str] | None = None):
+        super().__init__("reasoning", fragments)
+
+
+class AssistantMessageContentPart(AssistantMessageTextPart):
+    """
+    Content part of an assistant message.
+
+    In contrast to the raw text part, overrides stream_fragments() to strip off
+    the channel header.
+    """
+    def __init__(self, fragments: list[str] | None = None):
+        super().__init__("content", fragments)
+
+    async def stream_fragments_raw(self) -> cl_abc.AsyncGenerator[str]:
+        """Stream fragments as normal."""
+        async for fragment in super().stream_fragments():
+            yield fragment
+
+    async def stream_fragments(self) -> cl_abc.AsyncGenerator[str]:
+        """Stream fragments, but strip off the channel header."""
+        header_handled = False
+        content = ""
+        fragments = self.stream_fragments_raw()
+        try:
+            while True:
+                fragment = await anext(fragments)
+                if header_handled:
+                    # We've already taken care of the header, yield as normal.
+                    yield fragment
+                    continue
+                content += fragment
+                status, _, header_length = _find_channel(content)
+                header_handled = status != "too_short"
+                if status == "too_short":
+                    continue
+                elif status in ["missing_prefix", "parsing_error"]:
+                    # There's no header or it's malformed. Yield everything
+                    # we've already seen as the first fragment.
+                    yield content
+                else:
+                    assert status == "found"
+                    # We have a header. Skip past it and yield whatever we've
+                    # already seen as the first fragment, then continue with
+                    # the loop.
+                    yield content[header_length:]
+        except StopAsyncIteration:
+            pass
+        finally:
+            await fragments.aclose()
+
+
+def _find_channel(
+    text: str
+) -> t.Union[
+        tuple[t.Literal["too_short"], None, None],
+        tuple[t.Literal["missing_prefix"], None, None],
+        tuple[t.Literal["parsing_error"], Exception, None],
+        tuple[t.Literal["found"], mdl.ChannelDescriptor, int],]:
+    """
+    Try to find a channel header in a string.
+
+    Examines a string whether it does or could start with a valid channel
+    header. Returns a 3-tuple that is either
+    - "too_short", None, None: String is not long enough to say, but it could
+      be the start of a valid channel header.
+    - "missing_prefix", None, None: It's not a valid channel header because it
+      doesn't start with "channel:"
+    - "parsing_error", e, None: The string starts with "channel:", but what
+      follows does not parse as a ChannelDescriptor. The second value e is the
+      parsing error.
+    - "found", c, l: The string starts with a valid channel descriptor,
+      returned as the second value. The third value l is the length of the
+      channel header in the string (including the newline at the end).
+    """
+    # First, make sure the message starts with "channel:", indicating the
+    # channel descriptor header.
+    if not "channel:".startswith(text[:8]):
+        return "missing_prefix", None, None
+    # Now look for a next newline. Anything before it should be our JSON
+    # object.
+    try:
+        newline_index = text.index("\n")
+    except ValueError:
+        return "too_short", None, None
+    channel_descriptor_json = text[:newline_index].removeprefix("channel:")
+    try:
+        channel = mdl.ChannelDescriptorTypeAdapter.validate_json(
+            channel_descriptor_json)
+        return "found", channel, newline_index + 1
+    except Exception as e:
+        return "parsing_error", e, None
+
+
 class AssistantMessageToolPart(AssistantMessagePart):
     VALID_TYPES = t.Literal["tool"]
 
@@ -334,42 +429,43 @@ class AssistantMessage(Message):
             return
         assert isinstance(self.metadata.channel, util.FutureValue)
         async for part in self.stream_parts():
-            if (not isinstance(part, AssistantMessageTextPart)
-                    or part.type != "content"):
+            if not isinstance(part, AssistantMessageContentPart):
                 continue
-            channel = await self._parse_channel_from_content_fragments(
-                part.stream_fragments())
+            channel = await self._parse_channel_from_content_part(part)
             break
         else:
-            self._logger.warning("No channel descriptor found (no content).")
+            self._logger.debug("No channel descriptor found (no content).")
             channel = mdl.MissingChannelDescriptor()
         self.metadata.channel.value = channel
 
-    async def _parse_channel_from_content_fragments(self, fragments):
+    async def _parse_channel_from_content_part(
+            self, part: AssistantMessageContentPart):
         content = ""
-        async for fragment in fragments:
-            content += fragment
-            # First, make sure the message starts with "channel:", indicating
-            # the channel descriptor header.
-            if not "channel:".startswith(content[:8]):
-                self._logger.warning(
-                    'No channel descriptor found (missing "channel:" prefix).')
-                return mdl.MissingChannelDescriptor()
-            # Now wait for the next newline. Anything before it should be our
-            # JSON object.
-            try:
-                newline_index = content.index("\n")
-            except ValueError:
-                continue
-            channel_descriptor_json = content[:newline_index].removeprefix(
-                "channel:")
-            try:
-                return mdl.ChannelDescriptorTypeAdapter.validate_json(
-                    channel_descriptor_json)
-            except Exception as e:
-                self._logger.exception(
-                    "Error when parsing channel descriptor.")
-                return mdl.MalformedChannelDescriptor(error_message=str(e))
+        fragments = part.stream_fragments_raw()
+        try:
+            while True:
+                content += await anext(fragments)
+                status, result, _ = _find_channel(content)
+                if status == "too_short":
+                    continue
+                elif status == "missing_prefix":
+                    self._logger.warning(
+                        'No channel descriptor found (missing "channel:" '
+                        "prefix).")
+                    return mdl.MissingChannelDescriptor()
+                elif status == "parsing_error":
+                    self._logger.error(
+                        "Error when parsing channel descriptor.",
+                        exc_info=result)
+                    return mdl.MalformedChannelDescriptor(
+                        error_message=str(result))
+                else:
+                    assert status == "found"
+                    return result
+        except StopAsyncIteration:
+            pass
+        finally:
+            await fragments.aclose()
         self._logger.warning("No channel descriptor found (too short).")
         return mdl.MissingChannelDescriptor()
 
@@ -453,10 +549,9 @@ class AssistantMessage(Message):
     @classmethod
     def from_model(cls, model: mdl.AssistantMessage) -> t.Self:
         parts: list[AssistantMessagePart] = [
-            AssistantMessageTextPart("content", [model.content])]
+            AssistantMessageContentPart([model.content])]
         if model.reasoning:
-            parts.append(
-                AssistantMessageTextPart("reasoning", [model.reasoning]))
+            parts.append(AssistantMessageReasoningPart([model.reasoning]))
         tool_calls = []
         for tool_call in model.tool_calls:
             function = ToolCallFunction(
