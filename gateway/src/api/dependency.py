@@ -19,27 +19,27 @@ import typing as t
 
 import fastapi
 
-import assistant as asst
+import agent as agt
 
 
-def get_agent_from_request(request: fastapi.Request) -> asst.Agent:
+def get_agent_from_request(request: fastapi.Request) -> agt.Agent:
     try:
         agent = request.app.state.agent
-        assert isinstance(agent, asst.Agent)
+        assert isinstance(agent, agt.Agent)
     except (AttributeError, AssertionError) as e:
         raise fastapi.HTTPException(
             status_code=500, detail="Agent is not available") from e
     return agent
 
 
-def get_agent_from_websocket(websocket: fastapi.WebSocket) -> asst.Agent:
+def get_agent_from_websocket(websocket: fastapi.WebSocket) -> agt.Agent:
     try:
         agent = websocket.app.state.agent
-        assert isinstance(agent, asst.Agent)
+        assert isinstance(agent, agt.Agent)
     except (AttributeError, AssertionError) as e:
         raise RuntimeError("Agent is not available") from e
     return agent
 
 
-Agent = t.Annotated[asst.Agent, fastapi.Depends(get_agent_from_request)]
-AgentWs = t.Annotated[asst.Agent, fastapi.Depends(get_agent_from_websocket)]
+Agent = t.Annotated[agt.Agent, fastapi.Depends(get_agent_from_request)]
+AgentWs = t.Annotated[agt.Agent, fastapi.Depends(get_agent_from_websocket)]

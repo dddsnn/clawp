@@ -26,7 +26,7 @@ import fastapi
 import uvicorn
 import whenever as we
 
-import assistant as asst
+import agent as agt
 import message as msg
 import model as mdl
 
@@ -138,7 +138,7 @@ async def websocket_stream(
 
 
 async def _send_websocket(
-        websocket: fastapi.WebSocket, agent: asst.Agent) -> None:
+        websocket: fastapi.WebSocket, agent: agt.Agent) -> None:
     try:
         async for message in agent.subscribe():
             async for chunk in _generate_message_chunks(message):
@@ -221,7 +221,7 @@ async def _generate_tool_call_fragments(
 
 class Api:
     def __init__(
-            self, agent: asst.Agent, host: str = "127.0.0.1", port: int = 8000,
+            self, agent: agt.Agent, host: str = "127.0.0.1", port: int = 8000,
             log_level: str = "info") -> None:
         app = fastapi.FastAPI()
         app.state.agent = agent

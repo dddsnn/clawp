@@ -24,8 +24,8 @@ import pathlib
 import signal
 import uuid
 
+import agent as agt
 import api
-import assistant as asst
 import provider as prov
 import store
 import tool
@@ -66,7 +66,7 @@ async def main():
         OPENROUTER_API_KEY, "stepfun/step-3.5-flash:free")
     mcp_client = tool.Client()
     agent_id = uuid.UUID(int=0)
-    agent = asst.Agent(
+    agent = agt.Agent(
         agent_id,
         message_store=message_store.get_agent_message_store(agent_id),
         provider=openrouter_provider, mcp_client=mcp_client)
