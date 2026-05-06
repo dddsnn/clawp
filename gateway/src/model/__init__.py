@@ -28,7 +28,7 @@ from .channel import (
     WebUiChannelDescriptor,
 )
 from .message import (
-    AssistantMessage,
+    AgentMessage,
     BaseMessage,
     BaseStreamingMessageFragment,
     BaseStreamingMessageMarker,
@@ -55,8 +55,8 @@ from .message import (
     UserInputMessage,
     UserMessage,
     WebsocketChunk,
-    WebsocketChunkAssistantMessageFragment,
-    WebsocketChunkAssistantMessageMarker,
+    WebsocketChunkAgentMessageFragment,
+    WebsocketChunkAgentMessageMarker,
     WebsocketChunkFullMessage,
 )
 
@@ -72,7 +72,7 @@ __all__ = [
     "SystemChannelDescriptor",
     "UnknownChannelDescriptor",
     "WebUiChannelDescriptor",
-    "AssistantMessage",
+    "AgentMessage",
     "BaseMessage",
     "BaseStreamingMessageFragment",
     "BaseStreamingMessageMarker",
@@ -99,6 +99,6 @@ __all__ = [
     "UserInputMessage",
     "UserMessage",
     "WebsocketChunk",
-    "WebsocketChunkAssistantMessageFragment",
-    "WebsocketChunkAssistantMessageMarker",
+    "WebsocketChunkAgentMessageFragment",
+    "WebsocketChunkAgentMessageMarker",
     "WebsocketChunkFullMessage",]

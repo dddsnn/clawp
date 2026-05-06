@@ -28,7 +28,7 @@ const roleConfig = computed(() => {
   switch (props.message.role) {
     case 'user':
       return { icon: User, bgClass: 'bg-[var(--color-role-user-bg)] border-[var(--color-role-user-border)] text-[var(--color-role-user-text)]' };
-    case 'assistant':
+    case 'agent':
       return { icon: Bot, bgClass: 'bg-[var(--color-role-agent-bg)] border-[var(--color-role-agent-border)] text-[var(--color-role-agent-text)]' };
     case 'system':
       return { icon: Server, bgClass: 'bg-[var(--color-role-system-bg)] border-[var(--color-role-system-border)] text-[var(--color-role-system-text)]' };
@@ -41,7 +41,7 @@ const roleConfig = computed(() => {
   }
 });
 
-const isAssistant = computed(() => props.message.role === 'assistant');
+const isAssistant = computed(() => props.message.role === 'agent');
 const hasReasoning = computed(() => isAssistant.value && (props.message as any).reasoning);
 const hasToolCalls = computed(() => isAssistant.value && (props.message as any).tool_calls && (props.message as any).tool_calls.length > 0);
 const hasErrors = computed(() => isAssistant.value && (props.message as any).errors && (props.message as any).errors.length > 0);

@@ -1,7 +1,7 @@
 # Clawp
 
-AI assistant written in Python (and if we call it in the diminutive "Clawpy" we
-got the "py" for Python, so there you go).
+AI assistant and agent framework written in Python (and if we call it in the
+diminutive "Clawpy" we got the "py" for Python, so there you go).
 
 ## Copyright and license
 

@@ -153,7 +153,7 @@ export class ApiService {
       return;
     }
 
-    if (chunk.chunk_type === 'assistant_message_marker') {
+    if (chunk.chunk_type === 'agent_message_marker') {
       const marker = chunk.payload;
       
       if (marker.marker_type === 'message_start') {
@@ -172,7 +172,7 @@ export class ApiService {
       return;
     }
 
-    if (chunk.chunk_type === 'assistant_message_fragment') {
+    if (chunk.chunk_type === 'agent_message_fragment') {
       const frag = chunk.payload;
       if (frag.fragment_type === 'text') {
         this.store.appendStreamFragmentText(frag.fragment);

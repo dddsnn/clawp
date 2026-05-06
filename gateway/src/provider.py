@@ -32,25 +32,25 @@ class Provider(abc.ABC):
     """
     Provider of LLM chat completions.
 
-    Abstract provider capable of generating an AssistantMessage in response to
-    a context of messages.
+    Abstract provider capable of generating an AgentMessage in response to a
+    context of messages.
     """
     @abc.abstractmethod
-    async def stream_assistant_message(
+    async def stream_agent_message(
             self, message_parts: util.StreamableList,
             messages: cl_abc.Iterable[msg.Message],
             tools: cl_abc.Iterable[fastmcp.tools.Tool]) -> asyncio.Task[None]:
         """
-        Stream an assistant response.
+        Stream an agent response.
 
-        Request the response of the assistant to the context given by the
-        messages, and stream the parts into the list of message parts.
+        Request the response of the agent to the context given by the messages,
+        and stream the parts into the list of message parts.
 
         :param message_parts: The list of message parts into which the result
             should be streamed.
         :param messages: The messages making up the current context.
         :param tools: An iterable of tools that should be made available to the
-            assistant.
+            agent.
         :return: A task that is done when the message is complete.
         """
         raise NotImplementedError
@@ -74,7 +74,7 @@ class OpenrouterProvider(Provider):
     async def __aexit__(self, *args):
         return await self._openrouter_client.__aexit__(*args)
 
-    async def stream_assistant_message(
+    async def stream_agent_message(
             self, message_parts: util.StreamableList,
             messages: cl_abc.Iterable[msg.Message],
             tools: cl_abc.Iterable[fastmcp.tools.Tool]) -> asyncio.Task[None]:
@@ -90,7 +90,7 @@ class OpenrouterProvider(Provider):
             messages: cl_abc.Iterable[msg.Message]) -> list[OpenRouterMessage]:
         openrouter_messages = []
         for message in messages:
-            if message.role == "assistant":
+            if message.role == "agent":
                 openrouter_message = (
                     await self._create_openrouter_assistant_message(message))
             elif message.role == "developer":
@@ -113,7 +113,7 @@ class OpenrouterProvider(Provider):
 
     @staticmethod
     async def _create_openrouter_assistant_message(
-            message: msg.AssistantMessage) -> or_comp.AssistantMessage:
+            message: msg.AgentMessage) -> or_comp.AssistantMessage:
         tool_calls = []
         for tc in await message.tool_calls:
             function = or_comp.ChatToolCallFunction(
@@ -158,15 +158,15 @@ class OpenrouterStreamReader:
                     continue
                 if part_type == "reasoning":
                     current_part = await self._ensure_current_part(
-                        msg.AssistantMessageReasoningPart)
+                        msg.AgentMessageReasoningPart)
                 else:
                     assert part_type == "content"
                     current_part = await self._ensure_current_part(
-                        msg.AssistantMessageContentPart)
+                        msg.AgentMessageContentPart)
                 await current_part.append(text)
             if tool_calls_kwargs:
                 tool_part = await self._ensure_current_part(
-                    msg.AssistantMessageToolPart)
+                    msg.AgentMessageToolPart)
                 for _, tool_call_kwargs in sorted(tool_calls_kwargs.items()):
                     function = msg.ToolCallFunction(
                         name=tool_call_kwargs["name"],
@@ -176,7 +176,7 @@ class OpenrouterStreamReader:
                             id=tool_call_kwargs["id"], function=function))
         except (Exception, asyncio.CancelledError) as e:
             error_part = await self._ensure_current_part(
-                msg.AssistantMessageErrorPart)
+                msg.AgentMessageErrorPart)
             await error_part.append(e)
             raise e
         finally:

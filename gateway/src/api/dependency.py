@@ -22,27 +22,24 @@ import fastapi
 import assistant as asst
 
 
-def get_assistant_from_request(request: fastapi.Request) -> asst.Assistant:
+def get_agent_from_request(request: fastapi.Request) -> asst.Agent:
     try:
-        assistant = request.app.state.assistant
-        assert isinstance(assistant, asst.Assistant)
+        agent = request.app.state.agent
+        assert isinstance(agent, asst.Agent)
     except (AttributeError, AssertionError) as e:
         raise fastapi.HTTPException(
-            status_code=500, detail="Assistant is not available") from e
-    return assistant
+            status_code=500, detail="Agent is not available") from e
+    return agent
 
 
-def get_assistant_from_websocket(
-        websocket: fastapi.WebSocket) -> asst.Assistant:
+def get_agent_from_websocket(websocket: fastapi.WebSocket) -> asst.Agent:
     try:
-        assistant = websocket.app.state.assistant
-        assert isinstance(assistant, asst.Assistant)
+        agent = websocket.app.state.agent
+        assert isinstance(agent, asst.Agent)
     except (AttributeError, AssertionError) as e:
-        raise RuntimeError("Assistant is not available") from e
-    return assistant
+        raise RuntimeError("Agent is not available") from e
+    return agent
 
 
-Assistant = t.Annotated[asst.Assistant,
-                        fastapi.Depends(get_assistant_from_request)]
-AssistantWs = t.Annotated[asst.Assistant,
-                          fastapi.Depends(get_assistant_from_websocket)]
+Agent = t.Annotated[asst.Agent, fastapi.Depends(get_agent_from_request)]
+AgentWs = t.Annotated[asst.Agent, fastapi.Depends(get_agent_from_websocket)]

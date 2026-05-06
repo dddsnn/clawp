@@ -27,7 +27,7 @@ import whenever as we
 import model as mdl
 import util
 
-MessageRole = t.Literal["assistant", "developer", "system", "tool", "user"]
+MessageRole = t.Literal["agent", "developer", "system", "tool", "user"]
 
 
 
@@ -80,8 +80,8 @@ class Message(abc.ABC):
 
     @classmethod
     def from_model(cls, message_model: mdl.Message) -> t.Self:
-        if isinstance(message_model, mdl.AssistantMessage):
-            return AssistantMessage.from_model(message_model)
+        if isinstance(message_model, mdl.AgentMessage):
+            return AgentMessage.from_model(message_model)
         elif isinstance(message_model, mdl.DeveloperMessage):
             return DeveloperMessage.from_model(message_model)
         elif isinstance(message_model, mdl.SystemMessage):
@@ -181,14 +181,14 @@ class ToolMessage(SimpleMessage):
 
 @dc.dataclass
 class ToolCallFunction:
-    """A named function used in the assistant's tool call."""
+    """A named function used in the agent's tool call."""
     name: str = ""
     arguments: str = ""
 
 
 @dc.dataclass
 class ToolCall:
-    """A tool call requested by the assistant."""
+    """A tool call requested by the agent."""
     id: str
     function: ToolCallFunction = dc.field(default_factory=ToolCallFunction)
 
@@ -199,12 +199,12 @@ class ToolCall:
                 name=self.function.name, arguments=self.function.arguments))
 
 
-class AssistantMessagePart:
+class AgentMessagePart:
     """
-    One part of an AssistantMessage.
+    One part of an AgentMessage.
 
-    AssistantMessageParts consist of fragments that can be streamed. The type
-    of these fragments depends on the type of part.
+    AgentMessageParts consist of fragments that can be streamed. The type of
+    these fragments depends on the type of part.
 
     A part can be initialized with fragments, but then it is immediately
     finalized and nothing more can be appended.
@@ -233,7 +233,7 @@ class AssistantMessagePart:
         await self._fragments.finalize()
 
 
-class AssistantMessageTextPart(AssistantMessagePart):
+class AgentMessageTextPart(AgentMessagePart):
     VALID_TYPES = t.Literal["content", "reasoning"]
 
     def __init__(
@@ -251,14 +251,14 @@ class AssistantMessageTextPart(AssistantMessagePart):
         await self._fragments.finalize(compact=lambda list_: ["".join(list_)])
 
 
-class AssistantMessageReasoningPart(AssistantMessageTextPart):
+class AgentMessageReasoningPart(AgentMessageTextPart):
     def __init__(self, fragments: list[str] | None = None):
         super().__init__("reasoning", fragments)
 
 
-class AssistantMessageContentPart(AssistantMessageTextPart):
+class AgentMessageContentPart(AgentMessageTextPart):
     """
-    Content part of an assistant message.
+    Content part of an agent message.
 
     In contrast to the raw text part, overrides stream_fragments() to strip off
     the channel header.
@@ -339,7 +339,7 @@ def _find_channel(
         return "parsing_error", e, None
 
 
-class AssistantMessageToolPart(AssistantMessagePart):
+class AgentMessageToolPart(AgentMessagePart):
     VALID_TYPES = t.Literal["tool"]
 
     def __init__(self, fragments: list[ToolCall] | None = None):
@@ -353,7 +353,7 @@ class AssistantMessageToolPart(AssistantMessagePart):
             yield fragment
 
 
-class AssistantMessageErrorPart(AssistantMessagePart):
+class AgentMessageErrorPart(AgentMessagePart):
     VALID_TYPES = t.Literal["error"]
 
     def __init__(self, fragments: list[Exception] | None = None):
@@ -367,26 +367,25 @@ class AssistantMessageErrorPart(AssistantMessagePart):
             yield fragment
 
 
-class AssistantMessage(Message):
+class AgentMessage(Message):
     """
-    A message returned by the assistant.
+    A message returned by the agent.
 
-    AssistantMessages are more complex than those by the system or the user. In
+    AgentMessages are more complex than those by the system or the user. In
     addition to content, they also contain reasoning and tool calls (with which
-    the assistant requests that we execute something for them). These different
-    types of content are represented as AssistantMessageParts.
+    the agent requests that we execute something for them). These different
+    types of content are represented as AgentMessageParts.
 
-    Additionally, AssistantMessages are streamed so we can work with them
-    before the full output has arrived from the provider. First, parts are
-    streamed as they arrive. Then, the fragments of the parts themselves can be
-    streamed.
+    Additionally, AgentMessages are streamed so we can work with them before
+    the full output has arrived from the provider. First, parts are streamed as
+    they arrive. Then, the fragments of the parts themselves can be streamed.
 
     Some of the message's metadata isn't immediately available, since part or
     all of it needs to be parsed first. For this reason, the constructor starts
     tasks to set this data once it is available. The properties on the metadata
     will block until then. The tasks are awaited as part of wait_finalized().
     """
-    _logger = logging.getLogger("AssistantMessage")
+    _logger = logging.getLogger("AgentMessage")
 
     def __init__(
             self, metadata: MessageMetadata,
@@ -422,7 +421,7 @@ class AssistantMessage(Message):
             return
         assert isinstance(self.metadata.channel, util.FutureValue)
         async for part in self.stream_parts():
-            if not isinstance(part, AssistantMessageContentPart):
+            if not isinstance(part, AgentMessageContentPart):
                 continue
             channel = await self._parse_channel_from_content_part(part)
             break
@@ -432,7 +431,7 @@ class AssistantMessage(Message):
         self.metadata.channel.value = channel
 
     async def _parse_channel_from_content_part(
-            self, part: AssistantMessageContentPart):
+            self, part: AgentMessageContentPart):
         content = ""
         async for fragment in part.stream_fragments_raw():
             content += fragment
@@ -461,8 +460,8 @@ class AssistantMessage(Message):
             await task
 
     @property
-    def role(self) -> t.Literal["assistant"]:
-        return "assistant"
+    def role(self) -> t.Literal["agent"]:
+        return "agent"
 
     @property
     async def content(self) -> str:
@@ -471,18 +470,18 @@ class AssistantMessage(Message):
 
     @property
     async def reasoning(self) -> str:
-        """The reasoning of the assistant in producing the content."""
+        """The reasoning of the agent in producing the content."""
         return await self._concat_part_text("reasoning")
 
     async def _concat_part_text(
-            self, part_type: AssistantMessageTextPart.VALID_TYPES):
+            self, part_type: AgentMessageTextPart.VALID_TYPES):
         result = ""
         async for text in self._collect_fragments(part_type):
             result += text
         return result
 
     async def _collect_fragments(
-            self, part_type: AssistantMessagePart.VALID_TYPES):
+            self, part_type: AgentMessagePart.VALID_TYPES):
         await self._parts.wait_finalized()
         for part in self._parts:
             if part.type != part_type:
@@ -516,36 +515,34 @@ class AssistantMessage(Message):
             exceptions.append(exception)
         return exceptions
 
-    async def stream_parts(
-            self) -> cl_abc.AsyncGenerator[AssistantMessagePart]:
+    async def stream_parts(self) -> cl_abc.AsyncGenerator[AgentMessagePart]:
         """Asynchronously iterate over parts as they arrive."""
         async for part in self._parts.stream():
             yield part
 
     @property
-    async def model(self) -> mdl.AssistantMessage:
+    async def model(self) -> mdl.AgentMessage:
         tool_calls = [tool_call.model for tool_call in await self.tool_calls]
         errors = [f"Error: {exc}" for exc in await self.errors]
-        return mdl.AssistantMessage(
+        return mdl.AgentMessage(
             metadata=await self._metadata_model, content=await self.content,
             reasoning=await self.reasoning, tool_calls=tool_calls,
             errors=errors)
 
     @classmethod
-    def from_model(cls, model: mdl.AssistantMessage) -> t.Self:
-        parts: list[AssistantMessagePart] = [
-            AssistantMessageContentPart([model.content])]
+    def from_model(cls, model: mdl.AgentMessage) -> t.Self:
+        parts: list[AgentMessagePart] = [
+            AgentMessageContentPart([model.content])]
         if model.reasoning:
-            parts.append(AssistantMessageReasoningPart([model.reasoning]))
+            parts.append(AgentMessageReasoningPart([model.reasoning]))
         tool_calls = []
         for tool_call in model.tool_calls:
             function = ToolCallFunction(
                 tool_call.function.name, tool_call.function.arguments)
             tool_calls.append(ToolCall(tool_call.id, function))
         if tool_calls:
-            parts.append(AssistantMessageToolPart(tool_calls))
+            parts.append(AgentMessageToolPart(tool_calls))
         if model.errors:
             parts.append(
-                AssistantMessageErrorPart([Exception(e)
-                                           for e in model.errors]))
+                AgentMessageErrorPart([Exception(e) for e in model.errors]))
         return cls(cls._metadata_from_model(model), util.StreamableList(parts))

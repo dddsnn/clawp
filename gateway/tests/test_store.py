@@ -29,7 +29,7 @@ import whenever as we
 import store
 
 
-def asst_id(id_int):
+def agt_id(id_int):
     return uuid.UUID(int=id_int)
 
 
@@ -55,16 +55,16 @@ def read_file_content(path: pathlib.Path) -> list[str]:
 
 
 def session_file_header(
-        assistant_id_int, session_seq, version=store.MessageStore.VERSION):
+        agent_id_int, session_seq, version=store.MessageStore.VERSION):
     return {
         "version": version,
-        "assistant_id": str(asst_id(assistant_id_int)),
+        "agent_id": str(agt_id(agent_id_int)),
         "session_seq": session_seq,}
 
 
-def session_file_for_base_dir(base_dir, assistant_id_int, session_seq):
+def session_file_for_base_dir(base_dir, agent_id_int, session_seq):
     return (
-        base_dir / "assistants" / str(asst_id(assistant_id_int)) / "sessions"
+        base_dir / "agents" / str(agt_id(agent_id_int)) / "sessions"
         / f"{session_seq}.jsonl")
 
 
@@ -128,16 +128,16 @@ async def message_store(make_message_store):
 class TestMessageStore:
     @pytest.fixture
     def session_file(self, base_dir):
-        def getter(assistant_id_int, session_seq):
+        def getter(agent_id_int, session_seq):
             return session_file_for_base_dir(
-                base_dir, assistant_id_int, session_seq)
+                base_dir, agent_id_int, session_seq)
 
         return getter
 
     async def test_append_creates_file_with_header(
             self, message_store, session_file):
         await message_store.append_message(
-            asst_id(1), 0, MockMessage(payload="a"))
+            agt_id(1), 0, MockMessage(payload="a"))
         lines = read_file_content(session_file(1, 0))
         assert len(lines) == 2
         assert lines[0] == json.dumps(session_file_header(1, 0))
@@ -146,11 +146,11 @@ class TestMessageStore:
             self, message_store):
         with pytest.raises(store.MessageStoreFormatError):
             await message_store.append_message(
-                asst_id(1), 1, MockMessage(payload="a"))
+                agt_id(1), 1, MockMessage(payload="a"))
 
     async def test_append_message(self, message_store, session_file):
         msg = MockMessage(payload="a")
-        await message_store.append_message(asst_id(1), 0, msg)
+        await message_store.append_message(agt_id(1), 0, msg)
         lines = read_file_content(session_file(1, 0))
         assert len(lines) == 2
         assert MockMessage.from_model(
@@ -159,59 +159,58 @@ class TestMessageStore:
     async def test_append_multiple_messages(self, message_store):
         msg1 = MockMessage(payload="a")
         msg2 = MockMessage(payload="b")
-        await message_store.append_message(asst_id(1), 0, msg1)
-        await message_store.append_message(asst_id(1), 0, msg2)
-        messages = await message_store.read_session_messages(asst_id(1), 0)
+        await message_store.append_message(agt_id(1), 0, msg1)
+        await message_store.append_message(agt_id(1), 0, msg2)
+        messages = await message_store.read_session_messages(agt_id(1), 0)
         assert messages == [msg1, msg2]
 
     async def test_read_session_messages_empty_if_missing(self, message_store):
-        messages = await message_store.read_session_messages(asst_id(1), 0)
+        messages = await message_store.read_session_messages(agt_id(1), 0)
         assert messages == []
 
     async def test_read_session_messages_empty_session(
             self, message_store, session_file):
         write_file_content(
             session_file(1, 0), [json.dumps(session_file_header(1, 0))])
-        messages = await message_store.read_session_messages(asst_id(1), 0)
+        messages = await message_store.read_session_messages(agt_id(1), 0)
         assert messages == []
 
-    async def test_list_assistants_empty_if_no_dir(self, message_store):
-        assert message_store.list_assistants() == []
+    async def test_list_agents_empty_if_no_dir(self, message_store):
+        assert message_store.list_agents() == []
 
-    async def test_list_assistants_empty_if_no_assistant(
+    async def test_list_agents_empty_if_no_agent(
             self, message_store, base_dir):
-        (base_dir / "assistants").mkdir(parents=True)
-        assert message_store.list_assistants() == []
+        (base_dir / "agents").mkdir(parents=True)
+        assert message_store.list_agents() == []
 
-    async def test_list_assistants(self, message_store, base_dir):
-        (base_dir / "assistants" / str(asst_id(2))).mkdir(parents=True)
-        (base_dir / "assistants" / str(asst_id(1))).mkdir(parents=True)
-        assert message_store.list_assistants() == [asst_id(1), asst_id(2)]
+    async def test_list_agents(self, message_store, base_dir):
+        (base_dir / "agents" / str(agt_id(2))).mkdir(parents=True)
+        (base_dir / "agents" / str(agt_id(1))).mkdir(parents=True)
+        assert message_store.list_agents() == [agt_id(1), agt_id(2)]
 
-    async def test_get_active_session_seq_without_assistant(
-            self, message_store):
-        active_session_seq = message_store.get_active_session_seq(asst_id(1))
+    async def test_get_active_session_seq_without_agent(self, message_store):
+        active_session_seq = message_store.get_active_session_seq(agt_id(1))
         assert active_session_seq is None
 
     async def test_get_active_session_seq_without_sessions(
             self, message_store, session_file):
         sessions_dir = session_file(1, 0).parent
         sessions_dir.mkdir(parents=True)
-        active_session_seq = message_store.get_active_session_seq(asst_id(1))
+        active_session_seq = message_store.get_active_session_seq(agt_id(1))
         assert active_session_seq is None
 
     async def test_get_active_session_seq(self, message_store, session_file):
         create_file(session_file(1, 2))
         create_file(session_file(1, 0))
         create_file(session_file(1, 1))
-        assert message_store.get_active_session_seq(asst_id(1)) == 2
+        assert message_store.get_active_session_seq(agt_id(1)) == 2
 
     async def test_get_active_session_seq_returns_latest_even_if_some_missing(
             self, message_store, session_file):
         create_file(session_file(1, 3))
         create_file(session_file(1, 0))
         create_file(session_file(1, 1))
-        assert message_store.get_active_session_seq(asst_id(1)) == 3
+        assert message_store.get_active_session_seq(agt_id(1)) == 3
 
     async def test_get_active_session_seq_ignores_non_session_files(
             self, message_store, session_file):
@@ -219,42 +218,42 @@ class TestMessageStore:
         sessions_dir = session_file(1, 0).parent
         create_file(sessions_dir / "1.not_jsonl")
         create_file(sessions_dir / "1_then_not_a_number.jsonl")
-        assert message_store.get_active_session_seq(asst_id(1)) == 0
+        assert message_store.get_active_session_seq(agt_id(1)) == 0
 
-    async def test_multiple_assistants_are_independent(self, message_store):
+    async def test_multiple_agents_are_independent(self, message_store):
         msg1 = MockMessage(payload="a")
         msg2 = MockMessage(payload="b")
-        await message_store.append_message(asst_id(1), 0, msg1)
-        await message_store.append_message(asst_id(2), 0, msg2)
-        assert await message_store.read_session_messages(asst_id(1),
+        await message_store.append_message(agt_id(1), 0, msg1)
+        await message_store.append_message(agt_id(2), 0, msg2)
+        assert await message_store.read_session_messages(agt_id(1),
                                                          0) == [msg1]
-        assert await message_store.read_session_messages(asst_id(2),
+        assert await message_store.read_session_messages(agt_id(2),
                                                          0) == [msg2]
 
     async def test_multiple_sessions_are_independent(self, message_store):
         msg0 = MockMessage(payload="a")
         msg1 = MockMessage(payload="b")
-        await message_store.append_message(asst_id(1), 0, msg0)
-        await message_store.append_message(asst_id(1), 1, msg1)
-        assert await message_store.read_session_messages(asst_id(1),
+        await message_store.append_message(agt_id(1), 0, msg0)
+        await message_store.append_message(agt_id(1), 1, msg1)
+        assert await message_store.read_session_messages(agt_id(1),
                                                          0) == [msg0]
-        assert await message_store.read_session_messages(asst_id(1),
+        assert await message_store.read_session_messages(agt_id(1),
                                                          1) == [msg1]
 
     async def test_aenter_after_aexit(self, make_message_store):
         async with make_message_store() as store:
             msg = MockMessage(payload="a")
-            await store.append_message(asst_id(1), 0, msg)
+            await store.append_message(agt_id(1), 0, msg)
         async with store:
-            messages = await store.read_session_messages(asst_id(1), 0)
+            messages = await store.read_session_messages(agt_id(1), 0)
             assert messages == [msg]
 
     async def test_aenter_in_new_instance(self, make_message_store):
         async with make_message_store() as store:
             msg = MockMessage(payload="a")
-            await store.append_message(asst_id(1), 0, msg)
+            await store.append_message(agt_id(1), 0, msg)
         async with make_message_store() as store:
-            messages = await store.read_session_messages(asst_id(1), 0)
+            messages = await store.read_session_messages(agt_id(1), 0)
             assert messages == [msg]
 
     async def test_only_one_instance_can_be_active(self, make_message_store):
@@ -306,8 +305,7 @@ class TestMessageStore:
                 pass
 
     @pytest.mark.parametrize(
-        "key,value", [("version", "not an int"),
-                      ("assistant_id", "not a uuid"),
+        "key,value", [("version", "not an int"), ("agent_id", "not a uuid"),
                       ("session_seq", "not an int")])
     async def test_aenter_raises_if_session_has_invalid_header(
             self, make_message_store, session_file, key, value):
@@ -319,7 +317,7 @@ class TestMessageStore:
                 pass
 
     @pytest.mark.parametrize(
-        "key,value", [("assistant_id", str(asst_id(2))), ("session_seq", 1)])
+        "key,value", [("agent_id", str(agt_id(2))), ("session_seq", 1)])
     async def test_aenter_raises_if_session_has_inconsistent_header(
             self, make_message_store, session_file, key, value):
         header = session_file_header(1, 0)
@@ -423,35 +421,35 @@ class TestMessageStore:
     async def test_append_after_reopen(self, make_message_store):
         async with make_message_store() as store:
             msg1 = MockMessage(payload="a")
-            await store.append_message(asst_id(1), 0, msg1)
+            await store.append_message(agt_id(1), 0, msg1)
         async with store:
             msg2 = MockMessage(payload="b")
-            await store.append_message(asst_id(1), 0, msg2)
-            messages = await store.read_session_messages(asst_id(1), 0)
+            await store.append_message(agt_id(1), 0, msg2)
+            messages = await store.read_session_messages(agt_id(1), 0)
             assert messages == [msg1, msg2]
 
     async def test_read_discards_truncated_last_line(
             self, make_message_store, session_file):
         async with make_message_store() as store:
             msg = MockMessage(payload="a")
-            await store.append_message(asst_id(1), 0, msg)
+            await store.append_message(agt_id(1), 0, msg)
         # Simulate a crash by appending a partial line.
         with open(session_file(1, 0), "a") as f:
             f.write('{"payload": "some s')
         async with store:
-            messages = await store.read_session_messages(asst_id(1), 0)
+            messages = await store.read_session_messages(agt_id(1), 0)
             assert messages == [msg]
 
     async def test_read_deletes_truncated_last_line(
             self, make_message_store, session_file):
         async with make_message_store() as store:
             msg = MockMessage(payload="a")
-            await store.append_message(asst_id(1), 0, msg)
+            await store.append_message(agt_id(1), 0, msg)
         # Simulate a crash by appending a partial line.
         with open(session_file(1, 0), "a") as f:
             f.write('{"payload": "some s')
         async with store:
-            await store.read_session_messages(asst_id(1), 0)
+            await store.read_session_messages(agt_id(1), 0)
         content = read_file_content(session_file(1, 0))
         assert len(content) == 2
         assert json.loads(content[1]) == (await msg.model).model_dump()
@@ -460,93 +458,92 @@ class TestMessageStore:
             self, make_message_store, session_file):
         async with make_message_store() as message_store:
             msg = MockMessage(payload="a")
-            await message_store.append_message(asst_id(1), 0, msg)
+            await message_store.append_message(agt_id(1), 0, msg)
         # Write a corrupt line followed by a valid line.
         with open(session_file(1, 0), "a") as f:
             f.write("not json\n")
             f.write('{"payload":"a"}\n')
         async with message_store:
             with pytest.raises(store.MessageStoreFormatError):
-                await message_store.read_session_messages(asst_id(1), 0)
+                await message_store.read_session_messages(agt_id(1), 0)
 
     async def test_read_raises_on_empty_non_last_line(
             self, make_message_store, session_file):
         async with make_message_store() as message_store:
             msg = MockMessage(payload="a")
-            await message_store.append_message(asst_id(1), 0, msg)
+            await message_store.append_message(agt_id(1), 0, msg)
         with open(session_file(1, 0), "a") as f:
             f.write("\n")
             f.write('{"payload":"a"}\n')
         async with message_store:
             with pytest.raises(store.MessageStoreFormatError):
-                await message_store.read_session_messages(asst_id(1), 0)
+                await message_store.read_session_messages(agt_id(1), 0)
 
     async def test_message_with_unicode_and_newlines(self, message_store):
         msg = MockMessage(payload="hello\nworld\n\ttab\u00e9\U0001f600")
-        await message_store.append_message(asst_id(1), 0, msg)
-        messages = await message_store.read_session_messages(asst_id(1), 0)
+        await message_store.append_message(agt_id(1), 0, msg)
+        messages = await message_store.read_session_messages(agt_id(1), 0)
         assert messages == [msg]
 
     async def test_read_after_append_on_same_instance(self, message_store):
         msg = MockMessage(payload="a")
-        await message_store.append_message(asst_id(1), 0, msg)
+        await message_store.append_message(agt_id(1), 0, msg)
         # Read from the same store instance (which has the file open for
         # appending). The read uses a separate file handle.
-        messages = await message_store.read_session_messages(asst_id(1), 0)
+        messages = await message_store.read_session_messages(agt_id(1), 0)
         assert messages == [msg]
 
-    async def test_get_assistant_message_store(self, message_store):
+    async def test_get_agent_message_store(self, message_store):
         msg1 = MockMessage(payload="a")
         msg2 = MockMessage(payload="b")
-        await message_store.append_message(asst_id(1), 0, msg1)
-        assistant_message_store = message_store.get_assistant_message_store(
-            asst_id(1))
-        assert await assistant_message_store.read_session_messages(0) == [msg1]
-        await assistant_message_store.append_message(0, msg2)
-        assert await message_store.read_session_messages(asst_id(1),
+        await message_store.append_message(agt_id(1), 0, msg1)
+        agent_message_store = message_store.get_agent_message_store(agt_id(1))
+        assert await agent_message_store.read_session_messages(0) == [msg1]
+        await agent_message_store.append_message(0, msg2)
+        assert await message_store.read_session_messages(agt_id(1),
                                                          0) == [msg1, msg2]
-        assert assistant_message_store.get_active_session_seq() == 0
+        assert agent_message_store.get_active_session_seq() == 0
 
 
-class TestAssistantMessageStore:
+class TestAgentMessageStore:
     @pytest.fixture
-    def assistant_message_store(self, message_store):
-        return store.AssistantMessageStore(asst_id(1), message_store)
+    def agent_message_store(self, message_store):
+        return store.AgentMessageStore(agt_id(1), message_store)
 
-    async def test_assistant_message_store(
-            self, assistant_message_store, message_store):
+    async def test_agent_message_store(
+            self, agent_message_store, message_store):
         msg1 = MockMessage(payload="a")
         msg2 = MockMessage(payload="b")
-        await message_store.append_message(asst_id(1), 0, msg1)
-        assert await assistant_message_store.read_session_messages(0) == [msg1]
-        await assistant_message_store.append_message(0, msg2)
-        assert await message_store.read_session_messages(asst_id(1),
-                                                         0) == [msg1,msg2]
-        assert assistant_message_store.get_active_session_seq() == 0
+        await message_store.append_message(agt_id(1), 0, msg1)
+        assert await agent_message_store.read_session_messages(0) == [msg1]
+        await agent_message_store.append_message(0, msg2)
+        assert await message_store.read_session_messages(agt_id(1),
+                                                         0) == [msg1, msg2]
+        assert agent_message_store.get_active_session_seq() == 0
 
-    async def test_get_session_message_store(self, assistant_message_store):
+    async def test_get_session_message_store(self, agent_message_store):
         msg1 = MockMessage(payload="a")
         msg2 = MockMessage(payload="b")
-        await assistant_message_store.append_message(0, msg1)
+        await agent_message_store.append_message(0, msg1)
         session_message_store = (
-            assistant_message_store.get_session_message_store(0))
+            agent_message_store.get_session_message_store(0))
         assert await session_message_store.read_session_messages() == [msg1]
         await session_message_store.append_message(msg2)
-        assert await assistant_message_store.read_session_messages(0) == [
+        assert await agent_message_store.read_session_messages(0) == [
             msg1, msg2]
 
 
 class TestSessionMessageStore:
     @pytest.fixture
     def session_message_store(self, message_store):
-        return store.SessionMessageStore(asst_id(1), 0, message_store)
+        return store.SessionMessageStore(agt_id(1), 0, message_store)
 
     async def test_session_message_store(
             self, session_message_store, message_store):
         msg1 = MockMessage(payload="a")
         msg2 = MockMessage(payload="b")
-        await message_store.append_message(asst_id(1), 0, msg1)
+        await message_store.append_message(agt_id(1), 0, msg1)
         assert await session_message_store.read_session_messages() == [msg1]
         await session_message_store.append_message(msg2)
-        assert await message_store.read_session_messages(asst_id(1),
+        assert await message_store.read_session_messages(agt_id(1),
                                                          0) == [msg1, msg2]

@@ -48,16 +48,15 @@ def _read_file(path: pathlib.Path) -> str:
 
 class Session:
     """
-    Session with an assistant.
+    Session with an agent.
 
-    The session essentially encapsulates the assistant's context window. It can
-    add messages to the context, generate assistant responses using its
-    provider, and also manages which tools the assistant has available via the
-    MCP client.
+    The session essentially encapsulates the agent's context window. It can add
+    messages to the context, generate agent responses using its provider, and
+    also manages which tools the agent has available via the MCP client.
 
     The session is an asynchronous context manager that loads existing messages
-    from the store on aenter and also ensures all assistant messages have
-    finished streaming when it shuts down.
+    from the store on aenter and also ensures all agent messages have finished
+    streaming when it shuts down.
 
     A session can only handle one request at a time (adding messages or
     requesting a response). Concurrent calls will block until the current one
@@ -165,12 +164,12 @@ class Session:
 
     async def request_response(self) -> None:
         """
-        Request an assistant response.
+        Request an agent response.
 
-        Calls the provider to generate one or more AssistantMessages in
-        response to the current state of the session. Handles any tool calls
-        the assistant makes, and also gives the assistant feedback if they
-        forgot the channel header or it was malformed.
+        Calls the provider to generate one or more AgentMessages in response to
+        the current state of the session. Handles any tool calls the agent
+        makes, and also gives the agent feedback if they forgot the channel
+        header or it was malformed.
 
         Generated messages are not returned directly but can be accessed via
         subscribe().
@@ -180,24 +179,21 @@ class Session:
                 raise RuntimeError("shut down, can't make requests")
             do_request = True
             while do_request:
-                assistant_message = await self._request_assistant_message()
+                message = await self._request_agent_message()
                 # Wait for the message to completely arrive before handling
                 # tool calls etc.
-                await assistant_message.wait_finalized()
-                do_request = await self._check_channel_header(
-                    assistant_message)
-                do_request |= await self._handle_tool_calls(assistant_message)
+                await message.wait_finalized()
+                do_request = await self._check_channel_header(message)
+                do_request |= await self._handle_tool_calls(message)
 
-    async def _request_assistant_message(self):
+    async def _request_agent_message(self):
         parts = util.StreamableList()
-        await self._provider.stream_assistant_message(
+        await self._provider.stream_agent_message(
             parts, self._messages, self._mcp_client.tools.values())
         return await self._append_message(
-            self._make_message(
-                msg.AssistantMessage, parts, set_time_to_now=False))
+            self._make_message(msg.AgentMessage, parts, set_time_to_now=False))
 
-    async def _check_channel_header(
-            self, message: msg.AssistantMessage) -> bool:
+    async def _check_channel_header(self, message: msg.AgentMessage) -> bool:
         if not await message.content:
             # No content, in this case we don't need a header.
             return False
@@ -210,8 +206,8 @@ class Session:
                     channel.fallback_channel = (
                         await message.metadata.channel.value)
                     self._logger.info(
-                        "Assistant omitted channel header, message will be "
-                        f"sent to {channel.fallback_channel} instead.")
+                        "Agent omitted channel header, message will be sent "
+                        f"to {channel.fallback_channel} instead.")
                     template = await _read_message_file(
                         "missing_channel_header.template")
                     system_message_content = template.format(
@@ -220,8 +216,8 @@ class Session:
                     break
             else:
                 self._logger.warning(
-                    "Assistant omitted channel header, but no fallback "
-                    "channel could be determined, message will not be sent.")
+                    "Agent omitted channel header, but no fallback channel "
+                    "could be determined, message will not be sent.")
                 system_message_content = await _read_message_file(
                     "missing_channel_header_no_fallback.txt")
             await self._append_message(
@@ -241,7 +237,7 @@ class Session:
             return True
         return False
 
-    async def _handle_tool_calls(self, message: msg.AssistantMessage) -> bool:
+    async def _handle_tool_calls(self, message: msg.AgentMessage) -> bool:
         if not await message.tool_calls:
             return False
         for tool_call in await message.tool_calls:
@@ -270,29 +266,29 @@ class Session:
         return self._publisher.subscribe()
 
 
-class Assistant:
+class Agent:
     """
-    An assistant.
+    An agent.
 
-    of multiple sessions that maintain the assistant's personality and
-    knowledge. It always has an active session, which represents the model's
-    current context window. New sessions may be started (e.g. for compaction),
-    but the assistant should maintain their core memories and personality
-    throughout.
+    An agent manages a sequence of sessions that maintain the agent's
+    personality and knowledge. It always has an active session, which
+    represents the model's current context window. New sessions may be started
+    (e.g. for compaction), but the agent should maintain their core memories
+    and personality throughout.
 
     Since sessions are essentially append-only, when the history has to be
     changed for a compaction or change in system message, a new session is
     started.
 
-    An assistant is an asynchronous context manager that ensures sessions are
+    An agent is an asynchronous context manager that ensures sessions are
     properly opened and closed.
     """
     def __init__(
-            self, assistant_id: uuid.UUID, *,
-            message_store: store.AssistantMessageStore,
-            provider: "prov.Provider", mcp_client: tool.Client) -> None:
+            self, agent_id: uuid.UUID, *,
+            message_store: store.AgentMessageStore, provider: "prov.Provider",
+            mcp_client: tool.Client) -> None:
         self._logger = logging.getLogger(type(self).__name__)
-        self._assistant_id = assistant_id
+        self._agent_id = agent_id
         self._message_store = message_store
         self._session_factory = ft.partial(
             Session, provider=provider, mcp_client=mcp_client)
@@ -325,8 +321,8 @@ class Assistant:
             await self._session.__aenter__()
         else:
             self._logger.info(
-                f"Existing assistant {self._assistant_id} has no sessions. "
-                "Starting the first one.")
+                f"Existing agent {self._agent_id} has no sessions. Starting "
+                "the first one.")
             self._session = self._make_session(0)
             await self._start_new_session()
 
@@ -338,7 +334,7 @@ class Assistant:
         await self._session.add_simple_message(
             msg.DeveloperMessage, await _read_message_file("init_system.md"),
             mdl.SystemChannelDescriptor())
-        # Tell the assistant that this is a new session.
+        # Tell the agent that this is a new session.
         await self._session.add_simple_message(
             msg.SystemMessage, await
             _read_message_file("session_initialization.txt"),
@@ -356,9 +352,9 @@ class Assistant:
         """
         Process a user message in the current session.
 
-        Adds the message to the active session and requests an assistant
-        response to it. The response is not returned, rather it is available
-        via subscribe().
+        Adds the message to the active session and requests an agent response
+        to it. The response is not returned, rather it is available via
+        subscribe().
         """
         async with self._lock:
             await self._session.add_simple_message(
@@ -367,7 +363,7 @@ class Assistant:
 
     def subscribe(self) -> cl_abc.AsyncGenerator[msg.Message]:
         """
-        Subscribe to the this assistant's messages.
+        Subscribe to the this agent's messages.
 
         This includes all kinds of messages, also user/system/developer/tool
         messages.

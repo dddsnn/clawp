@@ -79,7 +79,7 @@ export const useChatStore = defineStore('chat', () => {
     messages.value.sort((a, b) => (a.metadata.seq_in_session ?? 0) - (b.metadata.seq_in_session ?? 0));
   }
 
-  // Used by the stream to create the placeholder assistant message before fragments arrive
+  // Used by the stream to create the placeholder agent message before fragments arrive
   function startStreamingMessage(seqInSession: number | null | undefined) {
     if (seqInSession !== undefined && seqInSession !== null) {
       const existingMsg = messages.value.find(m => m.metadata.seq_in_session === seqInSession);
@@ -91,7 +91,7 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     activeStreamingMessage.value = {
-      role: 'assistant',
+      role: 'agent',
       content: '',
       reasoning: '',
       tool_calls: [],

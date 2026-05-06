@@ -39,7 +39,7 @@ class MessageMetadata(StartMessageMetadata, EndMessageMetadata):
 
 class BaseMessage(base.BaseModel):
     metadata: MessageMetadata
-    role: t.Literal["assistant", "developer", "system", "tool", "user"]
+    role: t.Literal["agent", "developer", "system", "tool", "user"]
     content: str
 
 
@@ -65,20 +65,20 @@ class UserMessage(BaseMessage):
 
 
 class ToolCallFunction(base.BaseModel):
-    """A named function used in the assistant's tool call."""
+    """A named function used in the agent's tool call."""
     name: str = ""
     arguments: str = ""
 
 
 class ToolCall(base.BaseModel):
-    """A tool call requested by the assistant."""
+    """A tool call requested by the agent."""
     id: str
     function: ToolCallFunction
 
 
-class AssistantMessage(BaseMessage):
-    """Message sent by the assistant."""
-    role: t.Literal["assistant"] = "assistant"
+class AgentMessage(BaseMessage):
+    """Message sent by the agent."""
+    role: t.Literal["agent"] = "agent"
     reasoning: str
     tool_calls: list[ToolCall]
     errors: list[str]
@@ -88,7 +88,7 @@ NonStreamableMessage = t.Annotated[DeveloperMessage | SystemMessage
                                    | ToolMessage | UserMessage,
                                    pyd.Field(discriminator="role")]
 
-Message = t.Annotated[AssistantMessage | NonStreamableMessage,
+Message = t.Annotated[AgentMessage | NonStreamableMessage,
                       pyd.Field(discriminator="role")]
 MessageTypeAdapter = pyd.TypeAdapter(Message)
 
@@ -151,8 +151,8 @@ StreamingMessageFragment = (
 
 class BaseWebsocketChunk(base.BaseModel):
     """A chunk of data sent in a websocket stream."""
-    chunk_type: t.Literal["full_message", "assistant_message_marker",
-                          "assistant_message_fragment"]
+    chunk_type: t.Literal["full_message", "agent_message_marker",
+                          "agent_message_fragment"]
     payload: (
         NonStreamableMessage | StreamingMessageMarker
         | StreamingMessageFragment)
@@ -164,23 +164,22 @@ class WebsocketChunkFullMessage(BaseWebsocketChunk):
     payload: NonStreamableMessage
 
 
-class WebsocketChunkAssistantMessageMarker(BaseWebsocketChunk):
-    """A chunk containing a marker in an streaming assistant message."""
-    chunk_type: t.Literal["assistant_message_marker"] = (
-        "assistant_message_marker")
+class WebsocketChunkAgentMessageMarker(BaseWebsocketChunk):
+    """A chunk containing a marker in an streaming agent message."""
+    chunk_type: t.Literal["agent_message_marker"] = ("agent_message_marker")
     payload: StreamingMessageMarker
 
 
-class WebsocketChunkAssistantMessageFragment(BaseWebsocketChunk):
-    """A chunk containing a fragment in an streaming assistant message."""
-    chunk_type: t.Literal["assistant_message_fragment"] = (
-        "assistant_message_fragment")
+class WebsocketChunkAgentMessageFragment(BaseWebsocketChunk):
+    """A chunk containing a fragment in an streaming agent message."""
+    chunk_type: t.Literal["agent_message_fragment"] = (
+        "agent_message_fragment")
     payload: StreamingMessageFragment
 
 
 WebsocketChunk = (
-    WebsocketChunkFullMessage | WebsocketChunkAssistantMessageMarker
-    | WebsocketChunkAssistantMessageFragment)
+    WebsocketChunkFullMessage | WebsocketChunkAgentMessageMarker
+    | WebsocketChunkAgentMessageFragment)
 
 
 class UserInputMessage(base.BaseModel):

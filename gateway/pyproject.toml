@@ -4,7 +4,7 @@ requires = ["setuptools", "wheel"]
 [project]
 name = "clawp"
 version = "0.1.0"
-description = "An AI assistant framework"
+description = "An AI agent framework"
 authors = [{ name = "Marc Lehmann", email = "marc@marclehmann.name" }]
 license = "AGPL-3.0-or-later"
 license-files = ["LICENSE"]

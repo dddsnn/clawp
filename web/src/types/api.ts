@@ -105,7 +105,7 @@ export const ToolCallSchema = z.object({
 });
 
 export const AssistantMessageSchema = BaseMessageSchema.extend({
-  role: z.literal('assistant'),
+  role: z.literal('agent'),
   reasoning: z.string(),
   tool_calls: z.array(ToolCallSchema),
   errors: z.array(z.string()).default([]),
@@ -182,7 +182,7 @@ export const StreamingMessageFragmentSchema = z.discriminatedUnion('fragment_typ
 // --- Websocket Chunks ---
 
 const BaseWebsocketChunkSchema = z.object({
-  chunk_type: z.enum(['full_message', 'assistant_message_marker', 'assistant_message_fragment']),
+  chunk_type: z.enum(['full_message', 'agent_message_marker', 'agent_message_fragment']),
 });
 
 export const WebsocketChunkFullMessageSchema = BaseWebsocketChunkSchema.extend({
@@ -191,12 +191,12 @@ export const WebsocketChunkFullMessageSchema = BaseWebsocketChunkSchema.extend({
 });
 
 export const WebsocketChunkAssistantMessageMarkerSchema = BaseWebsocketChunkSchema.extend({
-  chunk_type: z.literal('assistant_message_marker'),
+  chunk_type: z.literal('agent_message_marker'),
   payload: StreamingMessageMarkerSchema,
 });
 
 export const WebsocketChunkAssistantMessageFragmentSchema = BaseWebsocketChunkSchema.extend({
-  chunk_type: z.literal('assistant_message_fragment'),
+  chunk_type: z.literal('agent_message_fragment'),
   payload: StreamingMessageFragmentSchema,
 });
 
@@ -223,7 +223,7 @@ export type StreamingMessageMarkerPartStart = z.infer<typeof StreamingMessageMar
 export type UserInputMessage = z.infer<typeof UserInputMessageSchema>;
 
 export interface StreamingAssistantMessage {
-  role: 'assistant';
+  role: 'agent';
   content: string;
   reasoning: string;
   tool_calls: ToolCall[];

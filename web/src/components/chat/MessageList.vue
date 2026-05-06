@@ -44,7 +44,7 @@ const filteredMessages = computed(() => {
     if (msg.role === 'system') return store.visibility.system;
     if (msg.role === 'tool') return store.visibility.tool;
     if (msg.role === 'developer') return store.visibility.developer;
-    return true; // Always show user and assistant messages
+    return true; // Always show user and agent messages
   });
 });
 

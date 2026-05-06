@@ -65,17 +65,17 @@ async def main():
     openrouter_provider = prov.OpenrouterProvider(
         OPENROUTER_API_KEY, "stepfun/step-3.5-flash:free")
     mcp_client = tool.Client()
-    assistant_id = uuid.UUID(int=0)
-    assistant = asst.Assistant(
-        assistant_id,
-        message_store=message_store.get_assistant_message_store(assistant_id),
+    agent_id = uuid.UUID(int=0)
+    agent = asst.Agent(
+        agent_id,
+        message_store=message_store.get_agent_message_store(agent_id),
         provider=openrouter_provider, mcp_client=mcp_client)
-    clawp_api = api.Api(assistant, API_HOST, API_PORT, API_LOG_LEVEL)
+    clawp_api = api.Api(agent, API_HOST, API_PORT, API_LOG_LEVEL)
     async with contextlib.AsyncExitStack() as stack:
         await stack.enter_async_context(message_store)
         await stack.enter_async_context(openrouter_provider)
         await stack.enter_async_context(mcp_client)
-        await stack.enter_async_context(assistant)
+        await stack.enter_async_context(agent)
         await stack.enter_async_context(clawp_api)
         await shutdown_event.wait()
 
