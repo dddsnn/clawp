@@ -29,20 +29,40 @@ import util
 
 MessageRole = t.Literal["agent", "developer", "system", "tool", "user"]
 
+# TODO do we really need transient messages with seq_in_session null? otherwise
+# remove mention of them and simplify (make non-nullable) everywhere, including frontend+++++++++++
 
 
 @dc.dataclass
-class MessageMetadata:
+class ReceivedMessageMetadata:
+    """
+    Message metadata known immediately.
+
+    This is the metadata that is known as soon as the message is fully
+    received.
+    """
+    time: util.Value[we.Instant]
+    """The time the message was fully received."""
+    channel: util.Value[mdl.ChannelDescriptor]
+    """The channel the message is on."""
+
+
+# TODO message metadata:
+# - trusted class
+@dc.dataclass
+class MessageMetadata(ReceivedMessageMetadata):
+    """
+    Full message metadata.
+
+    This is the metadata that is known once a message has been integrated and
+    committed into the running system.
+    """
     seq_in_session: t.Optional[int]
     """
     The message's sequence number in its session.
 
     A None value means the message is transient and will disappear again.
     """
-    time: util.Value[we.Instant]
-    """The time the message was fully received."""
-    channel: util.Value[mdl.ChannelDescriptor]
-    """The channel the message is on."""
 
 
 class Message(abc.ABC):
@@ -430,6 +450,8 @@ class AgentMessage(Message):
             channel = mdl.MissingChannelDescriptor()
         self.metadata.channel.value = channel
 
+    # TODO in the case of missing header, we want to notify the asst but send
+    # to last used channel. but in case of error? notify without sending?+++++++++++++++
     async def _parse_channel_from_content_part(
             self, part: AgentMessageContentPart):
         content = ""

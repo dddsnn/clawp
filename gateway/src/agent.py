@@ -26,6 +26,7 @@ import uuid
 
 import whenever as we
 
+import channel as chan
 import message as msg
 import model as mdl
 import store
@@ -46,6 +47,7 @@ def _read_file(path: pathlib.Path) -> str:
         return f.read()
 
 
+# TODO give each session a reason, e.g. "root session", "compaction", "change in md files" etc.?+++++++
 class Session:
     """
     Session with an agent.
@@ -62,13 +64,17 @@ class Session:
     requesting a response). Concurrent calls will block until the current one
     is done.
     """
+
+    # REFACTOR narrower interface for channel repo?++++++++
     def __init__(
             self, session_seq: int, *,
             message_store: store.SessionMessageStore,
-            provider: "prov.Provider", mcp_client: tool.Client) -> None:
+            channel_repo: chan.ChannelRepository, provider: "prov.Provider",
+            mcp_client: tool.Client) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._session_seq = session_seq
         self._message_store = message_store
+        self._channel_repo = channel_repo
         self._provider = provider
         self._mcp_client = mcp_client
         self._messages = None
@@ -90,6 +96,8 @@ class Session:
         await self._publisher.__aexit__(*args)
         return False
 
+    # TODO deprecate++++++++
+    # REFACTOR use channels in here as well?++++++
     async def add_simple_message(
             self, message_class: t.Literal[msg.DeveloperMessage,
                                            msg.SystemMessage, msg.UserMessage],
@@ -120,6 +128,9 @@ class Session:
                     message_class, message_content, channel=channel)
             await self._append_message(message)
 
+    # REFACTOR the set_time_to_now and channel handling, and actually the whole
+    # message construction business in here++++++++++++++
+    # REFACTOR take a whole ReceivedMessageMetadata in here?+++++++
     def _make_message(
             self, message_class, *args, seq_in_session_offset=0,
             set_time_to_now=True, channel=None, **kwargs):
@@ -179,6 +190,11 @@ class Session:
                 raise RuntimeError("shut down, can't make requests")
             do_request = True
             while do_request:
+                # TODO the asst sometimes needs to make multiple calls in succession,
+                # but sometimes gets stuck in a loop. we need some looping prevention+++++
+                # TODO we may also want a timeout for a single message request, since
+                # this will block shutdown for as long as it's going on. but then how do
+                # we handle a partially complete message? it won't go into storage at all, right?+++++++++++
                 message = await self._request_agent_message()
                 # Wait for the message to completely arrive before handling
                 # tool calls etc.
@@ -193,6 +209,10 @@ class Session:
         return await self._append_message(
             self._make_message(msg.AgentMessage, parts, set_time_to_now=False))
 
+    # TODO maybe it would be better to always refuse to send, and follow up with
+    # a question which channel the message was meant for? i.e. asst sends with
+    # missing/invalid channel header, system asks "you forgot the header, where
+    # should this go? answer on the system channel"+++++++++++++
     async def _check_channel_header(self, message: msg.AgentMessage) -> bool:
         if not await message.content:
             # No content, in this case we don't need a header.
@@ -266,6 +286,20 @@ class Session:
         return self._publisher.subscribe()
 
 
+# TODO arch:
+# - within a session, can communicate via different channels with different people,
+#   also group chats etc. using either a send message tool or message header
+# - without message header, agent messages go the last used channel/recipient
+# - agent or user can start new sessions
+# - only one session active at a time
+# TODO we need to check that the set of tools available to the assistant remains
+# unchanged, or else notify the assistant, else they may get confused++++++++
+# TODO the llm can get incredibly confused if we take tools away that were present
+# previously (getting stuck in a loop hallucinating). we probably have to send a
+# system message informing it that a tool is no longer available
+# PERF to maintain cache, we may want to temporarily add system messages saying
+# "this has changed" instead of rewriting the whole context and causing
+# cache invalidations++++++++++
 class Agent:
     """
     An agent.
@@ -285,28 +319,36 @@ class Agent:
     """
     def __init__(
             self, agent_id: uuid.UUID, *,
-            message_store: store.AgentMessageStore, provider: "prov.Provider",
+            message_store: store.AgentMessageStore,
+            channel_repo: chan.ChannelRepository, provider: "prov.Provider",
             mcp_client: tool.Client) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._agent_id = agent_id
         self._message_store = message_store
+        self._channel_repo = channel_repo
         self._session_factory = ft.partial(
-            Session, provider=provider, mcp_client=mcp_client)
+            Session, channel_repo=channel_repo, provider=provider,
+            mcp_client=mcp_client)
         self._session = None
         self._lock = asyncio.Lock()
 
     async def __aenter__(self) -> t.Self:
         async with self._lock:
+            self._read_channel_messages_task = asyncio.create_task(
+                self._read_channel_messages())
             await self._ensure_active_session()
             return self
 
     async def __aexit__(self, *args) -> bool:
         async with self._lock:
+            self._read_channel_messages_task.cancel()
             try:
                 async with asyncio.timeout(120):
                     return await self._session.__aexit__(*args)
             except Exception:
                 self._logger.exception("Error shutting down session.")
+            # TODO exc handling, timeout
+            await self._read_channel_messages_task
         return False
 
     def _make_session(self, session_seq: int) -> Session:
@@ -326,26 +368,47 @@ class Agent:
             self._session = self._make_session(0)
             await self._start_new_session()
 
+    # TODO this only ever starts a session with seq 0. when we implement session restarts
+    # for compactions etc. this seq needs to increase. also, we need to give
+    # the actual reason for the session start in the system info message+++++++++++++
     async def _start_new_session(self):
         if self._session:
             await self._session.__aexit__(None, None, None)
         self._session = self._make_session(0)
         await self._session.__aenter__()
-        await self._session.add_simple_message(
-            msg.DeveloperMessage, await _read_message_file("init_system.md"),
-            mdl.SystemChannelDescriptor())
+        await self._channel_repo.add_incoming_developer_message(
+            await _read_message_file("init_system.md"))
         # Tell the agent that this is a new session.
-        await self._session.add_simple_message(
-            msg.SystemMessage, await
-            _read_message_file("session_initialization.txt"),
-            mdl.SystemChannelDescriptor())
-        await self._session.add_simple_message(
-            msg.SystemMessage, await _read_message_file("channel_web_ui.txt"),
-            mdl.SystemChannelDescriptor())
-        await self._session.add_simple_message(
-            msg.SystemMessage, await _read_message_file("channel_system.txt"),
-            mdl.SystemChannelDescriptor())
+        await self._channel_repo.add_incoming_system_message(
+            await _read_message_file("session_initialization.txt"))
+        await self._channel_repo.add_incoming_system_message(
+            await _read_message_file("channel_web_ui.txt"))
+        await self._channel_repo.add_incoming_system_message(
+            await _read_message_file("channel_system.txt"))
 
+    # TODO handle cancel gracefully+++++++++++++
+    async def _read_channel_messages(self) -> None:
+        async for channel_message in self._channel_repo.incoming_messages():
+            async with self._lock:
+                if channel_message.role == "developer":
+                    message_class = msg.DeveloperMessage
+                elif channel_message.role == "system":
+                    message_class = msg.SystemMessage
+                elif channel_message.role == "user":
+                    message_class = msg.UserMessage
+                else:
+                    # TODO handle agent messages? tool?++++++++++
+                    raise ValueError(
+                        "unable to handle message role "
+                        f"{channel_message.role}")
+                # TODO actually use the time from the channel message++++++++++
+                await self._session.add_simple_message(
+                    message_class, channel_message.content, await
+                    channel_message.metadata.channel.value)
+                if channel_message.request_response:
+                    await self._session.request_response()
+
+    # TODO deprecate+++++++++
     async def process_user_message(
             self, message_content: str,
             channel: mdl.ChannelDescriptor) -> None:
@@ -361,6 +424,7 @@ class Agent:
                 msg.UserMessage, message_content, channel)
             await self._session.request_response()
 
+    # TODO deprecate+++++++++
     def subscribe(self) -> cl_abc.AsyncGenerator[msg.Message]:
         """
         Subscribe to the this agent's messages.
@@ -368,4 +432,5 @@ class Agent:
         This includes all kinds of messages, also user/system/developer/tool
         messages.
         """
+        # TODO handle session rollover++++++
         return self._session.subscribe()

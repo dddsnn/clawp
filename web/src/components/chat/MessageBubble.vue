@@ -52,7 +52,8 @@ const formattedTime = computed(() => {
 });
 
 </script>
-
+<!-- TODO reasoning visibility toggle: tri state: full (always show), collapse (show while no content, collapse once content arrives), never  -->
+<!-- TODO system/tool/developer tri state: full (always show), hint (show collapsed by default), never -->
 <template>
   <div :class="[roleConfig.bgClass, 'p-4 rounded-xl border shadow-sm w-full relative group pb-8 mb-6']">
     <div class="flex items-center justify-between mb-2 font-medium">

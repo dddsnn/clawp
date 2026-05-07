@@ -27,6 +27,7 @@ import uvicorn
 import whenever as we
 
 import agent as agt
+import channel as chan
 import message as msg
 import model as mdl
 
@@ -69,6 +70,7 @@ async def get_messages(
     the given one).
     """
     result = []
+    # TODO make public method to get at all messages+++++++++
     for message in agent._session._messages:
         if message.metadata.seq_in_session >= lt_seq:
             break
@@ -77,6 +79,8 @@ async def get_messages(
     return result
 
 
+# TODO handle in frontend: seq may be null for transient messages++++++
+# TODO and: on ws reconnect, fetch any history that may have been missed (we may need a ge_seq filter for the endpoint)
 @router.websocket("/stream/{cachebuster_to_circumvent_reconnection_delay}")
 async def websocket_stream(
         websocket: fastapi.WebSocket, agent: dep.AgentWs,
@@ -114,8 +118,11 @@ async def websocket_stream(
     long annoying wait times. Adding a path parameter that can change between
     requests circumvents this restriction.
     """
+    # TODO get at channel more elegantly++++++++++
+    web_ui_channel = next(
+        c for c in agent._channel_repo._channels if c.channel_type == "web_ui")
     await websocket.accept()
-    send_task = asyncio.create_task(_send_websocket(websocket, agent))
+    send_task = asyncio.create_task(_send_websocket(websocket, web_ui_channel))
     try:
         while True:
             input_message = mdl.UserInputMessage.model_validate(
@@ -127,6 +134,8 @@ async def websocket_stream(
         return
     except asyncio.CancelledError:
         # The server is shutting down.
+        # TODO if there are still messages to be sent, the send task will raise
+        # errors if we close here.  cancel and cleanly await the send task first?+++++++
         await _try_close_websocket(websocket, WebsocketCloseCode.GOING_AWAY)
     except Exception:
         logger.exception("Error in websocket.")
@@ -138,9 +147,9 @@ async def websocket_stream(
 
 
 async def _send_websocket(
-        websocket: fastapi.WebSocket, agent: agt.Agent) -> None:
+        websocket: fastapi.WebSocket, channel: chan.WebUiChannel) -> None:
     try:
-        async for message in agent.subscribe():
+        async for message in channel.all_messages():
             async for chunk in _generate_message_chunks(message):
                 # For some reason, we have to schedule the send as a task and
                 # then immediately await that task. If we just await the send,
@@ -165,6 +174,11 @@ async def _try_close_websocket(
         logger.exception("Error while trying to close the websocket.")
 
 
+# TODO maybe change the streaming format: time and channel metadata is currently
+# served at the end of the message with the end marker. for time that makes sense
+# since it's only available then, but the channel is available very soon (it's
+# at the start of the message). then again, this is just to make the web ui a
+# little nicer+++++++++++++++++++
 async def _generate_message_chunks(
         message: msg.Message) -> cl_abc.AsyncGenerator[mdl.WebsocketChunk]:
     if not isinstance(message, msg.AgentMessage):

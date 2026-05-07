@@ -26,12 +26,14 @@ import uuid
 
 import agent as agt
 import api
+import channel as chan
 import provider as prov
 import store
 import tool
 
 OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
 MESSAGE_STORE_PATH = pathlib.Path(os.environ["MESSAGE_STORE_PATH"])
+# test-assistant@marclehmann.name
 
 API_HOST = "0.0.0.0"
 API_PORT = 8000
@@ -62,17 +64,28 @@ async def main():
     asyncio.get_running_loop().add_signal_handler(
         signal.SIGTERM, shutdown, shutdown_event)
     message_store = store.MessageStore(MESSAGE_STORE_PATH)
+    channel_repo = chan.ChannelRepository([
+        chan.SystemChannel(), chan.WebUiChannel()])
     openrouter_provider = prov.OpenrouterProvider(
-        OPENROUTER_API_KEY, "stepfun/step-3.5-flash:free")
+        OPENROUTER_API_KEY,
+        # "stepfun/step-3.5-flash:free",
+        # "google/gemini-2.5-flash",
+        # "google/gemini-2.5-flash-lite",
+        "x-ai/grok-4.1-fast",
+    )
     mcp_client = tool.Client()
+    # TODO hardcoded uuid++++++++
     agent_id = uuid.UUID(int=0)
     agent = agt.Agent(
         agent_id,
         message_store=message_store.get_agent_message_store(agent_id),
-        provider=openrouter_provider, mcp_client=mcp_client)
+        channel_repo=channel_repo, provider=openrouter_provider,
+        mcp_client=mcp_client)
+    # provider=openrouter_provider, channels=channels, mcp_client=mcp_client)
     clawp_api = api.Api(agent, API_HOST, API_PORT, API_LOG_LEVEL)
     async with contextlib.AsyncExitStack() as stack:
         await stack.enter_async_context(message_store)
+        await stack.enter_async_context(channel_repo)
         await stack.enter_async_context(openrouter_provider)
         await stack.enter_async_context(mcp_client)
         await stack.enter_async_context(agent)
