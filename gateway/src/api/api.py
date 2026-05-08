@@ -114,14 +114,18 @@ async def websocket_stream(
     long annoying wait times. Adding a path parameter that can change between
     requests circumvents this restriction.
     """
+    web_ui_channel = next(
+        c for c in agent._channel_repo._channels.values()
+        if c.type == "web_ui")
     await websocket.accept()
-    send_task = asyncio.create_task(_send_websocket(websocket, agent))
+    send_task = asyncio.create_task(
+        _send_websocket(websocket, agent.subscribe()))
     try:
         while True:
             input_message = mdl.UserInputMessage.model_validate(
                 await websocket.receive_json())
-            await agent.process_user_message(
-                input_message.content, mdl.WebUiChannelDescriptor())
+            await web_ui_channel.add_incoming_user_message(
+                we.Instant.now(), input_message.content)
     except fastapi.WebSocketDisconnect:
         # The client closed the connection.
         return
@@ -138,9 +142,10 @@ async def websocket_stream(
 
 
 async def _send_websocket(
-        websocket: fastapi.WebSocket, agent: agt.Agent) -> None:
+        websocket: fastapi.WebSocket,
+        message_iter: cl_abc.AsyncIterable[msg.Message]) -> None:
     try:
-        async for message in agent.subscribe():
+        async for message in message_iter:
             async for chunk in _generate_message_chunks(message):
                 # For some reason, we have to schedule the send as a task and
                 # then immediately await that task. If we just await the send,

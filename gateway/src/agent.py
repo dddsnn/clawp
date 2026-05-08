@@ -26,6 +26,7 @@ import uuid
 
 import whenever as we
 
+import channel as chan
 import message as msg
 import model as mdl
 import store
@@ -65,10 +66,12 @@ class Session:
     def __init__(
             self, session_seq: int, *,
             message_store: store.SessionMessageStore,
-            provider: "prov.Provider", mcp_client: tool.Client) -> None:
+            channel_repo: chan.ChannelRepository, provider: "prov.Provider",
+            mcp_client: tool.Client) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._session_seq = session_seq
         self._message_store = message_store
+        self._channel_repo = channel_repo
         self._provider = provider
         self._mcp_client = mcp_client
         self._messages = None
@@ -190,8 +193,10 @@ class Session:
         parts = util.StreamableList()
         await self._provider.stream_agent_message(
             parts, self._messages, self._mcp_client.tools.values())
-        return await self._append_message(
+        message = await self._append_message(
             self._make_message(msg.AgentMessage, parts, set_time_to_now=False))
+        await self._channel_repo.send(message)
+        return message
 
     async def _check_channel_header(self, message: msg.AgentMessage) -> bool:
         if not await message.content:
@@ -285,28 +290,35 @@ class Agent:
     """
     def __init__(
             self, agent_id: uuid.UUID, *,
-            message_store: store.AgentMessageStore, provider: "prov.Provider",
+            message_store: store.AgentMessageStore,
+            channel_repo: chan.ChannelRepository, provider: "prov.Provider",
             mcp_client: tool.Client) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._agent_id = agent_id
         self._message_store = message_store
+        self._channel_repo = channel_repo
         self._session_factory = ft.partial(
-            Session, provider=provider, mcp_client=mcp_client)
+            Session, channel_repo=channel_repo, provider=provider,
+            mcp_client=mcp_client)
         self._session = None
         self._lock = asyncio.Lock()
 
     async def __aenter__(self) -> t.Self:
         async with self._lock:
+            self._read_channel_messages_task = asyncio.create_task(
+                self._read_channel_messages())
             await self._ensure_active_session()
             return self
 
     async def __aexit__(self, *args) -> bool:
         async with self._lock:
+            self._read_channel_messages_task.cancel()
             try:
                 async with asyncio.timeout(120):
                     return await self._session.__aexit__(*args)
             except Exception:
                 self._logger.exception("Error shutting down session.")
+            await self._read_channel_messages_task
         return False
 
     def _make_session(self, session_seq: int) -> Session:
@@ -331,41 +343,41 @@ class Agent:
             await self._session.__aexit__(None, None, None)
         self._session = self._make_session(0)
         await self._session.__aenter__()
-        await self._session.add_simple_message(
-            msg.DeveloperMessage, await _read_message_file("init_system.md"),
-            mdl.SystemChannelDescriptor())
+        await self._channel_repo.system_channel.add_incoming_message(
+            "developer", await _read_message_file("init_system.md"))
         # Tell the agent that this is a new session.
-        await self._session.add_simple_message(
-            msg.SystemMessage, await
-            _read_message_file("session_initialization.txt"),
-            mdl.SystemChannelDescriptor())
-        await self._session.add_simple_message(
-            msg.SystemMessage, await _read_message_file("channel_web_ui.txt"),
-            mdl.SystemChannelDescriptor())
-        await self._session.add_simple_message(
-            msg.SystemMessage, await _read_message_file("channel_system.txt"),
-            mdl.SystemChannelDescriptor())
+        await self._channel_repo.system_channel.add_incoming_message(
+            "system", await _read_message_file("session_initialization.txt"))
+        await self._channel_repo.system_channel.add_incoming_message(
+            "system", await _read_message_file("channel_web_ui.txt"))
+        await self._channel_repo.system_channel.add_incoming_message(
+            "system", await _read_message_file("channel_system.txt"))
 
-    async def process_user_message(
-            self, message_content: str,
-            channel: mdl.ChannelDescriptor) -> None:
-        """
-        Process a user message in the current session.
-
-        Adds the message to the active session and requests an agent response
-        to it. The response is not returned, rather it is available via
-        subscribe().
-        """
-        async with self._lock:
-            await self._session.add_simple_message(
-                msg.UserMessage, message_content, channel)
-            await self._session.request_response()
+    async def _read_channel_messages(self) -> None:
+        async for channel_message in self._channel_repo.incoming_messages():
+            async with self._lock:
+                if channel_message.role == "developer":
+                    message_class = msg.DeveloperMessage
+                elif channel_message.role == "system":
+                    message_class = msg.SystemMessage
+                elif channel_message.role == "user":
+                    message_class = msg.UserMessage
+                else:
+                    raise ValueError(
+                        "unable to handle message role "
+                        f"{channel_message.role}")
+                await self._session.add_simple_message(
+                    message_class, channel_message.content, await
+                    channel_message.metadata.channel.value)
+                if channel_message.request_response:
+                    await self._session.request_response()
 
     def subscribe(self) -> cl_abc.AsyncGenerator[msg.Message]:
         """
         Subscribe to the this agent's messages.
 
-        This includes all kinds of messages, also user/system/developer/tool
-        messages.
+        These are all of the agent's messages in the context of its session and
+        in the same order. This includes all message roles, also
+        user/system/developer/tool messages.
         """
         return self._session.subscribe()

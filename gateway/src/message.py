@@ -32,17 +32,33 @@ MessageRole = t.Literal["agent", "developer", "system", "tool", "user"]
 
 
 @dc.dataclass
-class MessageMetadata:
+class IncomingMessageMetadata:
+    """
+    Message metadata known immediately.
+
+    This is the metadata that is known as soon as the message is fully
+    received.
+    """
+    time: util.Value[we.Instant]
+    """The time the message was fully received."""
+    channel: util.Value[mdl.ChannelDescriptor]
+    """The channel the message is on."""
+
+
+@dc.dataclass
+class MessageMetadata(IncomingMessageMetadata):
+    """
+    Full message metadata.
+
+    This is the metadata that is known once a message has been integrated and
+    committed into the running system.
+    """
     seq_in_session: t.Optional[int]
     """
     The message's sequence number in its session.
 
     A None value means the message is transient and will disappear again.
     """
-    time: util.Value[we.Instant]
-    """The time the message was fully received."""
-    channel: util.Value[mdl.ChannelDescriptor]
-    """The channel the message is on."""
 
 
 class Message(abc.ABC):
