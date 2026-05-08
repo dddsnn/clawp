@@ -93,68 +93,63 @@ class Session:
         await self._publisher.__aexit__(*args)
         return False
 
-    async def add_simple_message(
-            self, message_class: t.Literal[msg.DeveloperMessage,
-                                           msg.SystemMessage, msg.UserMessage],
-            message_content: str, channel: mdl.ChannelDescriptor) -> None:
-        """
-        Add a message to the session.
-
-        Adds the message to the session and sets the relevant metadata. For
-        user messages, also prepends the system message containing metadata.
-
-        This only adds the message, it doesn't make any API calls or return
-        anything.
-        """
-        assert message_class in (
-            msg.DeveloperMessage, msg.SystemMessage, msg.UserMessage)
+    async def add_incoming_message(
+            self, incoming_message: chan.IncomingMessage) -> None:
         async with self._lock:
             if self._is_shut_down:
                 raise RuntimeError("shut down, can't process more messages")
-            if message_class is msg.UserMessage:
-                # Offset the seq_in_session by one to make space for the
-                # metadata system message we need to add before it.
-                message = self._make_message(
-                    message_class, message_content, seq_in_session_offset=1,
-                    channel=channel)
-                await self._add_metadata_for_user_message(message)
+            if incoming_message.role == "developer":
+                message_class = msg.DeveloperMessage
+            elif incoming_message.role == "system":
+                message_class = msg.SystemMessage
+            elif incoming_message.role == "user":
+                message_class = msg.UserMessage
+                await self._add_metadata_for_user_message(incoming_message)
             else:
-                message = self._make_message(
-                    message_class, message_content, channel=channel)
+                raise ValueError(
+                    "unable to handle message role "
+                    f"{incoming_message.role}")
+            metadata = self._make_metadata(
+                incoming_message.metadata.time,
+                incoming_message.metadata.channel)
+            message = message_class(metadata, content=incoming_message.content)
             await self._append_message(message)
 
-    def _make_message(
-            self, message_class, *args, seq_in_session_offset=0,
-            set_time_to_now=True, channel=None, **kwargs):
-        if set_time_to_now:
-            time = util.ImmediateValue(we.Instant.now())
-        else:
-            time = util.FutureValue()
-        if channel:
-            channel = util.ImmediateValue(channel)
-        else:
-            channel = util.FutureValue()
-        metadata = msg.MessageMetadata(
-            seq_in_session=len(self._messages) + seq_in_session_offset,
-            time=time, channel=channel)
-        return message_class(metadata, *args, **kwargs)
-
-    async def _add_metadata_for_user_message(self, user_message):
+    async def _add_metadata_for_user_message(
+            self, user_message: chan.IncomingMessage):
         time = await user_message.metadata.time.value
         formatted_time = time.format_iso(unit="millisecond")
         channel = await user_message.metadata.channel.value
+        # The user message will be the one right after the system message with
+        # the metadata, so seq_in_session should be one more.
         header_dict = {
-            "seq_in_session": user_message.metadata.seq_in_session,
+            "seq_in_session": len(self._messages) + 1,
             "time": formatted_time,
             "channel": channel.model_dump(),}
         message_template = await _read_message_file(
             "message_metadata.template")
         message_content = message_template.format(
             metadata_json=json.dumps(header_dict, separators=(',', ':')))
-        message = self._make_message(
-            msg.SystemMessage, message_content,
-            channel=mdl.SystemChannelDescriptor())
+        await self._append_message_now(
+            msg.SystemMessage, content=message_content)
+
+    async def _append_message_now(self, message_class, **kwargs):
+        metadata = self._make_metadata(
+            we.Instant.now(), mdl.SystemChannelDescriptor())
+        message = message_class(metadata, **kwargs)
         await self._append_message(message)
+
+    def _make_metadata(
+        self,
+        time: we.Instant | util.Value[we.Instant],
+        channel: mdl.ChannelDescriptor | util.Value[mdl.ChannelDescriptor],
+    ) -> msg.MessageMetadata:
+        if not isinstance(time, util.Value):
+            time = util.ImmediateValue(time)
+        if not isinstance(channel, util.Value):
+            channel = util.ImmediateValue(channel)
+        return msg.MessageMetadata(
+            seq_in_session=len(self._messages), time=time, channel=channel)
 
     async def _append_message(self, message):
         self._messages.append(message)
@@ -163,7 +158,6 @@ class Session:
         # requires the message to have finished streaming.
         await self._publisher.append(message)
         await self._message_store.append_message(message)
-        return message
 
     async def request_response(self) -> None:
         """
@@ -193,16 +187,18 @@ class Session:
         parts = util.StreamableList()
         await self._provider.stream_agent_message(
             parts, self._messages, self._mcp_client.tools.values())
-        message = await self._append_message(
-            self._make_message(msg.AgentMessage, parts, set_time_to_now=False))
+        metadata = self._make_metadata(util.FutureValue(), util.FutureValue())
+        message = msg.AgentMessage(metadata, parts)
+        await self._append_message(message)
         await self._channel_repo.send(message)
         return message
 
-    async def _check_channel_header(self, message: msg.AgentMessage) -> bool:
-        if not await message.content:
+    async def _check_channel_header(
+            self, agent_message: msg.AgentMessage) -> bool:
+        if not await agent_message.content:
             # No content, in this case we don't need a header.
             return False
-        channel = await message.metadata.channel.value
+        channel = await agent_message.metadata.channel.value
         if isinstance(channel, mdl.MissingChannelDescriptor):
             # The channel header is missing so we use the last used user
             # channel.
@@ -225,20 +221,16 @@ class Session:
                     "could be determined, message will not be sent.")
                 system_message_content = await _read_message_file(
                     "missing_channel_header_no_fallback.txt")
-            await self._append_message(
-                self._make_message(
-                    msg.SystemMessage, content=system_message_content,
-                    channel=mdl.SystemChannelDescriptor()))
+            await self._append_message_now(
+                msg.SystemMessage, content=system_message_content)
             return True
         elif isinstance(channel, mdl.MalformedChannelDescriptor):
             template = await _read_message_file(
                 "malformed_channel_header.template")
             system_message_content = template.format(
                 error_message=channel.error_message)
-            await self._append_message(
-                self._make_message(
-                    msg.SystemMessage, content=system_message_content,
-                    channel=mdl.SystemChannelDescriptor()))
+            await self._append_message_now(
+                msg.SystemMessage, content=system_message_content)
             return True
         return False
 
@@ -251,18 +243,13 @@ class Session:
                 arguments_dict = json.loads(tool_call.function.arguments)
                 result = await self._mcp_client.call_tool(
                     tool_call.function.name, arguments_dict)
-                await self._append_message(
-                    self._make_message(
-                        msg.ToolMessage, content=str(result.data),
-                        tool_call_id=tool_call.id,
-                        channel=mdl.SystemChannelDescriptor()))
+                await self._append_message_now(
+                    msg.ToolMessage, content=str(result.data),
+                    tool_call_id=tool_call.id)
             except Exception as e:
-                await self._append_message(
-                    self._make_message(
-                        msg.ToolMessage,
-                        content="Error in tool call: " + str(e),
-                        tool_call_id=tool_call.id,
-                        channel=mdl.SystemChannelDescriptor()))
+                await self._append_message_now(
+                    msg.ToolMessage, content="Error in tool call: " + str(e),
+                    tool_call_id=tool_call.id)
                 self._logger.exception("Error in tool call.")
         return True
 
@@ -354,22 +341,10 @@ class Agent:
             "system", await _read_message_file("channel_system.txt"))
 
     async def _read_channel_messages(self) -> None:
-        async for channel_message in self._channel_repo.incoming_messages():
+        async for message in self._channel_repo.incoming_messages():
             async with self._lock:
-                if channel_message.role == "developer":
-                    message_class = msg.DeveloperMessage
-                elif channel_message.role == "system":
-                    message_class = msg.SystemMessage
-                elif channel_message.role == "user":
-                    message_class = msg.UserMessage
-                else:
-                    raise ValueError(
-                        "unable to handle message role "
-                        f"{channel_message.role}")
-                await self._session.add_simple_message(
-                    message_class, channel_message.content, await
-                    channel_message.metadata.channel.value)
-                if channel_message.request_response:
+                await self._session.add_incoming_message(message)
+                if message.request_response:
                     await self._session.request_response()
 
     def subscribe(self) -> cl_abc.AsyncGenerator[msg.Message]:
