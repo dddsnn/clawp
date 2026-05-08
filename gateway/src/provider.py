@@ -122,7 +122,7 @@ class OpenrouterProvider(Provider):
                 or_comp.ChatToolCall(
                     id=tc.id, type="function", function=function))
         return or_comp.ChatAssistantMessage(
-            role=message.role, content=await message.content, reasoning=await
+            role="assistant", content=await message.content, reasoning=await
             message.reasoning, tool_calls=tool_calls)
 
     def _as_openrouter_tools(
