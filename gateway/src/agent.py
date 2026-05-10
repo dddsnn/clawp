@@ -292,20 +292,25 @@ class Agent:
 
     async def __aenter__(self) -> t.Self:
         async with self._lock:
-            self._read_channel_messages_task = asyncio.create_task(
-                self._read_channel_messages())
+            self._read_incoming_messages_task = asyncio.create_task(
+                self._read_incoming_messages())
             await self._ensure_active_session()
             return self
 
     async def __aexit__(self, *args) -> bool:
         async with self._lock:
-            self._read_channel_messages_task.cancel()
+            self._read_incoming_messages_task.cancel()
             try:
                 async with asyncio.timeout(120):
                     return await self._session.__aexit__(*args)
             except Exception:
                 self._logger.exception("Error shutting down session.")
-            await self._read_channel_messages_task
+            try:
+                async with asyncio.timeout(20):
+                    await self._read_incoming_messages_task
+            except Exception:
+                self._logger.exception(
+                    "Error waiting for incoming message task.")
         return False
 
     def _make_session(self, session_seq: int) -> Session:
@@ -340,12 +345,32 @@ class Agent:
         await self._channel_repo.system_channel.add_incoming_message(
             "system", await _read_message_file("channel_system.txt"))
 
-    async def _read_channel_messages(self) -> None:
-        async for message in self._channel_repo.incoming_messages():
-            async with self._lock:
-                await self._session.add_incoming_message(message)
-                if message.request_response:
-                    await self._session.request_response()
+    async def _read_incoming_messages(self) -> None:
+        handle_task = None
+        try:
+            async for message in self._channel_repo.incoming_messages():
+                async with self._lock:
+                    handle_task = asyncio.create_task(
+                        self._handle_incoming_message(message))
+                    await asyncio.shield(handle_task)
+        except asyncio.CancelledError:
+            if not handle_task:
+                return
+            try:
+                async with asyncio.timeout(60):
+                    await handle_task
+            except Exception:
+                self._logger.exception(
+                    "Error waiting for final incoming message.")
+
+    async def _handle_incoming_message(
+            self, message: chan.IncomingMessage) -> None:
+        try:
+            await self._session.add_incoming_message(message)
+            if message.request_response:
+                await self._session.request_response()
+        except Exception:
+            self._logger.exception("Error handling incoming message.")
 
     def subscribe(self) -> cl_abc.AsyncGenerator[msg.Message]:
         """
