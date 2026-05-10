@@ -115,8 +115,9 @@ async def websocket_stream(
     requests circumvents this restriction.
     """
     web_ui_channel = next(
-        c for c in agent._channel_repo._channels.values()
-        if c.type == "web_ui")
+        s.channel
+        for s in agent._channel_repo._stati.values()
+        if s.channel.type == "web_ui")
     await websocket.accept()
     send_task = asyncio.create_task(
         _send_websocket(websocket, agent.subscribe()))

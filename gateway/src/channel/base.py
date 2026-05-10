@@ -87,24 +87,6 @@ class Channel(MessageSender, MessageReceiver):
         return self._publisher.subscribe()
 
 
-class WebUiChannel(Channel):
-    def __init__(self) -> None:
-        super().__init__("web_ui")
-
-    async def send(self, message: msg.AgentMessage) -> None:
-        self._logger.info(f"Sending {message}: {await message.content}")
-
-    async def add_incoming_user_message(
-            self, time: we.Instant, content: str) -> None:
-        metadata = msg.IncomingMessageMetadata(
-            time=util.ImmediateValue(time),
-            channel=util.ImmediateValue(mdl.WebUiChannelDescriptor()))
-        message = IncomingMessage(
-            role="user", metadata=metadata, content=content,
-            request_response=True)
-        await self._publisher.append(message)
-
-
 class SystemChannel(Channel):
     def __init__(self) -> None:
         super().__init__("system")
@@ -124,46 +106,101 @@ class SystemChannel(Channel):
         await self._publisher.append(message)
 
 
+class WebUiChannel(Channel):
+    def __init__(self) -> None:
+        super().__init__("web_ui")
+
+    async def send(self, message: msg.AgentMessage) -> None:
+        self._logger.info(f"Sending {message}: {await message.content}")
+
+    async def add_incoming_user_message(
+            self, time: we.Instant, content: str) -> None:
+        metadata = msg.IncomingMessageMetadata(
+            time=util.ImmediateValue(time),
+            channel=util.ImmediateValue(mdl.WebUiChannelDescriptor()))
+        message = IncomingMessage(
+            role="user", metadata=metadata, content=content,
+            request_response=True)
+        await self._publisher.append(message)
+
+
 class ChannelRepository:
+    """
+    A repository of all of an agent's channels
+
+    async def send(self, message: msg.AgentMessage) -> None:
+        self._logger.info(f"Sending {message}: {await message.content}")
+
+    async def add_incoming_message(
+            self, role: t.Literal["developer", "tool", "system"], content: str,
+            request_response: bool = False) -> None:
+        metadata = msg.IncomingMessageMetadata(
+            time=util.ImmediateValue(we.Instant.now()),
+            channel=util.ImmediateValue(mdl.SystemChannelDescriptor()))
+        message = IncomingMessage(
+            role=role, metadata=metadata, content=content,
+            request_response=request_response)
+        await self._publisher.append(message)
+
+    @dc.dataclass
+    class ChannelStatus:
+        channel: Channel
+        read_task: t.Optional[asyncio.Task] = None
+
     def __init__(self, channels: cl_abc.Iterable[Channel]) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._publisher = util.Publisher()
-        self._channels = {}
+        self._stati = {}
         for channel in channels:
-            if channel.type in self._channels:
+            if channel.type in self._stati:
                 raise ValueError(f"Channel {channel.type} specified twice.")
-            self._channels[channel.type] = channel
+            self._stati[channel.type] = self.ChannelStatus(channel)
         if not any(isinstance(c, SystemChannel) for c in channels):
             raise ValueError("missing system channel")
         if not any(isinstance(c, WebUiChannel) for c in channels):
             raise ValueError("missing web UI channel")
-        self._channel_read_tasks = {}
 
     async def __aenter__(self) -> t.Self:
         await self._publisher.__aenter__()
-        for channel in self._channels.values():
-            await channel.__aenter__()
-            self._channel_read_tasks[channel.type] = (
-                asyncio.create_task(self._read_channel(channel)))
+        for status in self._stati.values():
+            await status.channel.__aenter__()
+            status.read_task = asyncio.create_task(
+                self._read_channel(status.channel))
         return self
 
     async def __aexit__(self, *args) -> bool:
         await self._publisher.__aexit__(*args)
-        for channel in self._channels.values():
-            # TODO exc handling, timeouts++++++
-            read_task = self._channel_read_tasks[channel.type]
-            read_task.cancel()
-            await read_task
-            await channel.__aexit__(*args)
+        for status in self._stati.values():
+            status.read_task.cancel()
+            try:
+                async with asyncio.timeout(60):
+                    await status.read_task
+                    await status.channel.__aexit__(*args)
+            except Exception:
+                self._logger.exception(
+                    f"Error waiting for shutdown of {status.channel.type}.")
         return False
 
     async def _read_channel(self, channel: Channel):
-        async for message in channel.incoming_messages():
-            await self._publisher.append(message)
+        publish_task = None
+        try:
+            async for message in channel.incoming_messages():
+                publish_task = asyncio.create_task(
+                    self._publisher.append(message))
+                await asyncio.shield(publish_task)
+        except asyncio.CancelledError:
+            if not publish_task:
+                return
+            try:
+                async with asyncio.timeout(60):
+                    await publish_task
+            except Exception:
+                self._logger.exception("Error waiting for final publish.")
+                publish_task.cancel()
 
     @property
     def system_channel(self) -> SystemChannel:
-        return self._channels["system"]
+        return self._stati["system"].channel
 
     async def send(self, message: msg.AgentMessage) -> None:
         self._logger.info(f"Sending {message}: {await message.content}")
