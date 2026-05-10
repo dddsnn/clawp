@@ -44,7 +44,20 @@ class IncomingMessage:
     """Whether a response to this message should be requested."""
 
 
-class Channel(abc.ABC):
+class MessageSender(abc.ABC):
+    @abc.abstractmethod
+    async def send(self, message: msg.AgentMessage) -> None:
+        """Send a message."""
+        raise NotImplementedError
+
+
+class MessageReceiver(abc.ABC):
+    def incoming_messages(self) -> cl_abc.AsyncGenerator[IncomingMessage]:
+        """Iterate over incoming messages."""
+        raise NotImplementedError
+
+
+class Channel(MessageSender, MessageReceiver):
     """
     A communication channel.
 
@@ -68,11 +81,6 @@ class Channel(abc.ABC):
     @property
     def type(self) -> mdl.ChannelType:
         return self._type
-
-    @abc.abstractmethod
-    async def send(self, message: msg.AgentMessage) -> None:
-        """Send a message on this channel."""
-        raise NotImplementedError
 
     def incoming_messages(self) -> cl_abc.AsyncGenerator[IncomingMessage]:
         """Iterate over incoming messages."""

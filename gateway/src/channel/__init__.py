@@ -19,6 +19,8 @@ from .base import (
     Channel,
     ChannelRepository,
     IncomingMessage,
+    MessageReceiver,
+    MessageSender,
     SystemChannel,
     WebUiChannel,
 )
@@ -27,5 +29,7 @@ __all__ = [
     "Channel",
     "ChannelRepository",
     "IncomingMessage",
+    "MessageReceiver",
+    "MessageSender",
     "SystemChannel",
     "WebUiChannel",]

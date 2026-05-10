@@ -66,12 +66,12 @@ class Session:
     def __init__(
             self, session_seq: int, *,
             message_store: store.SessionMessageStore,
-            channel_repo: chan.ChannelRepository, provider: "prov.Provider",
+            message_sender: chan.MessageSender, provider: "prov.Provider",
             mcp_client: tool.Client) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._session_seq = session_seq
         self._message_store = message_store
-        self._channel_repo = channel_repo
+        self._message_sender = message_sender
         self._provider = provider
         self._mcp_client = mcp_client
         self._messages = None
@@ -190,7 +190,7 @@ class Session:
         metadata = self._make_metadata(util.FutureValue(), util.FutureValue())
         message = msg.AgentMessage(metadata, parts)
         await self._append_message(message)
-        await self._channel_repo.send(message)
+        await self._message_sender.send(message)
         return message
 
     async def _check_channel_header(
@@ -285,7 +285,7 @@ class Agent:
         self._message_store = message_store
         self._channel_repo = channel_repo
         self._session_factory = ft.partial(
-            Session, channel_repo=channel_repo, provider=provider,
+            Session, message_sender=channel_repo, provider=provider,
             mcp_client=mcp_client)
         self._session = None
         self._lock = asyncio.Lock()
