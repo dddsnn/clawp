@@ -88,15 +88,29 @@ class Channel(MessageSender, MessageReceiver):
 
 
 class SystemChannel(Channel):
+    """
+    System channel.
+
+    This built-in channel is used for all messages that the system sends the
+    agent. It's also a means for the agent to respond to the system directly
+    whenever necessary.
+    """
     def __init__(self) -> None:
         super().__init__("system")
 
     async def send(self, message: msg.AgentMessage) -> None:
-        self._logger.info(f"Sending {message}: {await message.content}")
+        self._logger.info(
+            f"Agent sent system message:\n{await message.content}")
 
     async def add_incoming_message(
             self, role: t.Literal["developer", "tool", "system"], content: str,
             request_response: bool = False) -> None:
+        """
+        Add an incoming message.
+
+        The message will appear has having arrived on the channel and will be
+        delivered to the agent.
+        """
         metadata = msg.IncomingMessageMetadata(
             time=util.ImmediateValue(we.Instant.now()),
             channel=util.ImmediateValue(mdl.SystemChannelDescriptor()))
@@ -107,6 +121,11 @@ class SystemChannel(Channel):
 
 
 class WebUiChannel(Channel):
+    """
+    Web UI channel.
+
+    This channel is used for the built-in web UI.
+    """
     def __init__(self) -> None:
         super().__init__("web_ui")
 
@@ -115,6 +134,12 @@ class WebUiChannel(Channel):
 
     async def add_incoming_user_message(
             self, time: we.Instant, content: str) -> None:
+        """
+        Add a user message.
+
+        The message will appear has having arrived on the channel and will be
+        delivered to the agent.
+        """
         metadata = msg.IncomingMessageMetadata(
             time=util.ImmediateValue(time),
             channel=util.ImmediateValue(mdl.WebUiChannelDescriptor()))
@@ -128,20 +153,16 @@ class ChannelRepository:
     """
     A repository of all of an agent's channels
 
-    async def send(self, message: msg.AgentMessage) -> None:
-        self._logger.info(f"Sending {message}: {await message.content}")
+    Maintains the channels available to an agent, multiplexes incoming messages
+    into a single stream, and routes outgoing messages to the appropriate
+    channel based on the message's metadata.
 
-    async def add_incoming_message(
-            self, role: t.Literal["developer", "tool", "system"], content: str,
-            request_response: bool = False) -> None:
-        metadata = msg.IncomingMessageMetadata(
-            time=util.ImmediateValue(we.Instant.now()),
-            channel=util.ImmediateValue(mdl.SystemChannelDescriptor()))
-        message = IncomingMessage(
-            role=role, metadata=metadata, content=content,
-            request_response=request_response)
-        await self._publisher.append(message)
+    The built-in channels system and web_ui must always exist.
 
+    The asynchronous context manager takes control of the contexts of the
+    channels, i.e. it expects them to not have been entered and instead
+    controls their lifecycles.
+    """
     @dc.dataclass
     class ChannelStatus:
         channel: Channel
@@ -203,7 +224,14 @@ class ChannelRepository:
         return self._stati["system"].channel
 
     async def send(self, message: msg.AgentMessage) -> None:
+        """
+        Send a message.
+
+        The message's metadata is checked to see which channel the message
+        should be sent on. If the channel doesn't exist, a KeyError is raised.
+        """
         self._logger.info(f"Sending {message}: {await message.content}")
 
     def incoming_messages(self) -> cl_abc.AsyncGenerator[IncomingMessage]:
+        """Iterate over incoming messages."""
         return self._publisher.subscribe()

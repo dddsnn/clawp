@@ -59,7 +59,7 @@ class Session:
     from the store on aenter and also ensures all agent messages have finished
     streaming when it shuts down.
 
-    A session can only handle one request at a time (adding messages or
+    A session can only handle one request at a time (incoming message or
     requesting a response). Concurrent calls will block until the current one
     is done.
     """
