@@ -361,7 +361,7 @@ class MessageStore:
             self._logger.info(
                 f"Message store directory {self._base_dir} doesn't exist yet, "
                 "creating it.")
-            self._base_dir.mkdir()
+            self._base_dir.mkdir(parents=True, exist_ok=True)
         session_file_versions = set()
         sessions_by_agent = it.groupby(
             self._list_all_sessions(), key=lambda agt_seq: agt_seq[0])
