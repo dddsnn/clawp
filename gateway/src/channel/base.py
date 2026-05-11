@@ -82,6 +82,17 @@ class Channel(MessageSender, MessageReceiver):
     def type(self) -> mdl.ChannelType:
         return self._type
 
+    @property
+    @abc.abstractmethod
+    async def channel_available_message(self) -> str:
+        """
+        Message for the agent informing them that this channel is available.
+
+        This is the text of a system information message that states that this
+        channel is available, what it's good for, and how to use it.
+        """
+        raise NotImplementedError
+
     def incoming_messages(self) -> cl_abc.AsyncGenerator[IncomingMessage]:
         """Iterate over incoming messages."""
         return self._publisher.subscribe()
@@ -97,6 +108,10 @@ class SystemChannel(Channel):
     """
     def __init__(self) -> None:
         super().__init__("system")
+
+    @property
+    async def channel_available_message(self) -> str:
+        return await util.read_message_file("channel_system.txt")
 
     async def send(self, message: msg.AgentMessage) -> None:
         self._logger.info(
@@ -128,6 +143,10 @@ class WebUiChannel(Channel):
     """
     def __init__(self) -> None:
         super().__init__("web_ui")
+
+    @property
+    async def channel_available_message(self) -> str:
+        return await util.read_message_file("channel_web_ui.txt")
 
     async def send(self, message: msg.AgentMessage) -> None:
         self._logger.info(f"Sending {message}: {await message.content}")
@@ -220,8 +239,14 @@ class ChannelRepository:
                 publish_task.cancel()
 
     @property
+    def channels(self) -> dict[str, Channel]:
+        return {t: s.channel for t, s in self._stati.items()}
+
+    @property
     def system_channel(self) -> SystemChannel:
-        return self._stati["system"].channel
+        system_channel = self.channels["system"]
+        assert isinstance(system_channel, SystemChannel)
+        return system_channel
 
     async def send(self, message: msg.AgentMessage) -> None:
         """

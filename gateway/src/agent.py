@@ -20,7 +20,6 @@ import collections.abc as cl_abc
 import functools as ft
 import json
 import logging
-import pathlib
 import typing as t
 import uuid
 
@@ -35,16 +34,6 @@ import util
 
 if t.TYPE_CHECKING:
     import provider as prov
-
-
-async def _read_message_file(file_name: str) -> str:
-    messages_dir = pathlib.Path(__file__).parent.parent / "messages"
-    return await asyncio.to_thread(_read_file, messages_dir / file_name)
-
-
-def _read_file(path: pathlib.Path) -> str:
-    with path.open() as f:
-        return f.read()
 
 
 class Session:
@@ -126,7 +115,7 @@ class Session:
             "seq_in_session": len(self._messages) + 1,
             "time": formatted_time,
             "channel": channel.model_dump(),}
-        message_template = await _read_message_file(
+        message_template = await util.read_message_file(
             "message_metadata.template")
         message_content = message_template.format(
             metadata_json=json.dumps(header_dict, separators=(',', ':')))
@@ -209,7 +198,7 @@ class Session:
                     self._logger.info(
                         "Agent omitted channel header, message will be sent "
                         f"to {channel.fallback_channel} instead.")
-                    template = await _read_message_file(
+                    template = await util.read_message_file(
                         "missing_channel_header.template")
                     system_message_content = template.format(
                         fallback_channel=channel.fallback_channel
@@ -219,13 +208,13 @@ class Session:
                 self._logger.warning(
                     "Agent omitted channel header, but no fallback channel "
                     "could be determined, message will not be sent.")
-                system_message_content = await _read_message_file(
+                system_message_content = await util.read_message_file(
                     "missing_channel_header_no_fallback.txt")
             await self._append_message_now(
                 msg.SystemMessage, content=system_message_content)
             return True
         elif isinstance(channel, mdl.MalformedChannelDescriptor):
-            template = await _read_message_file(
+            template = await util.read_message_file(
                 "malformed_channel_header.template")
             system_message_content = template.format(
                 error_message=channel.error_message)
@@ -336,14 +325,15 @@ class Agent:
         self._session = self._make_session(0)
         await self._session.__aenter__()
         await self._channel_repo.system_channel.add_incoming_message(
-            "developer", await _read_message_file("init_system.md"))
+            "developer", await util.read_message_file("init_system.md"))
         # Tell the agent that this is a new session.
         await self._channel_repo.system_channel.add_incoming_message(
-            "system", await _read_message_file("session_initialization.txt"))
-        await self._channel_repo.system_channel.add_incoming_message(
-            "system", await _read_message_file("channel_web_ui.txt"))
-        await self._channel_repo.system_channel.add_incoming_message(
-            "system", await _read_message_file("channel_system.txt"))
+            "system", await
+            util.read_message_file("session_initialization.txt"))
+        # Tell the agent about available channels.
+        for channel in self._channel_repo.channels.values():
+            await self._channel_repo.system_channel.add_incoming_message(
+                "system", await channel.channel_available_message)
 
     async def _read_incoming_messages(self) -> None:
         handle_task = None

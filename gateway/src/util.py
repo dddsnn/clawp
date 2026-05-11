@@ -20,7 +20,19 @@ import asyncio
 import collections as cl
 import collections.abc as cl_abc
 import itertools as it
+import pathlib
 import typing as t
+
+
+async def read_message_file(file_name: str) -> str:
+    """Read a file from the messages templates and text files."""
+    messages_dir = pathlib.Path(__file__).parent.parent / "messages"
+    return await asyncio.to_thread(_read_file, messages_dir / file_name)
+
+
+def _read_file(path: pathlib.Path) -> str:
+    with path.open() as f:
+        return f.read()
 
 
 class StreamableList:
