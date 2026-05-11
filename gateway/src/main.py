@@ -32,7 +32,8 @@ import store
 import tool
 
 OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
-MESSAGE_STORE_PATH = pathlib.Path(os.environ["MESSAGE_STORE_PATH"])
+FILES_DIR = pathlib.Path(os.environ["FILES_DIR"])
+MESSAGE_STORE_DIR = FILES_DIR / "message_store"
 
 API_HOST = "0.0.0.0"
 API_PORT = 8000
@@ -62,7 +63,7 @@ async def main():
     shutdown_event = asyncio.Event()
     asyncio.get_running_loop().add_signal_handler(
         signal.SIGTERM, shutdown, shutdown_event)
-    message_store = store.MessageStore(MESSAGE_STORE_PATH)
+    message_store = store.MessageStore(MESSAGE_STORE_DIR)
     channel_repo = chan.ChannelRepository([
         chan.SystemChannel(), chan.WebUiChannel()])
     openrouter_provider = prov.OpenrouterProvider(
