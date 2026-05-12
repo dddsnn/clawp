@@ -47,13 +47,33 @@ class WebUiChannelDescriptor(BaseChannelDescriptor):
 
 class MissingChannelDescriptor(BaseChannelDescriptor):
     type: t.Literal["missing"] = "missing"
-    fallback_channel: "ChannelDescriptor" = UnknownChannelDescriptor()
+    fallback_channel: "OutgoingChannelDescriptor" = UnknownChannelDescriptor()
 
 
-ChannelDescriptor = t.Annotated[MalformedChannelDescriptor
-                                | MissingChannelDescriptor
-                                | SystemChannelDescriptor
-                                | UnknownChannelDescriptor
-                                | WebUiChannelDescriptor,
+IncomingChannelDescriptor = t.Annotated[SystemChannelDescriptor
+                                        | WebUiChannelDescriptor,
+                                        pyd.Field(discriminator="type")]
+"""
+Channel descriptor for incoming messages.
+
+Incoming messages are ones sent to the agent.
+"""
+IncomingChannelDescriptorTypeAdapter = pyd.TypeAdapter(
+    IncomingChannelDescriptor)
+OutgoingChannelDescriptor = t.Annotated[MalformedChannelDescriptor
+                                        | MissingChannelDescriptor
+                                        | SystemChannelDescriptor
+                                        | UnknownChannelDescriptor
+                                        | WebUiChannelDescriptor,
+                                        pyd.Field(discriminator="type")]
+"""
+Channel descriptor for outgoing messages.
+
+Outgoing messages are ones sent to by agent to the outside.
+"""
+OutgoingChannelDescriptorTypeAdapter = pyd.TypeAdapter(
+    OutgoingChannelDescriptor)
+
+ChannelDescriptor = t.Annotated[IncomingChannelDescriptor
+                                | OutgoingChannelDescriptor,
                                 pyd.Field(discriminator="type")]
-ChannelDescriptorTypeAdapter = pyd.TypeAdapter(ChannelDescriptor)

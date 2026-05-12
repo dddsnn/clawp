@@ -319,7 +319,7 @@ def _find_channel(
         tuple[t.Literal["too_short"], None, None],
         tuple[t.Literal["missing_prefix"], None, None],
         tuple[t.Literal["parsing_error"], Exception, None],
-        tuple[t.Literal["found"], mdl.ChannelDescriptor, int],]:
+        tuple[t.Literal["found"], mdl.OutgoingChannelDescriptor, int],]:
     """
     Try to find a channel header in a string.
 
@@ -330,8 +330,8 @@ def _find_channel(
     - "missing_prefix", None, None: It's not a valid channel header because it
       doesn't start with "channel:"
     - "parsing_error", e, None: The string starts with "channel:", but what
-      follows does not parse as a ChannelDescriptor. The second value e is the
-      parsing error.
+      follows does not parse as an OutgoingChannelDescriptor. The second value
+      e is the parsing error.
     - "found", c, l: The string starts with a valid channel descriptor,
       returned as the second value. The third value l is the length of the
       channel header in the string (including the newline at the end).
@@ -348,7 +348,7 @@ def _find_channel(
         return "too_short", None, None
     channel_descriptor_json = text[:newline_index].removeprefix("channel:")
     try:
-        channel = mdl.ChannelDescriptorTypeAdapter.validate_json(
+        channel = mdl.OutgoingChannelDescriptorTypeAdapter.validate_json(
             channel_descriptor_json)
         return "found", channel, newline_index + 1
     except Exception as e:

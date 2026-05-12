@@ -131,7 +131,8 @@ class Session:
     def _make_metadata(
         self,
         time: we.Instant | util.Value[we.Instant],
-        channel: mdl.ChannelDescriptor | util.Value[mdl.ChannelDescriptor],
+        channel: mdl.IncomingChannelDescriptor
+        | util.Value[mdl.OutgoingChannelDescriptor],
     ) -> msg.MessageMetadata:
         if not isinstance(time, util.Value):
             time = util.ImmediateValue(time)
