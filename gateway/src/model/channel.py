@@ -21,7 +21,13 @@ import pydantic as pyd
 
 from . import base
 
-ChannelType = t.Literal["malformed", "missing", "system", "unknown", "web_ui"]
+ChannelType = t.Literal[
+    "malformed",
+    "matrix",
+    "missing",
+    "system",
+    "unknown",
+    "web_ui",]
 
 
 class BaseChannelDescriptor(base.BaseModel):
@@ -50,8 +56,20 @@ class MissingChannelDescriptor(BaseChannelDescriptor):
     fallback_channel: "OutgoingChannelDescriptor" = UnknownChannelDescriptor()
 
 
+class MatrixOutgoingChannelDescriptor(BaseChannelDescriptor):
+    type: t.Literal["matrix"] = "matrix"
+    room_id: str
+
+
+class MatrixIncomingChannelDescriptor(MatrixOutgoingChannelDescriptor):
+    room_name: t.Optional[str]
+    sender_id: str
+    sender_name: t.Optional[str]
+
+
 IncomingChannelDescriptor = t.Annotated[SystemChannelDescriptor
-                                        | WebUiChannelDescriptor,
+                                        | WebUiChannelDescriptor
+                                        | MatrixIncomingChannelDescriptor,
                                         pyd.Field(discriminator="type")]
 """
 Channel descriptor for incoming messages.
@@ -64,7 +82,8 @@ OutgoingChannelDescriptor = t.Annotated[MalformedChannelDescriptor
                                         | MissingChannelDescriptor
                                         | SystemChannelDescriptor
                                         | UnknownChannelDescriptor
-                                        | WebUiChannelDescriptor,
+                                        | WebUiChannelDescriptor
+                                        | MatrixOutgoingChannelDescriptor,
                                         pyd.Field(discriminator="type")]
 """
 Channel descriptor for outgoing messages.
@@ -74,6 +93,4 @@ Outgoing messages are ones sent to by agent to the outside.
 OutgoingChannelDescriptorTypeAdapter = pyd.TypeAdapter(
     OutgoingChannelDescriptor)
 
-ChannelDescriptor = t.Annotated[IncomingChannelDescriptor
-                                | OutgoingChannelDescriptor,
-                                pyd.Field(discriminator="type")]
+ChannelDescriptor = IncomingChannelDescriptor | OutgoingChannelDescriptor

@@ -24,11 +24,13 @@ from .base import (
     SystemChannel,
     WebUiChannel,
 )
+from .matrix import MatrixChannel
 
 __all__ = [
     "Channel",
     "ChannelRepository",
     "IncomingMessage",
+    "MatrixChannel",
     "MessageReceiver",
     "MessageSender",
     "SystemChannel",
