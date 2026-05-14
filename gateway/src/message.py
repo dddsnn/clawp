@@ -30,7 +30,6 @@ import util
 MessageRole = t.Literal["agent", "developer", "system", "tool", "user"]
 
 
-
 @dc.dataclass
 class IncomingMessageMetadata:
     """
@@ -53,12 +52,8 @@ class MessageMetadata(IncomingMessageMetadata):
     This is the metadata that is known once a message has been integrated and
     committed into the running system.
     """
-    seq_in_session: t.Optional[int]
-    """
-    The message's sequence number in its session.
-
-    A None value means the message is transient and will disappear again.
-    """
+    seq_in_session: int
+    """The message's sequence number in its session."""
 
 
 class Message(abc.ABC):

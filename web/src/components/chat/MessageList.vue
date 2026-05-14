@@ -82,8 +82,8 @@ onMounted(() => {
 
       <!-- Message List -->
       <MessageBubble
-        v-for="(msg, index) in filteredMessages"
-        :key="msg.metadata?.seq_in_session ?? index"
+        v-for="msg in filteredMessages"
+        :key="msg.metadata.seq_in_session"
         :message="msg"
       />
     </div>

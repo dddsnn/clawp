@@ -157,8 +157,7 @@ export class ApiService {
       const marker = chunk.payload;
       
       if (marker.marker_type === 'message_start') {
-        const seq = marker.metadata.seq_in_session;
-        this.store.startStreamingMessage(seq ?? undefined);
+        this.store.startStreamingMessage(marker.metadata.seq_in_session);
       } 
       else if (marker.marker_type === 'part_start') {
         this.store.setActivePartType(marker.part_type);

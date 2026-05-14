@@ -20,7 +20,7 @@ import { z } from 'zod';
 export const Iso8601Schema = z.string().transform((str) => new Date(str));
 
 export const StartMessageMetadataSchema = z.object({
-  seq_in_session: z.number().nullable().optional(),
+  seq_in_session: z.number(),
 });
 
 export const BaseChannelDescriptorSchema = z.object({
@@ -244,6 +244,6 @@ export interface StreamingAssistantMessage {
   tool_calls: ToolCall[];
   errors: string[];
   metadata: {
-    seq_in_session?: number | null;
+    seq_in_session: number;
   };
 }

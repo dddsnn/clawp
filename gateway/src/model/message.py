@@ -24,7 +24,7 @@ from . import base, channel
 
 class StartMessageMetadata(base.BaseModel):
     """Metadata available when a message is first created."""
-    seq_in_session: t.Optional[int]
+    seq_in_session: int
 
 
 class EndMessageMetadata(base.BaseModel):

@@ -61,12 +61,6 @@ export const useChatStore = defineStore('chat', () => {
 
   function addMessage(message: Message) {
     const seq = message.metadata.seq_in_session;
-    if (seq === undefined || seq === null) {
-      // If no sequence number, just push it (e.g. local optimistic message before server ack)
-      messages.value.push(message);
-      return;
-    }
-
     // Check if we already have a message with this sequence number
     const existingIndex = messages.value.findIndex(m => m.metadata.seq_in_session === seq);
     if (existingIndex !== -1) {
@@ -76,18 +70,16 @@ export const useChatStore = defineStore('chat', () => {
 
     // Insert maintaining order
     messages.value.push(message);
-    messages.value.sort((a, b) => (a.metadata.seq_in_session ?? 0) - (b.metadata.seq_in_session ?? 0));
+    messages.value.sort((a, b) => a.metadata.seq_in_session - b.metadata.seq_in_session);
   }
 
   // Used by the stream to create the placeholder agent message before fragments arrive
-  function startStreamingMessage(seqInSession: number | null | undefined) {
-    if (seqInSession !== undefined && seqInSession !== null) {
-      const existingMsg = messages.value.find(m => m.metadata.seq_in_session === seqInSession);
-      if (existingMsg) {
-        // If we already have this message (e.g. from history), we should not start a new stream for it.
-        activeStreamingMessage.value = null;
-        return;
-      }
+  function startStreamingMessage(seqInSession: number) {
+    const existingMsg = messages.value.find(m => m.metadata.seq_in_session === seqInSession);
+    if (existingMsg) {
+      // If we already have this message (e.g. from history), we should not start a new stream for it.
+      activeStreamingMessage.value = null;
+      return;
     }
 
     activeStreamingMessage.value = {
