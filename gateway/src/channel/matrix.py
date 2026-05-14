@@ -65,8 +65,8 @@ class MatrixChannel(base.Channel):
         try:
             async with asyncio.timeout(20):
                 self._client.stop_sync_forever()
-                await self._client.close()
                 await self._sync_forever_task
+                await self._client.close()
         except Exception:
             self._logger.exception("Error closing client.")
         return False
