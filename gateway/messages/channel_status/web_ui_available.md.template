@@ -5,7 +5,13 @@ Status: available
 
 The channel `web_ui` is available.
 
-The channel descriptor JSON object contains these keys:
+This is the built-in communication channel of the framework's web UI. Incoming
+messages on this channel have been entered in the chat in the web UI. You can
+assume that only your human has access to it.
+
+## Channel descriptor
+
+The channel descriptor has these keys:
 
 - `type`: Always the literal `web_ui`.
 
@@ -15,5 +21,5 @@ Example channel header:
 channel:{{"type":"web_ui"}}
 ```
 
-This is the built-in communication channel of the framework that only your
-human has access to. No further configuration is needed.
+The channel descriptor for incoming and outgoing messages is the same and
+contains only the `type` key.

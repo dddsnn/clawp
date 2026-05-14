@@ -5,7 +5,17 @@ Status: available
 
 The channel `system` is available.
 
-The channel descriptor JSON object contains these keys:
+This is a special channel that allows you to send messages to the system
+instead of a human.
+
+An example where this can be useful is if the system tells you that message
+delivery resulted in an error. If you decide there is no point in trying again,
+you can just tell the system "Ok, I understand." Your responses will be logged
+internally and not shown to a human directly.
+
+## Channel descriptor
+
+The channel descriptor has these keys:
 
 - `type`: Always the literal `system`.
 
@@ -15,10 +25,5 @@ Example channel header:
 channel:{{"type":"system"}}
 ```
 
-This is a special channel that allows you to send messages to the system
-instead of a human.
-
-An example where this can be useful is if the system tells you that message
-delivery resulted in an error. If you decide there is no point in trying again,
-you can just tell the system "Ok, I understand." Your responses will be logged
-internally and not shown to a human directly.
+The channel descriptor for incoming and outgoing messages is the same and
+contains only the `type` key.
