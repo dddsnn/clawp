@@ -151,7 +151,7 @@ class WebUiChannel(Channel):
             "channel_status", "web_ui_available.md")
 
     async def send(self, message: msg.AgentMessage) -> None:
-        self._logger.info(f"Sending {message}: {await message.content}")
+        self._logger.debug(f"Sending {message}: {await message.content}")
 
     async def add_incoming_user_message(
             self, time: we.Instant, content: str) -> None:
