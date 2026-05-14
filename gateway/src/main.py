@@ -35,6 +35,12 @@ OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
 FILES_DIR = pathlib.Path(os.environ["FILES_DIR"])
 MESSAGE_STORE_DIR = FILES_DIR / "message_store"
 
+MATRIX_HOMESERVER = os.environ["MATRIX_HOMESERVER"]
+MATRIX_USERNAME = os.environ["MATRIX_USERNAME"]
+MATRIX_PASSWORD = os.environ["MATRIX_PASSWORD"]
+MATRIX_DEVICE_ID = "clawp"
+MATRIX_STORE_PATH = FILES_DIR / "matrix-nio"
+
 API_HOST = "0.0.0.0"
 API_PORT = 8000
 API_LOG_LEVEL = "info"
@@ -64,8 +70,12 @@ async def main():
     asyncio.get_running_loop().add_signal_handler(
         signal.SIGTERM, shutdown, shutdown_event)
     message_store = store.MessageStore(MESSAGE_STORE_DIR)
+    matrix_channel = chan.MatrixChannel(
+        MATRIX_HOMESERVER, MATRIX_USERNAME, MATRIX_PASSWORD,
+        device_id=MATRIX_DEVICE_ID, store_path=MATRIX_STORE_PATH)
     channel_repo = chan.ChannelRepository([
-        chan.SystemChannel(), chan.WebUiChannel()])
+        chan.SystemChannel(),
+        chan.WebUiChannel(), matrix_channel])
     openrouter_provider = prov.OpenrouterProvider(
         OPENROUTER_API_KEY, "stepfun/step-3.5-flash:free")
     mcp_client = tool.Client()

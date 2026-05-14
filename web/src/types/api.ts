@@ -24,12 +24,23 @@ export const StartMessageMetadataSchema = z.object({
 });
 
 export const BaseChannelDescriptorSchema = z.object({
-  type: z.enum(['malformed', 'missing', 'system', 'unknown', 'web_ui']),
+  type: z.enum(['malformed', 'matrix', 'missing', 'system', 'unknown', 'web_ui']),
 });
 
 export const MalformedChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
   type: z.literal('malformed'),
   error_message: z.string(),
+});
+
+export const MatrixOutgoingChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
+  type: z.literal('matrix'),
+  room_id: z.string(),
+});
+
+export const MatrixIncomingChannelDescriptorSchema = MatrixOutgoingChannelDescriptorSchema.extend({
+  room_name: z.string().nullable(),
+  sender_id: z.string(),
+  sender_name: z.string().nullable(),
 });
 
 export const SystemChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
@@ -46,6 +57,8 @@ export const WebUiChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
 
 export type ChannelDescriptor =
   | z.infer<typeof MalformedChannelDescriptorSchema>
+  | z.infer<typeof MatrixOutgoingChannelDescriptorSchema>
+  | z.infer<typeof MatrixIncomingChannelDescriptorSchema>
   | z.infer<typeof SystemChannelDescriptorSchema>
   | z.infer<typeof UnknownChannelDescriptorSchema>
   | z.infer<typeof WebUiChannelDescriptorSchema>
@@ -59,6 +72,8 @@ export const MissingChannelDescriptorSchema: z.ZodType<Extract<ChannelDescriptor
 
 export const ChannelDescriptorSchema: z.ZodType<ChannelDescriptor> = z.lazy(() => z.union([
   MalformedChannelDescriptorSchema,
+  MatrixOutgoingChannelDescriptorSchema,
+  MatrixIncomingChannelDescriptorSchema,
   MissingChannelDescriptorSchema,
   SystemChannelDescriptorSchema,
   UnknownChannelDescriptorSchema,

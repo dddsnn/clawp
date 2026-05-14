@@ -257,7 +257,13 @@ class ChannelRepository:
         The message's metadata is checked to see which channel the message
         should be sent on. If the channel doesn't exist, a KeyError is raised.
         """
-        self._logger.info(f"Sending {message}: {await message.content}")
+        channel_descriptor = await message.metadata.channel.value
+        try:
+            channel_status = self._stati[channel_descriptor.type]
+        except KeyError:
+            raise ValueError(f"no such channel {channel_descriptor.type}")
+        self._logger.debug(f"Sending {message}: {await message.content}")
+        await channel_status.channel.send(message)
 
     def incoming_messages(self) -> cl_abc.AsyncGenerator[IncomingMessage]:
         """Iterate over incoming messages."""
