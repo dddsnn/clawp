@@ -58,7 +58,9 @@ def setup_logging():
                 "class": "logging.StreamHandler", "formatter": "simple"}},
         "root": {"level": "DEBUG", "handlers": ["stream_handler"]},
         "loggers": {
-            "httpcore": {"level": "INFO", "handlers": ["stream_handler"]}},})
+            "httpcore": {"level": "INFO", "handlers": ["stream_handler"]},
+            "nio": {"level": "INFO", "handlers": ["stream_handler"]},
+            "peewee": {"level": "INFO", "handlers": ["stream_handler"]}},})
 
 
 def shutdown(shutdown_event: asyncio.Event):
