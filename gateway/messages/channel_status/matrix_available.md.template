@@ -1,4 +1,7 @@
-Type: system information
+# Channel status
+
+Channel: `matrix`
+Status: available
 
 The channel `matrix` is available.
 

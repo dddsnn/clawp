@@ -1,4 +1,7 @@
-Type: system information
+# Channel status
+
+Channel: `system`
+Status: available
 
 The channel `system` is available.
 
@@ -9,7 +12,7 @@ The channel descriptor JSON object contains these keys:
 Example channel header:
 
 ```
-channel:{"type":"system"}
+channel:{{"type":"system"}}
 ```
 
 This is a special channel that allows you to send messages to the system

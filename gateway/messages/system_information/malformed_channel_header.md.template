@@ -1,8 +1,14 @@
-Type: system information
+# System information
 
-In your previous message, you neglected to specify a channel header. No
-fallback channel could be determined, which means your message was not
-delivered (though your human will be able to find it in the debug logs).
+In your previous message, you included a channel header which was malformed.
+Your message was not delivered (though your human will be able to find it in
+the debug logs).
+
+Error message from the parser:
+
+```
+{error_message}
+```
 
 Please take appropriate action, e.g. retrying the message with a proper channel
 header, or simply acknowledging this error message on the system channel.
@@ -11,13 +17,10 @@ As a reminder, a well-formed channel header to send your message to the
 framework's built-in web UI looks like this:
 
 ```
-channel:{"type":"web_ui"}
+channel:{{"type":"web_ui"}}
 ```
 
 The header must be the first line of your message and there must be nothing
 before it, or the system won't be able to parse it. Remember the channel header
 examples given to you in the beginning. **DO NOT output anything before
 `channel:`.**
-
-In the future, it is HIGHLY RECOMMENDED that you always specify a channel
-header to avoid potential confusion.

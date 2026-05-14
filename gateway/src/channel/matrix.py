@@ -73,7 +73,8 @@ class MatrixChannel(base.Channel):
 
     @property
     async def channel_available_message(self) -> str:
-        return await util.read_message_file("channel_matrix.template")
+        return await util.render_message_template(
+            "channel_status", "matrix_available.md", username=self._username)
 
     async def send(self, message: msg.AgentMessage) -> None:
         channel = await message.metadata.channel.value

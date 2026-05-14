@@ -111,7 +111,8 @@ class SystemChannel(Channel):
 
     @property
     async def channel_available_message(self) -> str:
-        return await util.read_message_file("channel_system.txt")
+        return await util.render_message_template(
+            "channel_status", "system_available.md")
 
     async def send(self, message: msg.AgentMessage) -> None:
         self._logger.info(
@@ -146,7 +147,8 @@ class WebUiChannel(Channel):
 
     @property
     async def channel_available_message(self) -> str:
-        return await util.read_message_file("channel_web_ui.txt")
+        return await util.render_message_template(
+            "channel_status", "web_ui_available.md")
 
     async def send(self, message: msg.AgentMessage) -> None:
         self._logger.info(f"Sending {message}: {await message.content}")

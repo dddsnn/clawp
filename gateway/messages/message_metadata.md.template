@@ -1,4 +1,4 @@
-Type: message metadata
+# Message metadata
 
 This data pertains to the message immediately following this one
 {metadata_json}

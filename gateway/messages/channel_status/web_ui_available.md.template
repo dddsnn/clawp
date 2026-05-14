@@ -1,4 +1,7 @@
-Type: system information
+# Channel status
+
+Channel: `web_ui`
+Status: available
 
 The channel `web_ui` is available.
 
@@ -9,7 +12,7 @@ The channel descriptor JSON object contains these keys:
 Example channel header:
 
 ```
-channel:{"type":"web_ui"}
+channel:{{"type":"web_ui"}}
 ```
 
 This is the built-in communication channel of the framework that only your

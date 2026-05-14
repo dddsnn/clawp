@@ -115,9 +115,8 @@ class Session:
             "seq_in_session": len(self._messages) + 1,
             "time": formatted_time,
             "channel": channel.model_dump(),}
-        message_template = await util.read_message_file(
-            "message_metadata.template")
-        message_content = message_template.format(
+        message_content = await util.render_message_template(
+            "message_metadata.md",
             metadata_json=json.dumps(header_dict, separators=(',', ':')))
         await self._append_message_now(
             msg.SystemMessage, content=message_content)
@@ -199,25 +198,25 @@ class Session:
                     self._logger.info(
                         "Agent omitted channel header, message will be sent "
                         f"to {channel.fallback_channel} instead.")
-                    template = await util.read_message_file(
-                        "missing_channel_header.template")
-                    system_message_content = template.format(
-                        fallback_channel=channel.fallback_channel
-                        .model_dump_json())
+                    system_message_content = (
+                        await util.render_message_template(
+                            "system_information", "missing_channel_header.md",
+                            fallback_channel=channel.fallback_channel
+                            .model_dump_json()))
                     break
             else:
                 self._logger.warning(
                     "Agent omitted channel header, but no fallback channel "
                     "could be determined, message will not be sent.")
-                system_message_content = await util.read_message_file(
-                    "missing_channel_header_no_fallback.txt")
+                system_message_content = await util.render_message_template(
+                    "system_information",
+                    "missing_channel_header_no_fallback.md")
             await self._append_message_now(
                 msg.SystemMessage, content=system_message_content)
             return True
         elif isinstance(channel, mdl.MalformedChannelDescriptor):
-            template = await util.read_message_file(
-                "malformed_channel_header.template")
-            system_message_content = template.format(
+            system_message_content = await util.render_message_template(
+                "system_information", "malformed_channel_header.md",
                 error_message=channel.error_message)
             await self._append_message_now(
                 msg.SystemMessage, content=system_message_content)
@@ -326,11 +325,11 @@ class Agent:
         self._session = self._make_session(0)
         await self._session.__aenter__()
         await self._channel_repo.system_channel.add_incoming_message(
-            "developer", await util.read_message_file("init_system.md"))
+            "developer", await util.render_message_template("init_system.md"))
         # Tell the agent that this is a new session.
         await self._channel_repo.system_channel.add_incoming_message(
-            "system", await
-            util.read_message_file("session_initialization.txt"))
+            "system", await util.render_message_template(
+                "system_information", "session_initialization.md"))
         # Tell the agent about available channels.
         for channel in self._channel_repo.channels.values():
             await self._channel_repo.system_channel.add_incoming_message(

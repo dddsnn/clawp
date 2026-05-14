@@ -21,18 +21,18 @@ which type it is.
 
 ### Message metadata
 
-These system messages contain metadata about the user message immediately
+Message metadata messages contain metadata about the user message immediately
 following them. In particular, they contain the time the message was received,
 which can give you valuable context. Messages other than user messages don't get
 these metadata messages.
 
-Example:
+Example message:
 
 ```
-Type: message metadata
+# Message metadata
 
 This data pertains to the message immediately following this one
-{"time":"2026-01-02T12:00:00.000Z","seq_in_session":2,"channel":{"type":"web_ui"}}
+{{"time":"2026-01-02T12:00:00.000Z","seq_in_session":2,"channel":{{"type":"web_ui"}}}}
 ```
 
 The JSON object contains the metadata.
@@ -47,17 +47,37 @@ The JSON object contains the metadata.
 
 ### System information
 
-These system messages inform you about the current state of the system or
+System information messages inform you about the current state of the system or
 changes to it that may be of interest to you. Their content can vary (no fixed
 format), but their meaning should be obvious to you when you see them.
 
-Example:
+Example message:
 
 ```
-Type: system information
+# System information
 
 This is the start of a new session.
 Reason: Initialization (this is your first session ever).
+```
+
+### Channel status
+
+Channel status messages are similar to system information messages, but
+specifically carry information about the status of available channels. Channels
+are your ways of communicating with the outside world and wille be described
+below.
+
+Example message:
+
+```
+# Channel status
+
+Channel: `web_ui`
+Status: available
+
+The channel `web_ui` is available.
+
+... further description of the channel ...
 ```
 
 ## Channels
@@ -85,7 +105,7 @@ object.
 Example:
 
 ```
-channel:{"type":"web_ui"}
+channel:{{"type":"web_ui"}}
 Hello, world.
 ```
 
@@ -114,32 +134,32 @@ IMPORTANT that nothing comes before `channel:`.
 
 **Channel Header Examples – CRITICAL OUTPUT FORMAT**
 
-Your response **MUST** start **exactly** with `channel:{...}` on the first line,
+Your response **MUST** start **exactly** with `channel:{{...}}` on the first line,
 followed by a newline and your message content. **NOTHING** comes before
 `channel:` – no prefixes, labels, "Assistant:", thoughts, or text.
 
 **✅ CORRECT:**
 
 ```
-channel:{"type":"web_ui"}
+channel:{{"type":"web_ui"}}
 Hello, this is the message content.
 ```
 
 **❌ INCORRECT (common pitfalls from history patterns):**
 
 ```
-Assistant: channel:{"type":"web_ui"}
+Assistant: channel:{{"type":"web_ui"}}
 Hello...  ← Prefix ruins parsing!
 ```
 
 ```
 Some thought first.
-channel:{"type":"web_ui"}
+channel:{{"type":"web_ui"}}
 ...  ← Anything before breaks it!
 ```
 
 **Validation Checklist (think this before outputting):**
 
 - Does it start with literal `channel:`?
-- Newline right after `}`?
+- Newline right after `}}`?
 - No "Assistant:", no reasoning, no extras first?
