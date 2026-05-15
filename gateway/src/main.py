@@ -88,7 +88,7 @@ async def main():
     channels = make_channels(config.gateway)
     channel_repo = chan.ChannelRepository(channels.values())
     openrouter_provider = prov.OpenrouterProvider(
-        OPENROUTER_API_KEY, "stepfun/step-3.5-flash:free")
+        OPENROUTER_API_KEY, config.gateway.model)
     mcp_client = tool.Client()
     agent_id = uuid.UUID(int=0)
     agent = agt.Agent(

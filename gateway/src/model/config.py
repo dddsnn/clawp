@@ -38,6 +38,7 @@ class MatrixConfig(base.BaseModel):
 
 class GatewayConfig(base.BaseModel):
     files_base_dir: pathlib.Path
+    model: str
     message_store: MessageStoreConfig
     matrix: t.Optional[MatrixConfig]
 
