@@ -39,7 +39,7 @@ class MatrixConfig(base.BaseModel):
 class GatewayConfig(base.BaseModel):
     files_base_dir: pathlib.Path
     message_store: MessageStoreConfig
-    matrix: MatrixConfig
+    matrix: t.Optional[MatrixConfig]
 
     @pyd.model_validator(mode="after")
     def compute_message_store_base_dir(self) -> t.Self:
@@ -48,7 +48,8 @@ class GatewayConfig(base.BaseModel):
 
     @pyd.model_validator(mode="after")
     def compute_matrix_store_dir(self) -> t.Self:
-        self.matrix.store_dir = self.files_base_dir / "matrix_nio"
+        if self.matrix:
+            self.matrix.store_dir = self.files_base_dir / "matrix_nio"
         return self
 
 

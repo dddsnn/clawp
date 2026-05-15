@@ -32,7 +32,7 @@ from .channel import (
     UnknownChannelDescriptor,
     WebUiChannelDescriptor,
 )
-from .config import Config, MatrixConfig, MessageStoreConfig
+from .config import Config, GatewayConfig, MatrixConfig, MessageStoreConfig
 from .message import (
     AgentMessage,
     BaseMessage,
@@ -84,6 +84,7 @@ __all__ = [
     "UnknownChannelDescriptor",
     "WebUiChannelDescriptor",
     "Config",
+    "GatewayConfig",
     "MatrixConfig",
     "MessageStoreConfig",
     "AgentMessage",

@@ -29,6 +29,7 @@ import agent as agt
 import api
 import channel as chan
 import config as cfg
+import model as mdl
 import provider as prov
 import store
 import tool
@@ -70,6 +71,13 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def make_channels(config: mdl.GatewayConfig) -> dict[str, chan.Channel]:
+    channels = {"system": chan.SystemChannel(), "web_ui": chan.WebUiChannel()}
+    if config.matrix:
+        channels["matrix"] = chan.MatrixChannel(config.matrix, MATRIX_PASSWORD)
+    return channels
+
+
 async def main():
     shutdown_event = asyncio.Event()
     asyncio.get_running_loop().add_signal_handler(
@@ -77,10 +85,8 @@ async def main():
     args = parse_args()
     config = cfg.load_config(args.config_file)
     message_store = store.MessageStore(config.gateway.message_store)
-    matrix_channel = chan.MatrixChannel(config.gateway.matrix, MATRIX_PASSWORD)
-    channel_repo = chan.ChannelRepository([
-        chan.SystemChannel(),
-        chan.WebUiChannel(), matrix_channel])
+    channels = make_channels(config.gateway)
+    channel_repo = chan.ChannelRepository(channels.values())
     openrouter_provider = prov.OpenrouterProvider(
         OPENROUTER_API_KEY, "stepfun/step-3.5-flash:free")
     mcp_client = tool.Client()

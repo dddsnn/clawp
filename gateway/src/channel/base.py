@@ -203,6 +203,9 @@ class ChannelRepository:
             raise ValueError("missing web UI channel")
 
     async def __aenter__(self) -> t.Self:
+        self._logger.info(
+            "Starting channel repository with channels "
+            f"{sorted(self._stati)}.")
         await self._publisher.__aenter__()
         for status in self._stati.values():
             await status.channel.__aenter__()
