@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+import argparse
 import asyncio
 import contextlib
 import logging
@@ -27,19 +28,13 @@ import uuid
 import agent as agt
 import api
 import channel as chan
+import config as cfg
 import provider as prov
 import store
 import tool
 
 OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
-FILES_DIR = pathlib.Path(os.environ["FILES_DIR"])
-MESSAGE_STORE_DIR = FILES_DIR / "message_store"
-
-MATRIX_HOMESERVER = os.environ["MATRIX_HOMESERVER"]
-MATRIX_USERNAME = os.environ["MATRIX_USERNAME"]
 MATRIX_PASSWORD = os.environ["MATRIX_PASSWORD"]
-MATRIX_DEVICE_ID = "clawp"
-MATRIX_STORE_PATH = FILES_DIR / "matrix-nio"
 
 API_HOST = "0.0.0.0"
 API_PORT = 8000
@@ -67,14 +62,22 @@ def shutdown(shutdown_event: asyncio.Event):
     shutdown_event.set()
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="clawp", description="AI agent framework")
+    parser.add_argument(
+        "-c", "--config-file", type=pathlib.Path, default="config.yaml")
+    return parser.parse_args()
+
+
 async def main():
     shutdown_event = asyncio.Event()
     asyncio.get_running_loop().add_signal_handler(
         signal.SIGTERM, shutdown, shutdown_event)
-    message_store = store.MessageStore(MESSAGE_STORE_DIR)
-    matrix_channel = chan.MatrixChannel(
-        MATRIX_HOMESERVER, MATRIX_USERNAME, MATRIX_PASSWORD,
-        device_id=MATRIX_DEVICE_ID, store_path=MATRIX_STORE_PATH)
+    args = parse_args()
+    config = cfg.load_config(args.config_file)
+    message_store = store.MessageStore(config.gateway.message_store)
+    matrix_channel = chan.MatrixChannel(config.gateway.matrix, MATRIX_PASSWORD)
     channel_repo = chan.ChannelRepository([
         chan.SystemChannel(),
         chan.WebUiChannel(), matrix_channel])

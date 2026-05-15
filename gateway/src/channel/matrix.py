@@ -16,7 +16,6 @@
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
-import pathlib
 import typing as t
 
 import nio
@@ -36,18 +35,17 @@ class MatrixChannel(base.Channel):
     This channel is used to communicate via Matrix. Credentials are
     configured on construction.
     """
-    def __init__(
-            self, homeserver: str, username: str, password: str,
-            device_id: str, store_path: pathlib.Path) -> None:
+    def __init__(self, config: mdl.Matrix, password: str) -> None:
         super().__init__("matrix")
-        self._homeserver = homeserver
-        self._username = username
+        self._config = config
         self._password = password
         client_config = nio.AsyncClientConfig(
             encryption_enabled=True, store_sync_tokens=True)
         self._client = nio.AsyncClient(
-            homeserver, username, device_id=device_id,
-            store_path=str(store_path.resolve()), config=client_config)
+            self._config.homeserver, self._config.username,
+            device_id=self._config.device_id,
+            store_path=str(self._config.store_dir.resolve()),
+            config=client_config)
         self._client.add_event_callback(
             self._on_room_message_text, nio.RoomMessageText)
         self._sync_forever_task = None
@@ -82,7 +80,8 @@ class MatrixChannel(base.Channel):
     @property
     async def channel_available_message(self) -> str:
         return await util.render_message_template(
-            "channel_status", "matrix_available.md", username=self._username)
+            "channel_status", "matrix_available.md",
+            username=self._config.username)
 
     async def send(self, message: msg.AgentMessage) -> None:
         channel = await message.metadata.channel.value
@@ -96,7 +95,7 @@ class MatrixChannel(base.Channel):
 
     async def _on_room_message_text(
             self, room: nio.MatrixRoom, event: nio.RoomMessageText) -> None:
-        if event.sender == self._username:
+        if event.sender == self._config.username:
             # We will get events for messages we sent. Avoid feedback loops.
             return
         metadata = msg.IncomingMessageMetadata(

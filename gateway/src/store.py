@@ -76,9 +76,9 @@ class MessageStore:
 
     _message_store_lock = asyncio.Lock()
 
-    def __init__(self, base_dir: pathlib.Path) -> None:
+    def __init__(self, config: mdl.MessageStoreConfig) -> None:
         self._logger = logging.getLogger(type(self).__name__)
-        self._base_dir = base_dir
+        self._config = config
         self._open_files: dict[pathlib.Path, t.IO] = {}
         self._open_files_lock = asyncio.Lock()
 
@@ -117,7 +117,7 @@ class MessageStore:
             self._logger.exception(f"Error closing file {f}.")
 
     def _agents_dir(self) -> pathlib.Path:
-        return self._base_dir / "agents"
+        return self._config.base_dir / "agents"
 
     def _agent_dir(self, agent_id: uuid.UUID) -> pathlib.Path:
         return self._agents_dir() / str(agent_id)
@@ -357,11 +357,11 @@ class MessageStore:
 
         If any inconsistencies are found, a MessageStoreFormatError is raised.
         """
-        if not self._base_dir.exists():
+        if not self._config.base_dir.exists():
             self._logger.info(
-                f"Message store directory {self._base_dir} doesn't exist yet, "
-                "creating it.")
-            self._base_dir.mkdir(parents=True, exist_ok=True)
+                f"Message store directory {self._config.base_dir} doesn't "
+                "exist yet, creating it.")
+            self._config.base_dir.mkdir(parents=True, exist_ok=True)
         session_file_versions = set()
         sessions_by_agent = it.groupby(
             self._list_all_sessions(), key=lambda agt_seq: agt_seq[0])
@@ -396,8 +396,8 @@ class MessageStore:
                 "known the this implementation, unable to downgrade")
         else:
             self._logger.debug(
-                f"Found valid message store at {self._base_dir} with version "
-                f"{self.VERSION}.")
+                f"Found valid message store at {self._config.base_dir} with "
+                f"version {self.VERSION}.")
 
     def _ensure_valid_session_format(self, agent_id: uuid.UUID, seq: int):
         path = self._session_path(agent_id, seq)
@@ -433,12 +433,12 @@ class MessageStore:
         according to from_version.
         """
         assert from_version < self.VERSION
-        assert self._base_dir.is_dir()
+        assert self._config.base_dir.is_dir()
         backup_directory_name = (
-            f"backup_{self._base_dir.name}_version_{from_version}_"
+            f"backup_{self._config.base_dir.name}_version_{from_version}_"
             f"{we.Instant.now()}")
-        backup_directory = self._base_dir.parent / backup_directory_name
-        shutil.copytree(self._base_dir, backup_directory)
+        backup_directory = self._config.base_dir.parent / backup_directory_name
+        shutil.copytree(self._config.base_dir, backup_directory)
         for file in list(self._list_all_session_files()):
             assert file.is_file()
             for version in range(from_version, self.VERSION):
