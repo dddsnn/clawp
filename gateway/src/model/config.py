@@ -19,26 +19,36 @@ import pathlib
 import typing as t
 
 import pydantic as pyd
+import pydantic_settings as pyd_set
 
-from . import base
+
+class BaseSettings(pyd_set.BaseSettings):
+    model_config = pyd_set.SettingsConfigDict(
+        env_prefix="CLAWP_", env_prefix_target="alias")
 
 
-class MessageStoreConfig(base.BaseModel):
+class OpenRouterConfig(BaseSettings):
+    api_key: str = pyd.Field(alias="OPENROUTER_API_KEY")
+    model: str
+
+
+class MessageStoreConfig(BaseSettings):
     # Default this to None, it will be set relative to the gateway's store_dir.
-    base_dir: pathlib.Path = pyd.Field(default=None)
+    base_dir: pathlib.Path = pyd.Field(default=None, validate_default=False)
 
 
-class MatrixConfig(base.BaseModel):
+class MatrixConfig(BaseSettings):
     homeserver: str
     username: str
+    password: str = pyd.Field(alias="MATRIX_PASSWORD")
     device_id: str
     # Default this to None, it will be set relative to the gateway's store_dir.
-    store_dir: pathlib.Path = pyd.Field(default=None)
+    store_dir: pathlib.Path = pyd.Field(default=None, validate_default=False)
 
 
-class GatewayConfig(base.BaseModel):
+class GatewayConfig(BaseSettings):
     files_base_dir: pathlib.Path
-    model: str
+    openrouter: OpenRouterConfig
     message_store: MessageStoreConfig
     matrix: t.Optional[MatrixConfig]
 
@@ -54,6 +64,6 @@ class GatewayConfig(base.BaseModel):
         return self
 
 
-class Config(base.BaseModel):
+class Config(BaseSettings):
     config_version: t.Literal[0]
     gateway: GatewayConfig

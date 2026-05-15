@@ -20,7 +20,6 @@ import asyncio
 import contextlib
 import logging
 import logging.config
-import os
 import pathlib
 import signal
 import uuid
@@ -33,9 +32,6 @@ import model as mdl
 import provider as prov
 import store
 import tool
-
-OPENROUTER_API_KEY = os.environ["OPENROUTER_API_KEY"]
-MATRIX_PASSWORD = os.environ["MATRIX_PASSWORD"]
 
 API_HOST = "0.0.0.0"
 API_PORT = 8000
@@ -74,7 +70,7 @@ def parse_args() -> argparse.Namespace:
 def make_channels(config: mdl.GatewayConfig) -> dict[str, chan.Channel]:
     channels = {"system": chan.SystemChannel(), "web_ui": chan.WebUiChannel()}
     if config.matrix:
-        channels["matrix"] = chan.MatrixChannel(config.matrix, MATRIX_PASSWORD)
+        channels["matrix"] = chan.MatrixChannel(config.matrix)
     return channels
 
 
@@ -87,8 +83,7 @@ async def main():
     message_store = store.MessageStore(config.gateway.message_store)
     channels = make_channels(config.gateway)
     channel_repo = chan.ChannelRepository(channels.values())
-    openrouter_provider = prov.OpenrouterProvider(
-        OPENROUTER_API_KEY, config.gateway.model)
+    openrouter_provider = prov.OpenrouterProvider(config.gateway.openrouter)
     mcp_client = tool.Client()
     agent_id = uuid.UUID(int=0)
     agent = agt.Agent(

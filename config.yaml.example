@@ -1,9 +1,12 @@
 config_version: 0
 gateway:
   files_base_dir: "/tmp/clawp"
-  model: "stepfun/step-3.5-flash:free"
+  openrouter:
+    # api_key: "" # Provided by CLAWP_OPENROUTER_API_KEY environment variable.
+    model: "stepfun/step-3.5-flash:free"
   message_store: {}
   matrix:
     homeserver: "https://matrix.org"
     username: "@your-user:matrix.org"
+    # password: "" # Provided by CLAWP_MATRIX_PASSWORD environment variable.
     device_id: "clawp"

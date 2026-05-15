@@ -35,10 +35,9 @@ class MatrixChannel(base.Channel):
     This channel is used to communicate via Matrix. Credentials are
     configured on construction.
     """
-    def __init__(self, config: mdl.Matrix, password: str) -> None:
+    def __init__(self, config: mdl.MatrixConfig) -> None:
         super().__init__("matrix")
         self._config = config
-        self._password = password
         client_config = nio.AsyncClientConfig(
             encryption_enabled=True, store_sync_tokens=True)
         self._client = nio.AsyncClient(
@@ -52,7 +51,7 @@ class MatrixChannel(base.Channel):
 
     async def __aenter__(self) -> t.Self:
         await super().__aenter__()
-        await self._client.login(self._password)
+        await self._client.login(self._config.password)
         self._client.load_store()
         self._sync_forever_task = asyncio.create_task(
             self._client.sync_forever())
