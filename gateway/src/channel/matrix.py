@@ -63,12 +63,20 @@ class MatrixChannel(base.Channel):
     async def __aexit__(self, *args) -> bool:
         await super().__aexit__(*args)
         try:
+            self._client.stop_sync_forever()
+            self._sync_forever_task.cancel()
             async with asyncio.timeout(20):
-                self._client.stop_sync_forever()
                 await self._sync_forever_task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            self._logger.exception("Error stopping client sync.")
+        try:
+            async with asyncio.timeout(5):
                 await self._client.close()
         except Exception:
-            self._logger.exception("Error closing client.")
+            self._logger.exception(
+                "Error closing underlying network connection.")
         return False
 
     @property
