@@ -1,0 +1,9 @@
+config_version: 0
+gateway:
+  files_base_dir: "/tmp/clawp"
+  model: "stepfun/step-3.5-flash:free"
+  message_store: {}
+  matrix:
+    homeserver: "https://matrix.org"
+    username: "@your-user:matrix.org"
+    device_id: "clawp"
