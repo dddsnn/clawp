@@ -1,0 +1,6 @@
+services:
+  gateway:
+    build:
+      context: "gateway"
+      target: "test"
+    command: "pytest"

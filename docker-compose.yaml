@@ -1,6 +1,8 @@
 services:
   gateway:
-    build: "gateway"
+    build:
+      context: "gateway"
+      target: "app"
     command: "clawp"
     volumes:
       - "./config.yaml:/app/config.yaml"

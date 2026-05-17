@@ -7,6 +7,11 @@ COPY src src
 COPY LICENSE pyproject.toml README.md uv.lock ./
 RUN pip wheel -w wheels .
 
+FROM build AS test
+RUN pip install wheels/*.whl && pip cache purge
+RUN pip install .[test] && pip cache purge
+COPY tests tests
+
 FROM python:3.14-slim AS app
 WORKDIR /app
 RUN apt-get update && \
