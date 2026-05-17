@@ -20,7 +20,7 @@ import contextlib
 
 import pytest
 
-import util
+from clawp import util
 
 
 class TestStreamableList:
