@@ -1,5 +1,5 @@
 services:
-  gateway:
+  test:
     build:
       context: "gateway"
       target: "test"
