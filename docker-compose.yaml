@@ -1,0 +1,12 @@
+services:
+  gateway:
+    build: "gateway"
+    command: "clawp"
+    volumes:
+      - "./config.yaml:/app/config.yaml"
+      - "./clawp_files/:/app/clawp_files/"
+    environment:
+      - "CLAWP_OPENROUTER_API_KEY"
+      - "CLAWP_MATRIX_PASSWORD"
+    ports:
+      - "8000:8000"
