@@ -41,6 +41,9 @@ source = "https://github.com/dddsnn/clawp"
 [project.scripts]
 clawp = "clawp:run"
 
+[tool.setuptools.package-data]
+clawp = ["messages/**/*"]
+
 [tool.pytest]
 minversion = "9.0"
 addopts = ["-v", "-l"]
