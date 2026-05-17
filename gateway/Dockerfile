@@ -14,3 +14,4 @@ RUN apt-get update && \
     apt-get clean
 COPY --from=build /build/wheels/*.whl /tmp/
 RUN pip install /tmp/*.whl && rm -rf /tmp/ && pip cache purge
+USER 1000:1000
