@@ -19,7 +19,7 @@ import typing as t
 
 import fastapi
 
-import agent as agt
+from .. import agent as agt
 
 
 def get_agent_from_request(request: fastapi.Request) -> agt.Agent:

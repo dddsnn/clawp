@@ -24,9 +24,9 @@ import openrouter
 import openrouter.components as or_comp
 import openrouter.utils.eventstreaming as or_stream
 
-import message as msg
-import model as mdl
-import util
+from . import message as msg
+from . import model as mdl
+from . import util
 
 
 class Provider(abc.ABC):

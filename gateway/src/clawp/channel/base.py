@@ -24,9 +24,9 @@ import typing as t
 
 import whenever as we
 
-import message as msg
-import model as mdl
-import util
+from .. import message as msg
+from .. import model as mdl
+from .. import util
 
 
 @dc.dataclass

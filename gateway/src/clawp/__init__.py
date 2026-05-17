@@ -15,14 +15,6 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
-import pathlib
+from .main import run
 
-import ruamel.yaml
-
-from . import model as mdl
-
-
-def load_config(file: pathlib.Path) -> mdl.Config:
-    yaml = ruamel.yaml.YAML()
-    config_dict = yaml.load(file)
-    return mdl.Config.model_validate(config_dict)
+__all__ = ["run"]

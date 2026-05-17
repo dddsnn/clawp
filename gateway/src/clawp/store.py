@@ -29,8 +29,8 @@ import uuid
 import pydantic as pyd
 import whenever as we
 
-import message as msg
-import model as mdl
+from . import message as msg
+from . import model as mdl
 
 
 class MessageStoreError(Exception):

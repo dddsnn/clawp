@@ -25,15 +25,13 @@ import uuid
 
 import whenever as we
 
-import channel as chan
-import message as msg
-import model as mdl
-import store
-import tool
-import util
+from . import channel as chan
+from . import message as msg
+from . import model as mdl
+from . import store, tool, util
 
 if t.TYPE_CHECKING:
-    import provider as prov
+    from . import provider as prov
 
 
 class Session:

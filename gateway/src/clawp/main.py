@@ -24,35 +24,30 @@ import pathlib
 import signal
 import uuid
 
-import agent as agt
-import api
-import channel as chan
-import config as cfg
-import model as mdl
-import provider as prov
-import store
-import tool
+from . import agent as agt
+from . import api, store, tool
+from . import channel as chan
+from . import config as cfg
+from . import model as mdl
+from . import provider as prov
 
 API_HOST = "0.0.0.0"
 API_PORT = 8000
 API_LOG_LEVEL = "info"
 
-logger = None
-
-
-def setup_logging():
-    fmt = "%(asctime)s|%(module)s|%(name)s|%(levelname)s: %(message)s"
-    logging.config.dictConfig({
-        "version": 1,
-        "formatters": {"simple": {"format": fmt}},
-        "handlers": {
-            "stream_handler": {
-                "class": "logging.StreamHandler", "formatter": "simple"}},
-        "root": {"level": "DEBUG", "handlers": ["stream_handler"]},
-        "loggers": {
-            "httpcore": {"level": "INFO", "handlers": ["stream_handler"]},
-            "nio": {"level": "INFO", "handlers": ["stream_handler"]},
-            "peewee": {"level": "INFO", "handlers": ["stream_handler"]}},})
+_log_fmt = "%(asctime)s|%(module)s|%(name)s|%(levelname)s: %(message)s"
+logging.config.dictConfig({
+    "version": 1,
+    "formatters": {"simple": {"format": _log_fmt}},
+    "handlers": {
+        "stream_handler": {
+            "class": "logging.StreamHandler", "formatter": "simple"}},
+    "root": {"level": "DEBUG", "handlers": ["stream_handler"]},
+    "loggers": {
+        "httpcore": {"level": "INFO", "handlers": ["stream_handler"]},
+        "nio": {"level": "INFO", "handlers": ["stream_handler"]},
+        "peewee": {"level": "INFO", "handlers": ["stream_handler"]}},})
+logger = logging.getLogger(__name__)
 
 
 def shutdown(shutdown_event: asyncio.Event):
@@ -102,7 +97,9 @@ async def main():
         await shutdown_event.wait()
 
 
-if __name__ == "__main__":
-    setup_logging()
-    logger = logging.getLogger(__name__)
+def run():
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    run()

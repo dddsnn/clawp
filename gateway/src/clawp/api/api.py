@@ -26,10 +26,9 @@ import fastapi
 import uvicorn
 import whenever as we
 
-import agent as agt
-import message as msg
-import model as mdl
-
+from .. import agent as agt
+from .. import message as msg
+from .. import model as mdl
 from . import dependency as dep
 
 router = fastapi.APIRouter(prefix="/api/v1")
