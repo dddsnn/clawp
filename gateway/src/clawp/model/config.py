@@ -32,11 +32,6 @@ class OpenRouterConfig(BaseSettings):
     model: str
 
 
-class MessageStoreConfig(BaseSettings):
-    # Default this to None, it will be set relative to the gateway's store_dir.
-    base_dir: pathlib.Path = pyd.Field(default=None, validate_default=False)
-
-
 class MatrixConfig(BaseSettings):
     homeserver: str
     username: str
@@ -48,14 +43,19 @@ class MatrixConfig(BaseSettings):
 
 class GatewayConfig(BaseSettings):
     files_base_dir: pathlib.Path
+    """
+    The base directory for all of the gateway's files.
+
+    All persistent files the gateway needs will be stored below this path.
+    """
     openrouter: OpenRouterConfig
-    message_store: MessageStoreConfig
     matrix: t.Optional[MatrixConfig]
 
-    @pyd.model_validator(mode="after")
-    def compute_message_store_base_dir(self) -> t.Self:
-        self.message_store.base_dir = self.files_base_dir / "message_store"
-        return self
+    @pyd.computed_field
+    @property
+    def agents_base_dir(self) -> pathlib.Path:
+        """The base directory for agent-specific data."""
+        return self.files_base_dir / "agents"
 
     @pyd.model_validator(mode="after")
     def compute_matrix_store_dir(self) -> t.Self:

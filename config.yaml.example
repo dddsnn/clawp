@@ -4,7 +4,6 @@ gateway:
   openrouter:
     # api_key: "" # Provided by CLAWP_OPENROUTER_API_KEY environment variable.
     model: "stepfun/step-3.5-flash:free"
-  message_store: {}
   matrix:
     homeserver: "https://matrix.org"
     username: "@your-user:matrix.org"

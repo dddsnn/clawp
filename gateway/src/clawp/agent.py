@@ -20,6 +20,7 @@ import collections.abc as cl_abc
 import functools as ft
 import json
 import logging
+import pathlib
 import typing as t
 import uuid
 
@@ -79,6 +80,11 @@ class Session:
             self._is_shut_down = True
         await self._publisher.__aexit__(*args)
         return False
+
+    @property
+    def num_messages(self) -> int:
+        """The number of messages in this session."""
+        return len(self._messages or [])
 
     async def add_incoming_message(
             self, incoming_message: chan.IncomingMessage) -> None:
@@ -259,17 +265,21 @@ class Agent:
     changed for a compaction or change in system message, a new session is
     started.
 
+    The agent creates and manages a MessageStore to persist messages in its
+    session.
+
     An agent is an asynchronous context manager that ensures sessions are
     properly opened and closed.
     """
     def __init__(
-            self, agent_id: uuid.UUID, *,
-            message_store: store.AgentMessageStore,
+            self, agent_id: uuid.UUID, *, base_dir: pathlib.Path,
             channel_repo: chan.ChannelRepository, provider: "prov.Provider",
             mcp_client: tool.Client) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._agent_id = agent_id
-        self._message_store = message_store
+        self._base_dir = base_dir
+        self._message_store = store.MessageStore(
+            self._base_dir / "message_store")
         self._channel_repo = channel_repo
         self._session_factory = ft.partial(
             Session, message_sender=channel_repo, provider=provider,
@@ -278,6 +288,7 @@ class Agent:
         self._lock = asyncio.Lock()
 
     async def __aenter__(self) -> t.Self:
+        await self._message_store.__aenter__()
         async with self._lock:
             self._read_incoming_messages_task = asyncio.create_task(
                 self._read_incoming_messages())
@@ -289,7 +300,7 @@ class Agent:
             self._read_incoming_messages_task.cancel()
             try:
                 async with asyncio.timeout(120):
-                    return await self._session.__aexit__(*args)
+                    await self._session.__aexit__(*args)
             except Exception:
                 self._logger.exception("Error shutting down session.")
             try:
@@ -298,6 +309,11 @@ class Agent:
             except Exception:
                 self._logger.exception(
                     "Error waiting for incoming message task.")
+        try:
+            async with asyncio.timeout(10):
+                await self._message_store.__aexit__(*args)
+        except Exception:
+            self._logger.exception("Error shutting down message store.")
         return False
 
     def _make_session(self, session_seq: int) -> Session:
@@ -307,21 +323,23 @@ class Agent:
 
     async def _ensure_active_session(self):
         active_session_seq = self._message_store.get_active_session_seq()
-        if active_session_seq is not None:
-            self._session = self._make_session(active_session_seq)
-            await self._session.__aenter__()
-        else:
+        self._session = self._make_session(active_session_seq)
+        await self._session.__aenter__()
+        if active_session_seq == 0 and not self._session.num_messages:
             self._logger.info(
                 f"Existing agent {self._agent_id} has no sessions. Starting "
                 "the first one.")
-            self._session = self._make_session(0)
-            await self._start_new_session()
+            await self._send_session_init_messages()
 
     async def _start_new_session(self):
         if self._session:
             await self._session.__aexit__(None, None, None)
-        self._session = self._make_session(0)
+        self._session = self._make_session(
+            self._message_store.get_active_session_seq() + 1)
         await self._session.__aenter__()
+        await self._send_session_init_messages()
+
+    async def _send_session_init_messages(self):
         await self._channel_repo.system_channel.add_incoming_message(
             "developer", await util.render_message_template("init_system.md"))
         # Tell the agent that this is a new session.

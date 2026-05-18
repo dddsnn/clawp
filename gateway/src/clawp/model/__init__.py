@@ -36,7 +36,6 @@ from .config import (
     Config,
     GatewayConfig,
     MatrixConfig,
-    MessageStoreConfig,
     OpenRouterConfig,
 )
 from .message import (
@@ -92,7 +91,6 @@ __all__ = [
     "Config",
     "GatewayConfig",
     "MatrixConfig",
-    "MessageStoreConfig",
     "OpenRouterConfig",
     "AgentMessage",
     "BaseMessage",

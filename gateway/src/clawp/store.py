@@ -17,14 +17,12 @@
 
 import asyncio
 import collections.abc as cl_abc
-import itertools as it
 import json
 import logging
 import os
 import pathlib
 import shutil
 import typing as t
-import uuid
 
 import pydantic as pyd
 import whenever as we
@@ -47,17 +45,18 @@ class MessageStoreFormatError(MessageStoreError, ValueError):
 
 class MessageStore:
     """
-    Persistent store for messages using JSONL files.
+    Persistent store for an agent's messages using JSONL files.
 
     The store uses a directory tree that mirrors the domain hierarchy:
-    <base_dir>/agents/<agent_id>/sessions/<session_seq>.jsonl
+    <base_dir>/sessions/<session_seq>.jsonl
 
     Each JSONL file starts with a header line containing the format version
     and session metadata, followed by one JSON object per message.
 
     The store keeps file handles open for active sessions to avoid repeated
     open/close overhead. All I/O is dispatched to a thread via
-    asyncio.to_thread to avoid blocking the event loop.
+    asyncio.to_thread() to avoid blocking the event loop. The store assumes it
+    owns its base_dir and has exclusive access to the files.
 
     MessageStore is an asynchronous context manager that takes control of the
     base_dir. When the context manager enters, it locks the directory (so only
@@ -76,9 +75,9 @@ class MessageStore:
 
     _message_store_lock = asyncio.Lock()
 
-    def __init__(self, config: mdl.MessageStoreConfig) -> None:
+    def __init__(self, base_dir: pathlib.Path) -> None:
         self._logger = logging.getLogger(type(self).__name__)
-        self._config = config
+        self._base_dir = base_dir
         self._open_files: dict[pathlib.Path, t.IO] = {}
         self._open_files_lock = asyncio.Lock()
 
@@ -116,43 +115,33 @@ class MessageStore:
         except Exception:
             self._logger.exception(f"Error closing file {f}.")
 
-    def _agents_dir(self) -> pathlib.Path:
-        return self._config.base_dir / "agents"
+    def _sessions_dir(self) -> pathlib.Path:
+        return self._base_dir / "sessions"
 
-    def _agent_dir(self, agent_id: uuid.UUID) -> pathlib.Path:
-        return self._agents_dir() / str(agent_id)
-
-    def _sessions_dir(self, agent_id: uuid.UUID) -> pathlib.Path:
-        return self._agent_dir(agent_id) / "sessions"
-
-    def _session_path(
-            self, agent_id: uuid.UUID, session_seq: int) -> pathlib.Path:
-        return self._sessions_dir(agent_id) / f"{session_seq}.jsonl"
+    def _session_path(self, session_seq: int) -> pathlib.Path:
+        return self._sessions_dir() / f"{session_seq}.jsonl"
 
     async def append_message(
-            self, agent_id: uuid.UUID, session_seq: int,
-            message: msg.Message) -> None:
+            self, session_seq: int, message: msg.Message) -> None:
         """
         Append a message to a session file.
 
         The message will be serialized as JSON using its model property. If the
         session file doesn't exist yet, it is created first. If a session file
-        needs to be created but now all previous sessions exist for the agent,
-        a MessageStoreFormatError is raised.
+        needs to be created but now all previous sessions exist a
+        MessageStoreFormatError is raised.
         """
         async with self._open_files_lock:
             await asyncio.to_thread(
-                self._sync_append_message, agent_id, session_seq, await
-                message.model)
+                self._sync_append_message, session_seq, await message.model)
 
     def _sync_append_message(
-            self, agent_id: uuid.UUID, session_seq: int,
-            message_model: mdl.Message):
-        path = self._session_path(agent_id, session_seq)
+            self, session_seq: int, message_model: mdl.Message):
+        path = self._session_path(session_seq)
         try:
             f = self._open_files[path]
         except KeyError:
-            self._ensure_session_file(agent_id, session_seq)
+            self._ensure_session_file(session_seq)
             assert path.exists()
             f = open(path, "a")
             self._open_files[path] = f
@@ -160,8 +149,8 @@ class MessageStore:
         f.flush()
         os.fsync(f.fileno())
 
-    def _ensure_session_file(self, agent_id: uuid.UUID, session_seq: int):
-        path = self._session_path(agent_id, session_seq)
+    def _ensure_session_file(self, session_seq: int):
+        path = self._session_path(session_seq)
         if path.exists():
             return
         for seq in range(session_seq):
@@ -171,7 +160,6 @@ class MessageStore:
                     f"session {seq} doesn't exist")
         header = {
             "version": self.VERSION,
-            "agent_id": str(agent_id),
             "session_seq": session_seq,}
         if not path.parent.exists():
             self._logger.info(f"Creating sessions directory {path.parent}.")
@@ -182,8 +170,8 @@ class MessageStore:
             os.fsync(f.fileno())
         self._logger.info(f"Created new session file {path}.")
 
-    async def read_session_messages(
-            self, agent_id: uuid.UUID, session_seq: int) -> list[msg.Message]:
+    async def read_session_messages(self,
+                                    session_seq: int) -> list[msg.Message]:
         """
         Read all messages from a session file.
 
@@ -194,7 +182,7 @@ class MessageStore:
         Raises a MessageStoreFormatError if any line doesn't parse to a message
         (that includes empty lines).
         """
-        path = self._session_path(agent_id, session_seq)
+        path = self._session_path(session_seq)
         json_lines = await asyncio.to_thread(self._sync_read_messages, path)
         # Do the parsing in the async method here because we need an event loop
         # for the messages' from_model() (which wants to schedule a task for
@@ -255,38 +243,16 @@ class MessageStore:
             f.seek(pos)
             f.truncate()
 
-    def list_agents(self) -> list[uuid.UUID]:
-        """
-        List all agent IDs.
-
-        Returns an empty list if the store has no agents yet.
-        """
-        try:
-            entries = self._agents_dir().iterdir()
-        except FileNotFoundError:
-            return []
-        ids = []
-        for entry in entries:
-            if not entry.is_dir():
-                self._logger.warning(f"Unexpected file {entry} in directory.")
-            try:
-                ids.append(uuid.UUID(entry.name))
-            except ValueError:
-                self._logger.exception(
-                    f"Subdirectory {entry} is not a valid UUID.")
-                continue
-        return sorted(ids)
-
-    def get_active_session_seq(self, agent_id: uuid.UUID) -> t.Optional[int]:
+    def get_active_session_seq(self) -> int:
         """
         Get the active session sequence number.
 
-        Returns the sequence number of the active session, or None if there are
-        no sessions for this agent yet.
+        Returns the sequence number of the active session. This is 0 if there
+        are no sessions with messages yet.
         """
-        sessions_dir = self._sessions_dir(agent_id)
+        sessions_dir = self._sessions_dir()
         if not sessions_dir.exists():
-            return None
+            return 0
         seqs = set()
         for entry in sessions_dir.iterdir():
             if not entry.is_file():
@@ -302,47 +268,28 @@ class MessageStore:
                     f"Unexpected file {entry} in sessions directory "
                     f"{sessions_dir}.", exc_info=True)
                 continue
-        active_session_seq = max(seqs, default=None)
+        active_session_seq = max(seqs, default=0)
         if active_session_seq and active_session_seq + 1 != len(seqs):
             self._logger.warning(
                 f"Missing session sequence numbers in {sorted(seqs)}.")
         return active_session_seq
 
-    def _list_all_sessions(self) -> cl_abc.Generator[tuple[uuid.UUID, int]]:
-        for agent_id in self.list_agents():
-            active_session_seq = self.get_active_session_seq(agent_id)
-            if active_session_seq is None:
-                self._logger.warning(f"No sessions for agent {agent_id}")
-                continue
-            for seq in range(active_session_seq + 1):
-                session_file = self._session_path(agent_id, seq)
-                if session_file.is_file():
-                    yield agent_id, seq
-                else:
-                    self._logger.warning(
-                        f"Missing session file {session_file}.")
-
-    def _list_all_session_files(self) -> cl_abc.Generator[pathlib.Path]:
-        for agent_id, seq in self._list_all_sessions():
-            path = self._session_path(agent_id, seq)
-            assert path.is_file()
-            yield path
-
-    def get_agent_message_store(
-            self, agent_id: uuid.UUID) -> "AgentMessageStore":
-        """Get a message store specific to an agent."""
-        return AgentMessageStore(agent_id, self)
+    def get_session_message_store(
+            self, session_seq: int) -> "SessionMessageStore":
+        """Get a message store specific to a session."""
+        return SessionMessageStore(session_seq, self)
 
     def _ensure_valid_store_format(self) -> None:
         """
         Ensure that base_dir is consistent and valid.
 
-        Goes through the session directory of every agent and checks that the
-        session files in it are consistent. This is the case if
+        Creates the base_dir and sessions directory if necessary. Goes through
+        the sessions directory and checks that the session files in it are
+        consistent. This is the case if
 
-        - the agent_id and session_seq in the session file's header is
-          consistent with the directory/file name
-        - all session files have the version number
+        - the session_seq in the session file's header is consistent with the
+          file name
+        - all session files have the same version number
         - the session files' version number is not greater than
           MessageStore.VERSION
 
@@ -357,29 +304,23 @@ class MessageStore:
 
         If any inconsistencies are found, a MessageStoreFormatError is raised.
         """
-        if not self._config.base_dir.exists():
+        if not self._sessions_dir().exists():
             self._logger.info(
-                f"Message store directory {self._config.base_dir} doesn't "
-                "exist yet, creating it.")
-            self._config.base_dir.mkdir(parents=True, exist_ok=True)
+                f"Sessions directory {self._sessions_dir()} doesn't exist "
+                "yet, creating it.")
+            self._sessions_dir().mkdir(parents=True, exist_ok=True)
         session_file_versions = set()
-        sessions_by_agent = it.groupby(
-            self._list_all_sessions(), key=lambda agt_seq: agt_seq[0])
-        for agent_id, agt_seq in sessions_by_agent:
-            prev_seq = None
-            for _, seq in agt_seq:
-                if prev_seq is None and seq != 0:
-                    raise MessageStoreFormatError(
-                        f"session sequence numbers of {agent_id} doesn't "
-                        "start at 0")
-                if prev_seq is not None and prev_seq + 1 != seq:
-                    raise MessageStoreFormatError(
-                        f"broken session sequence numbers of {agent_id} after "
-                        f"{prev_seq}")
-                prev_seq = seq
-                session_file_version = self._ensure_valid_session_format(
-                    agent_id, seq)
-                session_file_versions.add(session_file_version)
+        prev_seq = None
+        for seq, _ in self._list_all_session_files():
+            if prev_seq is None and seq != 0:
+                raise MessageStoreFormatError(
+                    "session sequence numbers don't start at 0")
+            if prev_seq is not None and prev_seq + 1 != seq:
+                raise MessageStoreFormatError(
+                    f"broken session sequence numbers after {prev_seq}")
+            prev_seq = seq
+            session_file_version = self._ensure_valid_session_format(seq)
+            session_file_versions.add(session_file_version)
         if len(session_file_versions) > 1:
             raise MessageStoreFormatError(
                 "inconsistent message store with "
@@ -396,23 +337,28 @@ class MessageStore:
                 "known the this implementation, unable to downgrade")
         else:
             self._logger.debug(
-                f"Found valid message store at {self._config.base_dir} with "
-                f"version {self.VERSION}.")
+                f"Found valid message store at {self._base_dir} with version "
+                f"{self.VERSION}.")
 
-    def _ensure_valid_session_format(self, agent_id: uuid.UUID, seq: int):
-        path = self._session_path(agent_id, seq)
+    def _list_all_session_files(
+            self) -> cl_abc.Generator[tuple[int, pathlib.Path]]:
+
+        for seq in range(self.get_active_session_seq() + 1):
+            session_file = self._session_path(seq)
+            if session_file.is_file():
+                yield seq, session_file
+            elif seq != 0:
+                self._logger.warning(f"Missing session file {session_file}.")
+
+    def _ensure_valid_session_format(self, seq: int):
+        path = self._session_path(seq)
         try:
             with path.open() as f:
                 header_dict = json.loads(f.readline())
             assert isinstance(header_dict["version"], int)
             assert isinstance(header_dict["session_seq"], int)
-            header_dict["agent_id"] = uuid.UUID(header_dict["agent_id"])
         except Exception as e:
             raise MessageStoreFormatError("invalid header format") from e
-        if agent_id != header_dict["agent_id"]:
-            raise MessageStoreFormatError(
-                f"inconsistent session file {path}: directory suggests agent "
-                f"{agent_id}, but file header says {header_dict['agent_id']}")
         if seq != header_dict["session_seq"]:
             raise MessageStoreFormatError(
                 f"inconsistent session file {path}: directory suggests "
@@ -433,13 +379,13 @@ class MessageStore:
         according to from_version.
         """
         assert from_version < self.VERSION
-        assert self._config.base_dir.is_dir()
+        assert self._base_dir.is_dir()
         backup_directory_name = (
-            f"backup_{self._config.base_dir.name}_version_{from_version}_"
+            f"backup_{self._base_dir.name}_version_{from_version}_"
             f"{we.Instant.now()}")
-        backup_directory = self._config.base_dir.parent / backup_directory_name
-        shutil.copytree(self._config.base_dir, backup_directory)
-        for file in list(self._list_all_session_files()):
+        backup_directory = self._base_dir.parent / backup_directory_name
+        shutil.copytree(self._base_dir, backup_directory)
+        for _, file in list(self._list_all_session_files()):
             assert file.is_file()
             for version in range(from_version, self.VERSION):
                 upgrader = self._upgraders[version]
@@ -460,56 +406,21 @@ class MessageStore:
         assert version_number in _upgraders
 
 
-class AgentMessageStore:
-    """
-    Persistent store for agent messages.
-
-    This is a wrapper around MessageStore which makes the underlying methods
-    available for one specific agent.
-    """
-    def __init__(
-            self, agent_id: uuid.UUID, message_store: MessageStore) -> None:
-        self._agent_id = agent_id
-        self._message_store = message_store
-
-    async def append_message(
-            self, session_seq: int, message: msg.Message) -> None:
-        return await self._message_store.append_message(
-            self._agent_id, session_seq, message)
-
-    async def read_session_messages(self,
-                                    session_seq: int) -> list[msg.Message]:
-        return await self._message_store.read_session_messages(
-            self._agent_id, session_seq)
-
-    def get_active_session_seq(self) -> t.Optional[int]:
-        return self._message_store.get_active_session_seq(self._agent_id)
-
-    def get_session_message_store(
-            self, session_seq: int) -> "SessionMessageStore":
-        """Get a message store specific to a session."""
-        return SessionMessageStore(
-            self._agent_id, session_seq, self._message_store)
-
-
 class SessionMessageStore:
     """
     Persistent store for session messages.
 
     This is a wrapper around MessageStore which makes the underlying methods
-    available for one specific session of an agent.
+    available for one specific session.
     """
-    def __init__(
-            self, agent_id: uuid.UUID, session_seq: int,
-            message_store: MessageStore) -> None:
-        self._agent_id = agent_id
+    def __init__(self, session_seq: int, message_store: MessageStore) -> None:
         self._session_seq = session_seq
         self._message_store = message_store
 
     async def append_message(self, message: msg.Message) -> None:
         return await self._message_store.append_message(
-            self._agent_id, self._session_seq, message)
+            self._session_seq, message)
 
     async def read_session_messages(self) -> list[msg.Message]:
         return await self._message_store.read_session_messages(
-            self._agent_id, self._session_seq)
+            self._session_seq)
