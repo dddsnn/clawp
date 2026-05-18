@@ -1,17 +1,15 @@
-FROM rust:1 AS build-rust-mcp-filesystem
+FROM rust:1-alpine AS build-rust-mcp-filesystem
 RUN mkdir /dist
 RUN cargo install --locked rust-mcp-filesystem@0.4.1
 RUN cp $(which rust-mcp-filesystem) /dist
 
-FROM python:3.14-slim AS build
+FROM python:3.14-alpine AS build
 # We need to build in the same workdir that the app stage will use because
 # we'll copy our entire .venv over to it, which contains symlinks that need
 # to continue working.
 WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/bin/
-RUN apt-get update && \
-    apt-get install -y build-essential libolm3 && \
-    apt-get clean
+RUN apk add --no-cache build-base olm
 # Install only dependencies first.
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -29,12 +27,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY tests tests
 CMD ["uv", "run", "pytest"]
 
-FROM python:3.14-slim AS app
+FROM python:3.14-alpine AS app
 WORKDIR /app
 COPY --from=build-rust-mcp-filesystem /dist/rust-mcp-filesystem /usr/local/bin/
-RUN apt-get update && \
-    apt-get install -y libolm3 && \
-    apt-get clean
+RUN apk add --no-cache olm
 # Copy the .venv and add it to PATH.
 COPY --from=build /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
