@@ -25,7 +25,7 @@ import signal
 import uuid
 
 from . import agent as agt
-from . import api, tool
+from . import api
 from . import channel as chan
 from . import config as cfg
 from . import model as mdl
@@ -78,17 +78,14 @@ async def main():
     channels = make_channels(config.gateway)
     channel_repo = chan.ChannelRepository(channels.values())
     openrouter_provider = prov.OpenrouterProvider(config.gateway.openrouter)
-    mcp_client = tool.Client()
     agent_id = uuid.UUID(int=0)
     agent = agt.Agent(
         agent_id, base_dir=config.gateway.agents_base_dir / str(agent_id),
-        channel_repo=channel_repo, provider=openrouter_provider,
-        mcp_client=mcp_client)
+        channel_repo=channel_repo, provider=openrouter_provider)
     clawp_api = api.Api(agent, API_HOST, API_PORT, API_LOG_LEVEL)
     async with contextlib.AsyncExitStack() as stack:
         await stack.enter_async_context(channel_repo)
         await stack.enter_async_context(openrouter_provider)
-        await stack.enter_async_context(mcp_client)
         await stack.enter_async_context(agent)
         await stack.enter_async_context(clawp_api)
         await shutdown_event.wait()

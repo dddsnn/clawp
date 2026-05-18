@@ -234,10 +234,10 @@ class Session:
             self._logger.debug(f"Handling tool call {tool_call}.")
             try:
                 arguments_dict = json.loads(tool_call.function.arguments)
-                result = await self._mcp_client.call_tool(
+                result_string = await self._mcp_client.call_tool(
                     tool_call.function.name, arguments_dict)
                 await self._append_message_now(
-                    msg.ToolMessage, content=str(result.data),
+                    msg.ToolMessage, content=result_string,
                     tool_call_id=tool_call.id)
             except Exception as e:
                 await self._append_message_now(
@@ -273,22 +273,36 @@ class Agent:
     """
     def __init__(
             self, agent_id: uuid.UUID, *, base_dir: pathlib.Path,
-            channel_repo: chan.ChannelRepository, provider: "prov.Provider",
-            mcp_client: tool.Client) -> None:
+            channel_repo: chan.ChannelRepository,
+            provider: "prov.Provider") -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._agent_id = agent_id
         self._base_dir = base_dir
-        self._message_store = store.MessageStore(
-            self._base_dir / "message_store")
+        self._message_store = store.MessageStore(self.message_store_dir)
+        self._mcp_client = tool.Client(self.workspace_dir)
         self._channel_repo = channel_repo
         self._session_factory = ft.partial(
             Session, message_sender=channel_repo, provider=provider,
-            mcp_client=mcp_client)
+            mcp_client=self._mcp_client)
         self._session = None
         self._lock = asyncio.Lock()
 
+    @property
+    def message_store_dir(self) -> pathlib.Path:
+        return self._base_dir / "message_store"
+
+    @property
+    def workspace_dir(self) -> pathlib.Path:
+        return self._base_dir / "workspace"
+
     async def __aenter__(self) -> t.Self:
+        if not self.workspace_dir.is_dir():
+            self._logger.info(
+                f"Workspace {self.workspace_dir} doesn't exist yet. Creating "
+                "it.")
+            self.workspace_dir.mkdir(parents=True, exist_ok=True)
         await self._message_store.__aenter__()
+        await self._mcp_client.__aenter__()
         async with self._lock:
             self._read_incoming_messages_task = asyncio.create_task(
                 self._read_incoming_messages())
@@ -314,6 +328,11 @@ class Agent:
                 await self._message_store.__aexit__(*args)
         except Exception:
             self._logger.exception("Error shutting down message store.")
+        try:
+            async with asyncio.timeout(10):
+                await self._mcp_client.__aexit__(*args)
+        except Exception:
+            self._logger.exception("Error shutting down MCP client.")
         return False
 
     def _make_session(self, session_seq: int) -> Session:

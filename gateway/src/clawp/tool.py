@@ -15,22 +15,27 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+import logging
+import pathlib
+
 import fastmcp
+import fastmcp.client
+import fastmcp.client.transports
 import fastmcp.tools
+import mcp.types
 
-mcp_server = fastmcp.FastMCP(name="Clawp MCP server")
-
-
-@mcp_server.tool
-def add(a: int, b: int) -> int:
-    """Adds two integer numbers together."""
-    return a + b
+RUST_MCP_SERVER_COMMAND = "rust-mcp-filesystem"
 
 
 class Client:
     """A client providing tools via MCP servers."""
-    def __init__(self):
-        self._client = fastmcp.Client(mcp_server)
+    def __init__(self, agent_workspace: pathlib.Path):
+        self._logger = logging.getLogger(type(self).__name__)
+        transport = fastmcp.client.transports.StdioTransport(
+            command=RUST_MCP_SERVER_COMMAND,
+            args=["--enable-roots", "--allow-write"])
+        roots = [f"file://{agent_workspace.resolve()}"]
+        self._client = fastmcp.Client(transport, roots=roots)
         self._tools = None
 
     async def __aenter__(self):
@@ -49,8 +54,15 @@ class Client:
             raise ValueError("client not initialized")
         return self._tools
 
-    async def call_tool(
-            self, name: str, *args, **kwargs) -> fastmcp.tools.CallToolResult:
+    async def call_tool(self, name: str, *args, **kwargs) -> str:
         if name not in self._tools:
             raise ValueError(f"unknown tool {name}")
-        return await self._client.call_tool(name, *args, **kwargs)
+        result = await self._client.call_tool(name, *args, **kwargs)
+        result_string = ""
+        for block in result.content:
+            if not isinstance(block, mcp.types.TextContent):
+                self._logger.warning(
+                    f"Ignoring non-text content block {block}.")
+                continue
+            result_string += block.text
+        return result_string
