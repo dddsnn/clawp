@@ -44,6 +44,9 @@ clawp = "clawp:run"
 [tool.setuptools.package-data]
 clawp = ["messages/**/*"]
 
+[tool.uv]
+compile-bytecode = true
+
 [tool.pytest]
 minversion = "9.0"
 addopts = ["-v", "-l"]
