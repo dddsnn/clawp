@@ -348,6 +348,9 @@ class Agent:
                 "system_information", "session_initialization.md"))
         # Tell the agent about available channels.
         for channel in self._channel_repo.channels.values():
+            if isinstance(channel, chan.NopChannel):
+                # NopChannels should be hidden from the agent.
+                continue
             await self._channel_repo.system_channel.add_incoming_message(
                 "system", await channel.channel_available_message)
 

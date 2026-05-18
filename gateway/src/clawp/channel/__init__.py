@@ -21,6 +21,7 @@ from .base import (
     IncomingMessage,
     MessageReceiver,
     MessageSender,
+    NopChannel,
     SystemChannel,
     WebUiChannel,
 )
@@ -33,5 +34,6 @@ __all__ = [
     "MatrixChannel",
     "MessageReceiver",
     "MessageSender",
+    "NopChannel",
     "SystemChannel",
     "WebUiChannel",]

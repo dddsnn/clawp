@@ -98,6 +98,33 @@ class Channel(MessageSender, MessageReceiver):
         return self._publisher.subscribe()
 
 
+class NopChannel(Channel):
+    """A channel that does nothing."""
+    @property
+    async def channel_available_message(self) -> str:
+        return (
+            "This is a NopChannel that shouldn't be visible. If you see this, "
+            "there is a bug in the system.")
+
+    async def send(self, message: msg.AgentMessage) -> None:
+        if not await message.content:
+            # The agent may send empty messages without a header, so it's fine
+            # if they end up in a NopChannel.
+            return
+        self._logger.warning(
+            f"Non-empty message was sent to a NopChannel: {message}.")
+
+
+class MissingChannel(NopChannel):
+    def __init__(self):
+        super().__init__("missing")
+
+
+class UnknownChannel(NopChannel):
+    def __init__(self):
+        super().__init__("unknown")
+
+
 class SystemChannel(Channel):
     """
     System channel.
@@ -178,7 +205,8 @@ class ChannelRepository:
     into a single stream, and routes outgoing messages to the appropriate
     channel based on the message's metadata.
 
-    The built-in channels system and web_ui must always exist.
+    The built-in channels system and web_ui must always exist. The NopChannels
+    unknown and missing are added automatically.
 
     The asynchronous context manager takes control of the contexts of the
     channels, i.e. it expects them to not have been entered and instead
@@ -201,6 +229,10 @@ class ChannelRepository:
             raise ValueError("missing system channel")
         if not any(isinstance(c, WebUiChannel) for c in channels):
             raise ValueError("missing web UI channel")
+        if not any(isinstance(c, MissingChannel) for c in channels):
+            self._stati["missing"] = self.ChannelStatus(MissingChannel())
+        if not any(isinstance(c, UnknownChannel) for c in channels):
+            self._stati["unknown"] = self.ChannelStatus(UnknownChannel())
 
     async def __aenter__(self) -> t.Self:
         self._logger.info(
