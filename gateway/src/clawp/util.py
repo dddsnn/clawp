@@ -20,32 +20,7 @@ import asyncio
 import collections as cl
 import collections.abc as cl_abc
 import itertools as it
-import pathlib
 import typing as t
-import importlib.resources
-
-
-async def render_message_template(
-        *path_components: str, **format_kwargs: str) -> str:
-    """
-    Render a template from the messages directory.
-
-    Takes the given path components, appends them to the directory containing
-    message templates, and finally appends a .template suffix to determine the
-    file path. Reads the file and calls format() using the given format_kwargs.
-    """
-    messages_resource = importlib.resources.files("clawp.messages")
-    with importlib.resources.as_file(messages_resource) as messages_dir:
-        file_path = messages_dir / pathlib.Path(*path_components)
-        template_suffix = file_path.suffix + ".template"
-        template_path = file_path.with_suffix(template_suffix)
-        template = await asyncio.to_thread(_read_file, template_path)
-        return template.format(**format_kwargs)
-
-
-def _read_file(path: pathlib.Path) -> str:
-    with path.open() as f:
-        return f.read()
 
 
 class StreamableList:

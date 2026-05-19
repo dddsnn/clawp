@@ -42,7 +42,7 @@ source = "https://github.com/dddsnn/clawp"
 clawp = "clawp:run"
 
 [tool.setuptools.package-data]
-clawp = ["messages/**/*"]
+clawp = ["template/messages/**/*"]
 
 [tool.uv]
 compile-bytecode = true

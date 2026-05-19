@@ -26,6 +26,7 @@ import whenever as we
 
 from .. import message as msg
 from .. import model as mdl
+from .. import template as tpl
 from .. import util
 
 
@@ -138,7 +139,7 @@ class SystemChannel(Channel):
 
     @property
     async def channel_available_message(self) -> str:
-        return await util.render_message_template(
+        return await tpl.render_message_template(
             "channel_status", "system_available.md")
 
     async def send(self, message: msg.AgentMessage) -> None:
@@ -174,7 +175,7 @@ class WebUiChannel(Channel):
 
     @property
     async def channel_available_message(self) -> str:
-        return await util.render_message_template(
+        return await tpl.render_message_template(
             "channel_status", "web_ui_available.md")
 
     async def send(self, message: msg.AgentMessage) -> None:
