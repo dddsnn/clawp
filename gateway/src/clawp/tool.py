@@ -15,27 +15,45 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+import functools as ft
 import logging
 import pathlib
 
 import fastmcp
 import fastmcp.client
 import fastmcp.client.transports
+import fastmcp.server
+import fastmcp.server.providers.proxy
 import fastmcp.tools
 import mcp.types
 
-RUST_MCP_SERVER_COMMAND = "rust-mcp-filesystem"
+
+def _make_filesystem_proxy(
+    agent_workspace: pathlib.Path
+) -> fastmcp.server.providers.proxy.FastMCPProxy:
+    """
+    Create proxy to filesystem server.
+
+    Create a proxy to the stdio MCP server with filesystem tools that's
+    installed as a binary.
+    """
+    transport = fastmcp.client.transports.StdioTransport(
+        command="rust-mcp-filesystem",
+        args=["--enable-roots", "--allow-write"])
+    client_factory = ft.partial(
+        fastmcp.Client, transport,
+        roots=[f"file://{agent_workspace.resolve()}"])
+    return fastmcp.server.providers.proxy.FastMCPProxy(
+        client_factory=client_factory)
 
 
 class Client:
     """A client providing tools via MCP servers."""
     def __init__(self, agent_workspace: pathlib.Path):
         self._logger = logging.getLogger(type(self).__name__)
-        transport = fastmcp.client.transports.StdioTransport(
-            command=RUST_MCP_SERVER_COMMAND,
-            args=["--enable-roots", "--allow-write"])
-        roots = [f"file://{agent_workspace.resolve()}"]
-        self._client = fastmcp.Client(transport, roots=roots)
+        server = fastmcp.FastMCP(name="Clawp MCP server")
+        server.mount(_make_filesystem_proxy(agent_workspace))
+        self._client = fastmcp.Client(server)
         self._tools = None
 
     async def __aenter__(self):
