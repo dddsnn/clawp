@@ -1,6 +1,8 @@
 # Tutorial: System information messages
 
-This tutorial describes system messages containing system information.
+This tutorial describes system messages containing system information. To read
+it again later, use the `clawp_read_tutorial` tool with topic
+`message_system_information`.
 
 ## System information
 

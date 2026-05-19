@@ -1,6 +1,8 @@
 # Tutorial: Message metadata messages
 
-This tutorial describes system messages containing message metadata.
+This tutorial describes system messages containing message metadata. To read it
+again later, use the `clawp_read_tutorial` tool with topic
+`message_message_metadata`.
 
 ## Message metadata
 

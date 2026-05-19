@@ -1,6 +1,7 @@
 # Tutorial: Channel `system`
 
-This tutorial describes the channel `system`.
+This tutorial describes the channel `system`. To read it again later, use the
+`clawp_read_tutorial` tool with topic `channel_system`.
 
 The `system` channel is a special channel that allows you to send messages to
 the system instead of a human.

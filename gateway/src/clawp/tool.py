@@ -27,6 +27,27 @@ import fastmcp.server.providers.proxy
 import fastmcp.tools
 import mcp.types
 
+from . import template as tpl
+
+
+class ClawpMcpServer(fastmcp.FastMCP):
+    """MCP server providing tools to interact with Clawp itself."""
+    def __init__(self):
+        super().__init__("Clawp system MCP server")
+        self.add_tool(self.list_tutorial_topics)
+        self.add_tool(self.read_tutorial)
+
+    async def list_tutorial_topics(self) -> list[str]:
+        """List all tutorial topics."""
+        return await tpl.list_tutorial_topics()
+
+    async def read_tutorial(self, topic: str) -> str:
+        """List all tutorial topics."""
+        try:
+            return await tpl.render_tutorial(topic)
+        except tpl.TemplateNotFoundError as e:
+            raise ValueError(f"topic {topic} doesn't exist") from e
+
 
 def _make_filesystem_proxy(
     agent_workspace: pathlib.Path
@@ -53,6 +74,7 @@ class Client:
         self._logger = logging.getLogger(type(self).__name__)
         server = fastmcp.FastMCP(name="Clawp MCP server")
         server.mount(_make_filesystem_proxy(agent_workspace))
+        server.mount(ClawpMcpServer(), namespace="clawp")
         self._client = fastmcp.Client(server)
         self._tools = None
 

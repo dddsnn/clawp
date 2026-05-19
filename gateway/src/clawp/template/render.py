@@ -62,6 +62,17 @@ async def render_message_template(
     return template.format(**format_kwargs)
 
 
+async def list_tutorial_topics() -> list[str]:
+    """List all available tuturial topics."""
+    def list_topics(templates_dir: pathlib.Path):
+        tutorials_dir = templates_dir / "tutorial"
+        return sorted(
+            file.name.removesuffix(".md.template")
+            for file in tutorials_dir.glob("*.md.template"))
+
+    return await asyncio.to_thread(_do_with_templates_dir, list_topics)
+
+
 async def render_tutorial(topic: str) -> str:
     """
     Render a tutorial template by topic.

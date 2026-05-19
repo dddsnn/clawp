@@ -1,6 +1,8 @@
 # Tutorial: Channel status messages
 
-This tutorial describes system messages containing channel status.
+This tutorial describes system messages containing channel status. To read it
+again later, use the `clawp_read_tutorial` tool with topic
+`message_channel_status`.
 
 ## Channel status
 

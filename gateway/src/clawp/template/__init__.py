@@ -17,6 +17,7 @@
 
 from .render import (
     TemplateNotFoundError,
+    list_tutorial_topics,
     render_channel_status,
     render_message_template,
     render_tutorial,
@@ -24,6 +25,7 @@ from .render import (
 
 __all__ = [
     "TemplateNotFoundError",
+    "list_tutorial_topics",
     "render_channel_status",
     "render_message_template",
     "render_tutorial",]
