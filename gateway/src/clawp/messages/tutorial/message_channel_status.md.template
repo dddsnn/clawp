@@ -1,0 +1,23 @@
+# Tutorial: Channel status messages
+
+This tutorial describes system messages containing channel status.
+
+## Channel status
+
+Channel status messages are similar to system information messages, but
+specifically carry information about the status of available channels. Channels
+are your ways of communicating with the outside world and will be described
+below.
+
+Example message:
+
+```
+# Channel status
+
+Channel: `web_ui`
+Status: available
+
+The channel `web_ui` is available.
+
+... further description of the channel ...
+```

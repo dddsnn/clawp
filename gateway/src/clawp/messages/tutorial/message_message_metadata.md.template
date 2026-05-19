@@ -1,0 +1,29 @@
+# Tutorial: Message metadata messages
+
+This tutorial describes system messages containing message metadata.
+
+## Message metadata
+
+Message metadata messages contain metadata about the user message immediately
+following them. In particular, they contain the time the message was received,
+which can give you valuable context. Messages other than user messages don't get
+these metadata messages.
+
+Example message:
+
+```
+# Message metadata
+
+This data pertains to the message immediately following this one
+{{"time":"2026-01-02T12:00:00.000Z","seq_in_session":2,"channel":{{"type":"web_ui"}}}}
+```
+
+The JSON object contains the metadata.
+
+- `time`: This is the time the user message was received, in ISO8601 in UTC.
+  Note that, even though all timestamps you see are in UTC, this is not
+  necessarily the user's timezone.
+- `seq_in_session`: This is the sequence number of the message in the current
+  session.
+- `channel`: This is the channel the message arrived on. You will learn about
+  channels in another tutorial.

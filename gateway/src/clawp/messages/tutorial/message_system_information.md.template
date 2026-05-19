@@ -1,0 +1,18 @@
+# Tutorial: System information messages
+
+This tutorial describes system messages containing system information.
+
+## System information
+
+System information messages inform you about the current state of the system or
+changes to it that may be of interest to you. Their content can vary (no fixed
+format), but their meaning should be obvious to you when you see them.
+
+Example message:
+
+```
+# System information
+
+This is the start of a new session.
+Reason: Initialization (this is your first session ever).
+```

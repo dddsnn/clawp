@@ -359,8 +359,9 @@ class Agent:
         await self._send_session_init_messages()
 
     async def _send_session_init_messages(self):
-        await self._channel_repo.system_channel.add_incoming_message(
-            "developer", await util.render_message_template("init_system.md"))
+        async for message in self._onboarding_messages():
+            await self._channel_repo.system_channel.add_incoming_message(
+                "developer", message)
         # Tell the agent that this is a new session.
         await self._channel_repo.system_channel.add_incoming_message(
             "system", await util.render_message_template(
@@ -372,6 +373,24 @@ class Agent:
                 continue
             await self._channel_repo.system_channel.add_incoming_message(
                 "system", await channel.channel_available_message)
+
+    async def _onboarding_messages(self) -> cl_abc.AsyncGenerator[str]:
+        """
+        Read all tutorials.
+
+        Go through all tutorial messages in a sensible order for agent
+        onboarding.
+        """
+        names = [
+            "init_system.md",
+            "tutorial/system_sessions.md",
+            "tutorial/system_system_messages.md",
+            "tutorial/message_system_information.md",
+            "tutorial/message_message_metadata.md",
+            "tutorial/message_channel_status.md",
+            "tutorial/system_channels.md",]
+        for name in names:
+            yield await util.render_message_template(name)
 
     async def _read_incoming_messages(self) -> None:
         handle_task = None

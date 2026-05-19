@@ -1,0 +1,11 @@
+# Tutorial: Sessions
+
+This tutorial describes how sessions work.
+
+## Sessions
+
+A session within the framework represents your context window. It is a list of
+messages with metadata. Sessions are append-only. When a session needs to be
+changed (e.g. to compact your context), it is archived and a new one created.
+The system will inform you at the start of a session that a new one has started
+and for what reason.
