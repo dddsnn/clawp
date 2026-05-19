@@ -26,9 +26,10 @@ class TemplateNotFoundError(FileNotFoundError):
     pass
 
 
-def _read_file(path: pathlib.Path) -> str:
-    with path.open() as f:
-        return f.read()
+def _do_with_templates_dir(function):
+    templates_resource = importlib.resources.files("clawp.template.messages")
+    with importlib.resources.as_file(templates_resource) as templates_dir:
+        return function(templates_dir)
 
 
 async def render_message_template(
@@ -45,17 +46,20 @@ async def render_message_template(
     """
     if not isinstance(path, pathlib.Path):
         path = pathlib.Path(path)
-    templates_resource = importlib.resources.files("clawp.template.messages")
-    with importlib.resources.as_file(templates_resource) as templates_dir:
+
+    def read_file(templates_dir: pathlib.Path):
         file_path = templates_dir / path
         template_suffix = file_path.suffix + ".template"
         template_path = file_path.with_suffix(template_suffix)
         try:
-            template = await asyncio.to_thread(_read_file, template_path)
+            with template_path.open() as f:
+                return f.read()
         except FileNotFoundError as e:
             raise TemplateNotFoundError(
                 f"template {path} doesn't exist") from e
-        return template.format(**format_kwargs)
+
+    template = await asyncio.to_thread(_do_with_templates_dir, read_file)
+    return template.format(**format_kwargs)
 
 
 async def render_tutorial(topic: str) -> str:
