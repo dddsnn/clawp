@@ -372,7 +372,8 @@ class Agent:
                 # NopChannels should be hidden from the agent.
                 continue
             await self._channel_repo.system_channel.add_incoming_message(
-                "system", await channel.channel_available_message)
+                "system", await
+                tpl.render_channel_status(await channel.status))
 
     async def _onboarding_messages(self) -> cl_abc.AsyncGenerator[str]:
         """
@@ -388,7 +389,10 @@ class Agent:
             "message_system_information",
             "message_message_metadata",
             "message_channel_status",
-            "system_channels",]
+            "system_channels",
+            "channel_web_ui",
+            "channel_system",
+            "channel_matrix",]
         for topic in tutorial_topics:
             yield await tpl.render_tutorial(topic)
 

@@ -19,6 +19,8 @@ import asyncio
 import importlib.resources
 import pathlib
 
+from .. import model as mdl
+
 
 class TemplateNotFoundError(FileNotFoundError):
     pass
@@ -63,3 +65,14 @@ async def render_tutorial(topic: str) -> str:
     Raises TemplateNotFoundError if tutorial exists for the given topic.
     """
     return await render_message_template(f"tutorial/{topic}.md")
+
+
+async def render_channel_status(channel_status: mdl.ChannelStatus) -> str:
+    """Render a channel status message."""
+    if channel_status.available:
+        template = "channel_status_available.md"
+    else:
+        template = "channel_status_unavailable.md"
+    return await render_message_template(
+        template, channel_type=channel_status.type,
+        status_json=channel_status.model_dump_json())

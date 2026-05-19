@@ -94,3 +94,13 @@ OutgoingChannelDescriptorTypeAdapter = pyd.TypeAdapter(
     OutgoingChannelDescriptor)
 
 ChannelDescriptor = IncomingChannelDescriptor | OutgoingChannelDescriptor
+
+
+class ChannelStatus(base.BaseModel):
+    type: ChannelType
+    available: bool
+
+
+class MatrixChannelStatus(ChannelStatus):
+    type: t.Literal["matrix"] = "matrix"
+    username: str

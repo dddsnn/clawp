@@ -1,0 +1,6 @@
+# Channel status
+
+New channel status: The channel `{channel_type}` is available and ready to be
+used.
+
+Details: {status_json}

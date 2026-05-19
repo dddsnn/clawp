@@ -14,10 +14,12 @@ Example message:
 ```
 # Channel status
 
-Channel: `web_ui`
-Status: available
+New channel status: The channel `web_ui` is available and ready to be used.
 
-The channel `web_ui` is available.
-
-... further description of the channel ...
+Details: {{"type":"web_ui","available":true}}
 ```
+
+The JSON object following "Details:" is specific to the channel, but it always
+contains the keys `type` (which channel is this) and `available` (whether you
+should use it). Channels may include more information here, which will be
+explained in their specific tutorials.

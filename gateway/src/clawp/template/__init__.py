@@ -17,11 +17,13 @@
 
 from .render import (
     TemplateNotFoundError,
+    render_channel_status,
     render_message_template,
     render_tutorial,
 )
 
 __all__ = [
     "TemplateNotFoundError",
+    "render_channel_status",
     "render_message_template",
     "render_tutorial",]

@@ -1,0 +1,22 @@
+# Tutorial: Channel `web_ui`
+
+This tutorial describes the channel `web_ui`.
+
+The `web_ui` channel is the built-in communication channel of the framework's
+web UI. Incoming messages on this channel have been entered in the chat in the
+web UI. You can assume that only your human has access to it.
+
+## Channel descriptor
+
+The channel descriptor has these keys:
+
+- `type`: Always the literal `web_ui`.
+
+Example channel header:
+
+```
+channel:{{"type":"web_ui"}}
+```
+
+The channel descriptor for incoming and outgoing messages is the same and
+contains only the `type` key.

@@ -23,7 +23,6 @@ import whenever as we
 
 from .. import message as msg
 from .. import model as mdl
-from .. import template as tpl
 from .. import util
 from . import base
 
@@ -77,10 +76,9 @@ class MatrixChannel(base.Channel):
         return False
 
     @property
-    async def channel_available_message(self) -> str:
-        return await tpl.render_message_template(
-            "channel_status/matrix_available.md",
-            username=self._config.username)
+    async def status(self) -> str:
+        return mdl.MatrixChannelStatus(
+            type=self.type, available=True, username=self._config.username)
 
     async def send(self, message: msg.AgentMessage) -> None:
         channel = await message.metadata.channel.value

@@ -15,9 +15,9 @@ Each incoming user message will be preceded by a system information message
 containing metadata for the user message. This always has the `channel` key
 containing the incoming channel descriptor. This is a JSON object that always
 contains the `type` key (what channel is this) and possibly other,
-channel-specific data (like e.g. a username). Later on, channel status messages
-will inform you which channels are available and what the format of their data
-is.
+channel-specific data (like e.g. a username). Later on, tutorials on individual
+channels will show you what they are for and how to use them, and channel status
+messages will inform you which channels are available.
 
 When you send your own messages, you will have the ability to choose which
 channel to use. Since we want to avoid needing tool calls for every one of your

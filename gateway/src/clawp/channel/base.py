@@ -26,7 +26,6 @@ import whenever as we
 
 from .. import message as msg
 from .. import model as mdl
-from .. import template as tpl
 from .. import util
 
 
@@ -85,13 +84,8 @@ class Channel(MessageSender, MessageReceiver):
 
     @property
     @abc.abstractmethod
-    async def channel_available_message(self) -> str:
-        """
-        Message for the agent informing them that this channel is available.
-
-        This is the text of a system information message that states that this
-        channel is available, what it's good for, and how to use it.
-        """
+    async def status(self) -> mdl.ChannelStatus:
+        """Current status of the channel."""
         raise NotImplementedError
 
     def incoming_messages(self) -> cl_abc.AsyncGenerator[IncomingMessage]:
@@ -102,10 +96,8 @@ class Channel(MessageSender, MessageReceiver):
 class NopChannel(Channel):
     """A channel that does nothing."""
     @property
-    async def channel_available_message(self) -> str:
-        return (
-            "This is a NopChannel that shouldn't be visible. If you see this, "
-            "there is a bug in the system.")
+    async def status(self) -> str:
+        return mdl.ChannelStatus(type=self.type, available=False)
 
     async def send(self, message: msg.AgentMessage) -> None:
         if not await message.content:
@@ -138,9 +130,8 @@ class SystemChannel(Channel):
         super().__init__("system")
 
     @property
-    async def channel_available_message(self) -> str:
-        return await tpl.render_message_template(
-            "channel_status/system_available.md")
+    async def status(self) -> str:
+        return mdl.ChannelStatus(type=self.type, available=True)
 
     async def send(self, message: msg.AgentMessage) -> None:
         self._logger.info(
@@ -174,9 +165,8 @@ class WebUiChannel(Channel):
         super().__init__("web_ui")
 
     @property
-    async def channel_available_message(self) -> str:
-        return await tpl.render_message_template(
-            "channel_status/web_ui_available.md")
+    async def status(self) -> str:
+        return mdl.ChannelStatus(type=self.type, available=True)
 
     async def send(self, message: msg.AgentMessage) -> None:
         self._logger.debug(f"Sending {message}: {await message.content}")

@@ -1,0 +1,6 @@
+# Channel status
+
+New channel status: The channel `{channel_type}` is unavailable. Do not attempt
+to use it.
+
+Details: {status_json}
