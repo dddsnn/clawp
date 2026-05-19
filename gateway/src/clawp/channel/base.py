@@ -140,7 +140,7 @@ class SystemChannel(Channel):
     @property
     async def channel_available_message(self) -> str:
         return await tpl.render_message_template(
-            "channel_status", "system_available.md")
+            "channel_status/system_available.md")
 
     async def send(self, message: msg.AgentMessage) -> None:
         self._logger.info(
@@ -176,7 +176,7 @@ class WebUiChannel(Channel):
     @property
     async def channel_available_message(self) -> str:
         return await tpl.render_message_template(
-            "channel_status", "web_ui_available.md")
+            "channel_status/web_ui_available.md")
 
     async def send(self, message: msg.AgentMessage) -> None:
         self._logger.debug(f"Sending {message}: {await message.content}")

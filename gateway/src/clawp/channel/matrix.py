@@ -79,7 +79,7 @@ class MatrixChannel(base.Channel):
     @property
     async def channel_available_message(self) -> str:
         return await tpl.render_message_template(
-            "channel_status", "matrix_available.md",
+            "channel_status/matrix_available.md",
             username=self._config.username)
 
     async def send(self, message: msg.AgentMessage) -> None:

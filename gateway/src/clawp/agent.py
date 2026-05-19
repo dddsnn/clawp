@@ -205,7 +205,7 @@ class Session:
                         f"to {channel.fallback_channel} instead.")
                     system_message_content = (
                         await tpl.render_message_template(
-                            "system_information", "missing_channel_header.md",
+                            "system_information/missing_channel_header.md",
                             fallback_channel=channel.fallback_channel
                             .model_dump_json()))
                     break
@@ -214,14 +214,13 @@ class Session:
                     "Agent omitted channel header, but no fallback channel "
                     "could be determined, message will not be sent.")
                 system_message_content = await tpl.render_message_template(
-                    "system_information",
-                    "missing_channel_header_no_fallback.md")
+                    "system_information/missing_channel_header_no_fallback.md")
             await self._append_message_now(
                 msg.SystemMessage, content=system_message_content)
             return True
         elif isinstance(channel, mdl.MalformedChannelDescriptor):
             system_message_content = await tpl.render_message_template(
-                "system_information", "malformed_channel_header.md",
+                "system_information/malformed_channel_header.md",
                 error_message=channel.error_message)
             await self._append_message_now(
                 msg.SystemMessage, content=system_message_content)
@@ -366,7 +365,7 @@ class Agent:
         # Tell the agent that this is a new session.
         await self._channel_repo.system_channel.add_incoming_message(
             "system", await tpl.render_message_template(
-                "system_information", "session_initialization.md"))
+                "system_information/session_initialization.md"))
         # Tell the agent about available channels.
         for channel in self._channel_repo.channels.values():
             if isinstance(channel, chan.NopChannel):
@@ -382,16 +381,16 @@ class Agent:
         Go through all tutorial messages in a sensible order for agent
         onboarding.
         """
-        names = [
-            "init_system.md",
-            "tutorial/system_sessions.md",
-            "tutorial/system_system_messages.md",
-            "tutorial/message_system_information.md",
-            "tutorial/message_message_metadata.md",
-            "tutorial/message_channel_status.md",
-            "tutorial/system_channels.md",]
-        for name in names:
-            yield await tpl.render_message_template(name)
+        yield await tpl.render_message_template("init_system.md")
+        tutorial_topics = [
+            "system_sessions",
+            "system_system_messages",
+            "message_system_information",
+            "message_message_metadata",
+            "message_channel_status",
+            "system_channels",]
+        for topic in tutorial_topics:
+            yield await tpl.render_tutorial(topic)
 
     async def _read_incoming_messages(self) -> None:
         handle_task = None

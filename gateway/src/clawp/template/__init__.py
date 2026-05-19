@@ -15,6 +15,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
-from .render import render_message_template
+from .render import (
+    TemplateNotFoundError,
+    render_message_template,
+    render_tutorial,
+)
 
-__all__ = ["render_message_template"]
+__all__ = [
+    "TemplateNotFoundError",
+    "render_message_template",
+    "render_tutorial",]
