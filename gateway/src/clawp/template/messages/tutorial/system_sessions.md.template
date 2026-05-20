@@ -10,3 +10,7 @@ messages with metadata. Sessions are append-only. When a session needs to be
 changed (e.g. to compact your context), it is archived and a new one created.
 The system will inform you at the start of a session that a new one has started
 and for what reason.
+
+Sessions are append-only and messages within a session are immutable. Each
+message is uniquely identified within a session by its `seq_in_session`, the
+sequence number of the message (starting at 0).
