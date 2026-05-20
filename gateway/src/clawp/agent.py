@@ -170,22 +170,26 @@ class Session:
                 raise RuntimeError("shut down, can't make requests")
             do_request = True
             while do_request:
-                message = await self._request_agent_message()
+                message, stream_task = await self._request_agent_message()
                 # Wait for the message to completely arrive before handling
                 # tool calls etc.
+                try:
+                    await stream_task
+                except Exception:
+                    self._logger.exception(f"Error streaming {message}.")
                 await message.wait_finalized()
                 do_request = await self._check_channel_header(message)
                 do_request |= await self._handle_tool_calls(message)
 
     async def _request_agent_message(self):
         parts = util.StreamableList()
-        await self._provider.stream_agent_message(
+        stream_task = await self._provider.stream_agent_message(
             parts, self._messages, self._mcp_client.tools.values())
         metadata = self._make_metadata(util.FutureValue(), util.FutureValue())
         message = msg.AgentMessage(metadata, parts)
         await self._append_message(message)
         await self._message_sender.send(message)
-        return message
+        return message, stream_task
 
     async def _check_channel_header(
             self, agent_message: msg.AgentMessage) -> bool:
