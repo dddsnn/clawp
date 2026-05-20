@@ -89,6 +89,20 @@ class Session:
 
     async def add_incoming_message(
             self, incoming_message: chan.IncomingMessage) -> None:
+        """
+        Add an incoming message to this session.
+
+        Metadata will be generated to put the incoming message into the context
+        of the session and appended to the end of it.
+
+        If the request_response flag is True, the provider is called to
+        generate one or more AgentMessages in response to the current state of
+        the session (with the new message added). Any tool calls the agent
+        makes are handled.
+
+        The new message and any generated messages are are available via
+        subscribe().
+        """
         async with self._lock:
             if self._is_shut_down:
                 raise RuntimeError("shut down, can't process more messages")
@@ -108,6 +122,8 @@ class Session:
                 incoming_message.metadata.channel)
             message = message_class(metadata, content=incoming_message.content)
             await self._append_message(message)
+            if incoming_message.request_response:
+                await self._request_response()
 
     async def _add_metadata_for_user_message(
             self, user_message: chan.IncomingMessage):
@@ -153,33 +169,19 @@ class Session:
         await self._publisher.append(message)
         await self._message_store.append_message(message)
 
-    async def request_response(self) -> None:
-        """
-        Request an agent response.
-
-        Calls the provider to generate one or more AgentMessages in response to
-        the current state of the session. Handles any tool calls the agent
-        makes, and also gives the agent feedback if they forgot the channel
-        header or it was malformed.
-
-        Generated messages are not returned directly but can be accessed via
-        subscribe().
-        """
-        async with self._lock:
-            if self._is_shut_down:
-                raise RuntimeError("shut down, can't make requests")
-            do_request = True
-            while do_request:
-                message, stream_task = await self._request_agent_message()
-                # Wait for the message to completely arrive before handling
-                # tool calls etc.
-                try:
-                    await stream_task
-                except Exception:
-                    self._logger.exception(f"Error streaming {message}.")
-                await message.wait_finalized()
-                do_request = await self._check_channel_header(message)
-                do_request |= await self._handle_tool_calls(message)
+    async def _request_response(self) -> None:
+        do_request = True
+        while do_request:
+            message, stream_task = await self._request_agent_message()
+            # Wait for the message to completely arrive before handling
+            # tool calls etc.
+            try:
+                await stream_task
+            except Exception:
+                self._logger.exception(f"Error streaming {message}.")
+            await message.wait_finalized()
+            do_request = await self._check_channel_header(message)
+            do_request |= await self._handle_tool_calls(message)
 
     async def _request_agent_message(self):
         parts = util.StreamableList()
@@ -422,8 +424,6 @@ class Agent:
             self, message: chan.IncomingMessage) -> None:
         try:
             await self._session.add_incoming_message(message)
-            if message.request_response:
-                await self._session.request_response()
         except Exception:
             self._logger.exception("Error handling incoming message.")
 
