@@ -81,7 +81,7 @@ class MatrixChannel(base.Channel):
             type=self.type, available=True, username=self._config.username)
 
     async def send(self, message: msg.AgentMessage) -> None:
-        channel = await message.metadata.channel.value
+        channel = message.metadata.channel.value
         if not isinstance(channel, mdl.MatrixOutgoingChannelDescriptor):
             raise ValueError(
                 "cannot send to Matrix without Matrix channel descriptor (got "
@@ -104,13 +104,12 @@ class MatrixChannel(base.Channel):
         metadata = msg.IncomingMessageMetadata(
             time=util.ImmediateValue(
                 we.Instant.from_timestamp_millis(event.server_timestamp)),
-            channel=util.ImmediateValue(
-                mdl.MatrixIncomingChannelDescriptor(
-                    room_id=room.room_id,
-                    room_name=room.named_room_name(),
-                    sender_id=event.sender,
-                    sender_name=room.user_name(event.sender),
-                )))
+            channel=mdl.MatrixIncomingChannelDescriptor(
+                room_id=room.room_id,
+                room_name=room.named_room_name(),
+                sender_id=event.sender,
+                sender_name=room.user_name(event.sender),
+            ))
         message = base.IncomingMessage(
             role="user", metadata=metadata, content=event.body,
             request_response=True)

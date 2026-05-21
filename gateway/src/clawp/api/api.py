@@ -197,8 +197,8 @@ async def _generate_message_chunks(
         yield mdl.WebsocketChunkAgentMessageMarker(
             payload=mdl.StreamingMessageMarkerPartEnd())
     end_metadata = mdl.EndMessageMetadata(
-        time=await message.metadata.time.value, channel=await
-        message.metadata.channel.value)
+        time=await message.metadata.time.value,
+        channel=message.metadata.channel)
     yield mdl.WebsocketChunkAgentMessageMarker(
         payload=mdl.StreamingMessageMarkerMessageEnd(metadata=end_metadata))
 

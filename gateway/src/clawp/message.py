@@ -40,7 +40,7 @@ class IncomingMessageMetadata:
     """
     time: util.Value[we.Instant]
     """The time the message was fully received."""
-    channel: util.Value[mdl.ChannelDescriptor]
+    channel: mdl.ChannelDescriptor
     """The channel the message is on."""
 
 
@@ -86,7 +86,7 @@ class Message(abc.ABC):
         return mdl.MessageMetadata(
             seq_in_session=self.metadata.seq_in_session,
             time=await self.metadata.time.value,
-            channel=await self.metadata.channel.value,
+            channel=self.metadata.channel,
         )
 
     @classmethod
@@ -108,7 +108,7 @@ class Message(abc.ABC):
         return MessageMetadata(
             seq_in_session=model.metadata.seq_in_session,
             time=util.ImmediateValue(model.metadata.time),
-            channel=util.ImmediateValue(model.metadata.channel),
+            channel=model.metadata.channel,
         )
 
 

@@ -174,7 +174,7 @@ class SystemChannel(Channel):
         """
         metadata = msg.IncomingMessageMetadata(
             time=util.ImmediateValue(we.Instant.now()),
-            channel=util.ImmediateValue(mdl.SystemChannelDescriptor()))
+            channel=mdl.SystemChannelDescriptor())
         message = IncomingMessage(
             role=role, metadata=metadata, content=content,
             request_response=request_response)
@@ -212,7 +212,7 @@ class WebUiChannel(Channel):
         """
         metadata = msg.IncomingMessageMetadata(
             time=util.ImmediateValue(time),
-            channel=util.ImmediateValue(mdl.WebUiChannelDescriptor()))
+            channel=mdl.WebUiChannelDescriptor())
         message = IncomingMessage(
             role="user", metadata=metadata, content=content,
             request_response=True)
@@ -314,11 +314,11 @@ class ChannelRepository(MessageSender):
         The message's metadata is checked to see which channel the message
         should be sent on. If the channel doesn't exist, a KeyError is raised.
         """
-        channel_descriptor = await message.metadata.channel.value
         try:
-            channel_status = self._stati[channel_descriptor.type]
+            channel_status = self._stati[message.metadata.channel.type]
         except KeyError:
-            raise ValueError(f"no such channel {channel_descriptor.type}")
+            raise ValueError(
+                f"no such channel {message.metadata.channel.type}")
         self._logger.debug(f"Sending {message}: {await message.content}")
         await channel_status.channel.send(message)
 

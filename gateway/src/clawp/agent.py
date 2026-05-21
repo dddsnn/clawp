@@ -138,20 +138,19 @@ class Session:
             await self._append_message(message)
             if incoming_message.request_response:
                 outgoing_channel = self._message_sender.response_channel(
-                    await incoming_message.metadata.channel.value)
+                    incoming_message.metadata.channel)
                 await self._request_response(outgoing_channel)
 
     async def _add_metadata_for_user_message(
             self, user_message: chan.IncomingMessage):
         time = await user_message.metadata.time.value
         formatted_time = time.format_iso(unit="millisecond")
-        channel = await user_message.metadata.channel.value
         # The user message will be the one right after the system message with
         # the metadata, so seq_in_session should be one more.
         header_dict = {
             "seq_in_session": len(self._messages) + 1,
             "time": formatted_time,
-            "channel": channel.model_dump(),}
+            "channel": user_message.metadata.channel.model_dump(),}
         message_content = await tpl.render_message_template(
             "message_metadata.md",
             metadata_json=json.dumps(header_dict, separators=(',', ':')))
@@ -167,13 +166,10 @@ class Session:
     def _make_metadata(
         self,
         time: we.Instant | util.Value[we.Instant],
-        channel: mdl.IncomingChannelDescriptor
-        | util.Value[mdl.OutgoingChannelDescriptor],
+        channel: mdl.ChannelDescriptor,
     ) -> msg.MessageMetadata:
         if not isinstance(time, util.Value):
             time = util.ImmediateValue(time)
-        if not isinstance(channel, util.Value):
-            channel = util.ImmediateValue(channel)
         return msg.MessageMetadata(
             seq_in_session=len(self._messages), time=time, channel=channel)
 
