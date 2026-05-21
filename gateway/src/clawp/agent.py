@@ -118,12 +118,6 @@ class Session:
                 message_class = msg.DeveloperMessage
             elif incoming_message.role == "system":
                 message_class = msg.SystemMessage
-                if incoming_message.request_response:
-                    incoming_message.content += (
-                        "\n## Channel reminder\n\nYour response will "
-                        "automatically be sent on the same channel. If you "
-                        "need to send on a different channel, use the "
-                        "`clawp_send_message` tool.\n")
             elif incoming_message.role == "user":
                 message_class = msg.UserMessage
                 await self._add_metadata_for_user_message(incoming_message)
@@ -134,7 +128,15 @@ class Session:
             metadata = self._make_metadata(
                 incoming_message.metadata.time,
                 incoming_message.metadata.channel)
-            message = message_class(metadata, content=incoming_message.content)
+            message_content = incoming_message.content
+            if (message_class is msg.SystemMessage
+                    and incoming_message.request_response):
+                # This is a system message prompting an agent response. Add a
+                # reminder for the agent that its output will go on the system
+                # channel.
+                message_content += await tpl.render_message_template(
+                    "fragments/channel_reminder.md")
+            message = message_class(metadata, content=message_content)
             await self._append_message(message)
             if incoming_message.request_response:
                 outgoing_channel = self._message_sender.response_channel(
