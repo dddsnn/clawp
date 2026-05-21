@@ -21,39 +21,19 @@ import pydantic as pyd
 
 from . import base
 
-ChannelType = t.Literal[
-    "malformed",
-    "matrix",
-    "missing",
-    "system",
-    "unknown",
-    "web_ui",]
+ChannelType = t.Literal["matrix", "system", "web_ui"]
 
 
 class BaseChannelDescriptor(base.BaseModel):
     type: ChannelType
 
 
-class MalformedChannelDescriptor(BaseChannelDescriptor):
-    type: t.Literal["malformed"] = "malformed"
-    error_message: str
-
-
 class SystemChannelDescriptor(BaseChannelDescriptor):
     type: t.Literal["system"] = "system"
 
 
-class UnknownChannelDescriptor(BaseChannelDescriptor):
-    type: t.Literal["unknown"] = "unknown"
-
-
 class WebUiChannelDescriptor(BaseChannelDescriptor):
     type: t.Literal["web_ui"] = "web_ui"
-
-
-class MissingChannelDescriptor(BaseChannelDescriptor):
-    type: t.Literal["missing"] = "missing"
-    fallback_channel: "OutgoingChannelDescriptor" = UnknownChannelDescriptor()
 
 
 class MatrixOutgoingChannelDescriptor(BaseChannelDescriptor):
@@ -78,10 +58,7 @@ Incoming messages are ones sent to the agent.
 """
 IncomingChannelDescriptorTypeAdapter = pyd.TypeAdapter(
     IncomingChannelDescriptor)
-OutgoingChannelDescriptor = t.Annotated[MalformedChannelDescriptor
-                                        | MissingChannelDescriptor
-                                        | SystemChannelDescriptor
-                                        | UnknownChannelDescriptor
+OutgoingChannelDescriptor = t.Annotated[SystemChannelDescriptor
                                         | WebUiChannelDescriptor
                                         | MatrixOutgoingChannelDescriptor,
                                         pyd.Field(discriminator="type")]

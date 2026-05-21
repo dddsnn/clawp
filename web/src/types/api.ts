@@ -27,11 +27,6 @@ export const BaseChannelDescriptorSchema = z.object({
   type: z.enum(['malformed', 'matrix', 'missing', 'system', 'unknown', 'web_ui']),
 });
 
-export const MalformedChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
-  type: z.literal('malformed'),
-  error_message: z.string(),
-});
-
 export const MatrixOutgoingChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
   type: z.literal('matrix'),
   room_id: z.string(),
@@ -47,36 +42,22 @@ export const SystemChannelDescriptorSchema = BaseChannelDescriptorSchema.extend(
   type: z.literal('system'),
 });
 
-export const UnknownChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
-  type: z.literal('unknown'),
-});
-
 export const WebUiChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
   type: z.literal('web_ui'),
 });
 
 export type ChannelDescriptor =
-  | z.infer<typeof MalformedChannelDescriptorSchema>
   | z.infer<typeof MatrixOutgoingChannelDescriptorSchema>
   | z.infer<typeof MatrixIncomingChannelDescriptorSchema>
   | z.infer<typeof SystemChannelDescriptorSchema>
-  | z.infer<typeof UnknownChannelDescriptorSchema>
   | z.infer<typeof WebUiChannelDescriptorSchema>
   | { type: 'missing'; fallback_channel: ChannelDescriptor };
 
-// Using z.lazy because MissingChannelDescriptor references the union
-export const MissingChannelDescriptorSchema: z.ZodType<Extract<ChannelDescriptor, { type: 'missing' }>> = BaseChannelDescriptorSchema.extend({
-  type: z.literal('missing'),
-  fallback_channel: z.lazy(() => ChannelDescriptorSchema),
-});
 
 export const ChannelDescriptorSchema: z.ZodType<ChannelDescriptor> = z.lazy(() => z.union([
-  MalformedChannelDescriptorSchema,
   MatrixOutgoingChannelDescriptorSchema,
   MatrixIncomingChannelDescriptorSchema,
-  MissingChannelDescriptorSchema,
   SystemChannelDescriptorSchema,
-  UnknownChannelDescriptorSchema,
   WebUiChannelDescriptorSchema,
 ]));
 
