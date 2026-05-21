@@ -277,78 +277,6 @@ class AgentMessageContentPart(AgentMessageTextPart):
     def __init__(self, fragments: list[str] | None = None):
         super().__init__("content", fragments)
 
-    async def stream_fragments_raw(self) -> cl_abc.AsyncGenerator[str]:
-        """Stream fragments as normal."""
-        async for fragment in super().stream_fragments():
-            yield fragment
-
-    async def stream_fragments(self) -> cl_abc.AsyncGenerator[str]:
-        """Stream fragments, but strip off the channel header."""
-        header_handled = False
-        header_string = ""
-        async for fragment in self.stream_fragments_raw():
-            if header_handled:
-                # We've already taken care of the header, yield as normal.
-                yield fragment
-                continue
-            header_string += fragment
-            status, _, header_length = _find_channel(header_string)
-            header_handled = status != "too_short"
-            if status == "too_short":
-                continue
-            elif status in ["missing_prefix", "parsing_error"]:
-                # There's no header or it's malformed. Yield everything
-                # we've already seen as the first fragment.
-                yield header_string
-            else:
-                assert status == "found"
-                # We have a header. Skip past it and yield whatever we've
-                # already seen as the first fragment, then continue with
-                # the loop.
-                yield header_string[header_length:]
-
-
-def _find_channel(
-    text: str
-) -> t.Union[
-        tuple[t.Literal["too_short"], None, None],
-        tuple[t.Literal["missing_prefix"], None, None],
-        tuple[t.Literal["parsing_error"], Exception, None],
-        tuple[t.Literal["found"], mdl.OutgoingChannelDescriptor, int],]:
-    """
-    Try to find a channel header in a string.
-
-    Examines a string whether it does or could start with a valid channel
-    header. Returns a 3-tuple that is either
-    - "too_short", None, None: String is not long enough to say, but it could
-      be the start of a valid channel header.
-    - "missing_prefix", None, None: It's not a valid channel header because it
-      doesn't start with "channel:"
-    - "parsing_error", e, None: The string starts with "channel:", but what
-      follows does not parse as an OutgoingChannelDescriptor. The second value
-      e is the parsing error.
-    - "found", c, l: The string starts with a valid channel descriptor,
-      returned as the second value. The third value l is the length of the
-      channel header in the string (including the newline at the end).
-    """
-    # First, make sure the message starts with "channel:", indicating the
-    # channel descriptor header.
-    if not "channel:".startswith(text[:8]):
-        return "missing_prefix", None, None
-    # Now look for a next newline. Anything before it should be our JSON
-    # object.
-    try:
-        newline_index = text.index("\n")
-    except ValueError:
-        return "too_short", None, None
-    channel_descriptor_json = text[:newline_index].removeprefix("channel:")
-    try:
-        channel = mdl.OutgoingChannelDescriptorTypeAdapter.validate_json(
-            channel_descriptor_json)
-        return "found", channel, newline_index + 1
-    except Exception as e:
-        return "parsing_error", e, None
-
 
 class AgentMessageToolPart(AgentMessagePart):
     VALID_TYPES = t.Literal["tool"]
@@ -404,8 +332,7 @@ class AgentMessage(Message):
         super().__init__(metadata)
         self._parts = parts
         self._deferred_set_tasks = {
-            asyncio.create_task(self._deferred_set(self._set_time())),
-            asyncio.create_task(self._deferred_set(self._set_channel()))}
+            asyncio.create_task(self._deferred_set(self._set_time()))}
 
     async def _deferred_set(self, setter):
         try:
@@ -424,45 +351,6 @@ class AgentMessage(Message):
         assert isinstance(self.metadata.time, util.FutureValue)
         await self._parts.wait_finalized()
         self.metadata.time.value = we.Instant.now()
-
-    async def _set_channel(self):
-        if isinstance(self.metadata.channel, util.ImmediateValue):
-            # The channel is already available (probably loaded from storage),
-            # no need to do anything.
-            return
-        assert isinstance(self.metadata.channel, util.FutureValue)
-        async for part in self.stream_parts():
-            if not isinstance(part, AgentMessageContentPart):
-                continue
-            channel = await self._parse_channel_from_content_part(part)
-            break
-        else:
-            self._logger.debug("No channel descriptor found (no content).")
-            channel = mdl.MissingChannelDescriptor()
-        self.metadata.channel.value = channel
-
-    async def _parse_channel_from_content_part(
-            self, part: AgentMessageContentPart):
-        content = ""
-        async for fragment in part.stream_fragments_raw():
-            content += fragment
-            status, result, _ = _find_channel(content)
-            if status == "too_short":
-                continue
-            elif status == "missing_prefix":
-                self._logger.warning(
-                    'No channel descriptor found (missing "channel:" prefix).')
-                return mdl.MissingChannelDescriptor()
-            elif status == "parsing_error":
-                self._logger.error(
-                    "Error when parsing channel descriptor.", exc_info=result)
-                return mdl.MalformedChannelDescriptor(
-                    error_message=str(result))
-            else:
-                assert status == "found"
-                return result
-        self._logger.warning("No channel descriptor found (too short).")
-        return mdl.MissingChannelDescriptor()
 
     async def wait_finalized(self) -> None:
         """Wait until the message has finished streaming."""

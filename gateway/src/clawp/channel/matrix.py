@@ -90,6 +90,12 @@ class MatrixChannel(base.Channel):
             channel.room_id, message_type="m.room.message",
             content={"msgtype": "m.text", "body": await message.content})
 
+    def response_channel(
+        self, incoming_descriptor: mdl.MatrixIncomingChannelDescriptor
+    ) -> mdl.MatrixOutgoingChannelDescriptor:
+        return mdl.MatrixOutgoingChannelDescriptor(
+            room_id=incoming_descriptor.room_id)
+
     async def _on_room_message_text(
             self, room: nio.MatrixRoom, event: nio.RoomMessageText) -> None:
         if event.sender == self._config.username:

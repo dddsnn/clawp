@@ -17,4 +17,9 @@ Example message:
 
 This is the start of a new session.
 Reason: Initialization (this is your first session ever).
+
+## Channel reminder
+
+Your response will automatically be sent on the same channel. If you need to
+send on a different channel, use the `clawp_send_message` tool.
 ```

@@ -98,11 +98,19 @@ class Session:
         If the request_response flag is True, the provider is called to
         generate one or more AgentMessages in response to the current state of
         the session (with the new message added). Any tool calls the agent
-        makes are handled.
+        makes are handled. Only system and user messages are allowed to set the
+        request_response flag. Both messages come with a reminder to the agent
+        that they will respond on the same channel automatically. For user
+        messages, this is part of the metadata message, for system messages, a
+        small paragraph is appended to the message itself.
 
         The new message and any generated messages are are available via
         subscribe().
         """
+        if (incoming_message.request_response
+                and incoming_message.role not in ["system", "user"]):
+            raise ValueError(
+                "only system and user messages may request a response")
         async with self._lock:
             if self._is_shut_down:
                 raise RuntimeError("shut down, can't process more messages")
@@ -110,6 +118,12 @@ class Session:
                 message_class = msg.DeveloperMessage
             elif incoming_message.role == "system":
                 message_class = msg.SystemMessage
+                if incoming_message.request_response:
+                    incoming_message.content += (
+                        "\n## Channel reminder\n\nYour response will "
+                        "automatically be sent on the same channel. If you "
+                        "need to send on a different channel, use the "
+                        "`clawp_send_message` tool.\n")
             elif incoming_message.role == "user":
                 message_class = msg.UserMessage
                 await self._add_metadata_for_user_message(incoming_message)
@@ -123,7 +137,9 @@ class Session:
             message = message_class(metadata, content=incoming_message.content)
             await self._append_message(message)
             if incoming_message.request_response:
-                await self._request_response()
+                outgoing_channel = self._message_sender.response_channel(
+                    await incoming_message.metadata.channel.value)
+                await self._request_response(outgoing_channel)
 
     async def _add_metadata_for_user_message(
             self, user_message: chan.IncomingMessage):
@@ -169,69 +185,32 @@ class Session:
         await self._publisher.append(message)
         await self._message_store.append_message(message)
 
-    async def _request_response(self) -> None:
+    async def _request_response(
+            self, outgoing_channel: mdl.OutgoingChannelDescriptor) -> None:
         do_request = True
         while do_request:
-            message, stream_task = await self._request_agent_message()
-            # Wait for the message to completely arrive before handling
-            # tool calls etc.
+            message, stream_task = await self._request_agent_message(
+                outgoing_channel)
+            await self._message_sender.send(message)
+            # Wait for the message to completely arrive before handling tool
+            # calls.
             try:
                 await stream_task
             except Exception:
                 self._logger.exception(f"Error streaming {message}.")
             await message.wait_finalized()
-            do_request = await self._check_channel_header(message)
-            do_request |= await self._handle_tool_calls(message)
+            do_request = await self._handle_tool_calls(message)
 
-    async def _request_agent_message(self):
+    async def _request_agent_message(
+            self, outgoing_channel: mdl.OutgoingChannelDescriptor):
         parts = util.StreamableList()
         stream_task = await self._provider.stream_agent_message(
             parts, self._messages, self._mcp_client.tools.values())
-        metadata = self._make_metadata(util.FutureValue(), util.FutureValue())
+        metadata = self._make_metadata(
+            util.FutureValue(), util.ImmediateValue(outgoing_channel))
         message = msg.AgentMessage(metadata, parts)
         await self._append_message(message)
-        await self._message_sender.send(message)
         return message, stream_task
-
-    async def _check_channel_header(
-            self, agent_message: msg.AgentMessage) -> bool:
-        if not await agent_message.content:
-            # No content, in this case we don't need a header.
-            return False
-        channel = await agent_message.metadata.channel.value
-        if isinstance(channel, mdl.MissingChannelDescriptor):
-            # The channel header is missing so we use the last used user
-            # channel.
-            for message in reversed(self._messages):
-                if isinstance(message, msg.UserMessage):
-                    channel.fallback_channel = (
-                        await message.metadata.channel.value)
-                    self._logger.info(
-                        "Agent omitted channel header, message will be sent "
-                        f"to {channel.fallback_channel} instead.")
-                    system_message_content = (
-                        await tpl.render_message_template(
-                            "system_information/missing_channel_header.md",
-                            fallback_channel=channel.fallback_channel
-                            .model_dump_json()))
-                    break
-            else:
-                self._logger.warning(
-                    "Agent omitted channel header, but no fallback channel "
-                    "could be determined, message will not be sent.")
-                system_message_content = await tpl.render_message_template(
-                    "system_information/missing_channel_header_no_fallback.md")
-            await self._append_message_now(
-                msg.SystemMessage, content=system_message_content)
-            return True
-        elif isinstance(channel, mdl.MalformedChannelDescriptor):
-            system_message_content = await tpl.render_message_template(
-                "system_information/malformed_channel_header.md",
-                error_message=channel.error_message)
-            await self._append_message_now(
-                msg.SystemMessage, content=system_message_content)
-            return True
-        return False
 
     async def _handle_tool_calls(self, message: msg.AgentMessage) -> bool:
         if not await message.tool_calls:
@@ -251,6 +230,33 @@ class Session:
                     tool_call_id=tool_call.id)
                 self._logger.exception("Error in tool call.")
         return True
+
+    async def add_agent_message(
+            self, channel: mdl.OutgoingChannelDescriptor,
+            content: str) -> msg.AgentMessage:
+        """
+        Add an agent message.
+
+        Appends an agent message to this session with the given channel and
+        content. Returns the agent message
+
+        This method must be called from a context where the session is already
+        locked, i.e. from somewhere that gets called from
+        add_incoming_message().
+        """
+        if not self._lock.locked():
+            raise RuntimeError(
+                "add_agent_message() must be called from a context where the "
+                "session is locked")
+        metadata = mdl.MessageMetadata(
+            seq_in_session=len(self._messages), time=we.Instant.now(),
+            channel=channel)
+        message = msg.AgentMessage.from_model(
+            mdl.AgentMessage(
+                metadata=metadata, content=content, reasoning="",
+                tool_calls=[], errors=[]))
+        await self._append_message(message)
+        return message
 
     def subscribe(self) -> cl_abc.AsyncGenerator[msg.Message]:
         """Subscribe to messages in this session."""
@@ -285,7 +291,7 @@ class Agent:
         self._agent_id = agent_id
         self._base_dir = base_dir
         self._message_store = store.MessageStore(self.message_store_dir)
-        self._mcp_client = tool.Client(self.workspace_dir)
+        self._mcp_client = tool.Client(self)
         self._channel_repo = channel_repo
         self._session_factory = ft.partial(
             Session, message_sender=channel_repo, provider=provider,
@@ -436,3 +442,15 @@ class Agent:
         user/system/developer/tool messages.
         """
         return self._session.subscribe()
+
+    async def add_and_send_agent_message(
+            self, channel: mdl.OutgoingChannelDescriptor,
+            content: str) -> None:
+        """
+        Sends a message on behalf of the agent.
+
+        Adds an agent message with the given content to the current session and
+        also sends it to the given channel.
+        """
+        message = await self._session.add_agent_message(channel, content)
+        await self._channel_repo.send(message)

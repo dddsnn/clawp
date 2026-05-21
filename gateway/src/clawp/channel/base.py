@@ -42,12 +42,28 @@ class IncomingMessage:
     content: str
     request_response: bool
     """Whether a response to this message should be requested."""
+    def __post_init__(self):
+        if self.request_response and self.role not in ["system", "user"]:
+            raise ValueError(
+                "only system and user messages may request a response")
 
 
 class MessageSender(abc.ABC):
     @abc.abstractmethod
     async def send(self, message: msg.AgentMessage) -> None:
         """Send a message."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def response_channel(
+        self, incoming_descriptor: mdl.IncomingChannelDescriptor
+    ) -> mdl.OutgoingChannelDescriptor:
+        """
+        Create a channel descriptor for a response.
+
+        Takes an incoming channel descriptor and returns an outgoing channel
+        descriptor that will lead to a message being sent to whoever sent a
+        message with the incoming descriptor."""
         raise NotImplementedError
 
 
@@ -107,6 +123,11 @@ class NopChannel(Channel):
         self._logger.warning(
             f"Non-empty message was sent to a NopChannel: {message}.")
 
+    def response_channel(
+        self, incoming_descriptor: mdl.IncomingChannelDescriptor
+    ) -> mdl.OutgoingChannelDescriptor:
+        return incoming_descriptor
+
 
 class MissingChannel(NopChannel):
     def __init__(self):
@@ -136,6 +157,11 @@ class SystemChannel(Channel):
     async def send(self, message: msg.AgentMessage) -> None:
         self._logger.info(
             f"Agent sent system message:\n{await message.content}")
+
+    def response_channel(
+        self, incoming_descriptor: mdl.SystemChannelDescriptor
+    ) -> mdl.SystemChannelDescriptor:
+        return incoming_descriptor
 
     async def add_incoming_message(
             self, role: t.Literal["developer", "tool", "system"], content: str,
@@ -171,6 +197,11 @@ class WebUiChannel(Channel):
     async def send(self, message: msg.AgentMessage) -> None:
         self._logger.debug(f"Sending {message}: {await message.content}")
 
+    def response_channel(
+        self, incoming_descriptor: mdl.WebUiChannelDescriptor
+    ) -> mdl.WebUiChannelDescriptor:
+        return incoming_descriptor
+
     async def add_incoming_user_message(
             self, time: we.Instant, content: str) -> None:
         """
@@ -188,7 +219,7 @@ class WebUiChannel(Channel):
         await self._publisher.append(message)
 
 
-class ChannelRepository:
+class ChannelRepository(MessageSender):
     """
     A repository of all of an agent's channels
 
@@ -290,6 +321,15 @@ class ChannelRepository:
             raise ValueError(f"no such channel {channel_descriptor.type}")
         self._logger.debug(f"Sending {message}: {await message.content}")
         await channel_status.channel.send(message)
+
+    def response_channel(
+        self, incoming_descriptor: mdl.IncomingChannelDescriptor
+    ) -> mdl.OutgoingChannelDescriptor:
+        try:
+            channel_status = self._stati[incoming_descriptor.type]
+        except KeyError:
+            raise ValueError(f"no such channel {incoming_descriptor.type}")
+        return channel_status.channel.response_channel(incoming_descriptor)
 
     def incoming_messages(self) -> cl_abc.AsyncGenerator[IncomingMessage]:
         """Iterate over incoming messages."""

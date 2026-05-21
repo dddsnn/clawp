@@ -2,3 +2,8 @@
 
 This data pertains to the message immediately following this one
 {metadata_json}
+
+## Channel reminder
+
+Your response will automatically be sent on the same channel. If you need to
+send on a different channel, use the `clawp_send_message` tool.

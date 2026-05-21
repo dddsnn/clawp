@@ -18,6 +18,7 @@
 import functools as ft
 import logging
 import pathlib
+import typing as t
 
 import fastmcp
 import fastmcp.client
@@ -27,15 +28,20 @@ import fastmcp.server.providers.proxy
 import fastmcp.tools
 import mcp.types
 
+from . import model as mdl
 from . import template as tpl
 
+if t.TYPE_CHECKING:
+    from . import agent as agt
 
 class ClawpMcpServer(fastmcp.FastMCP):
     """MCP server providing tools to interact with Clawp itself."""
-    def __init__(self):
+    def __init__(self, agent: "agt.Agent"):
         super().__init__("Clawp system MCP server")
+        self._agent = agent
         self.add_tool(self.list_tutorial_topics)
         self.add_tool(self.read_tutorial)
+        self.add_tool(self.send_message)
 
     async def list_tutorial_topics(self) -> list[str]:
         """List all tutorial topics."""
@@ -47,6 +53,19 @@ class ClawpMcpServer(fastmcp.FastMCP):
             return await tpl.render_tutorial(topic)
         except tpl.TemplateNotFoundError as e:
             raise ValueError(f"topic {topic} doesn't exist") from e
+
+    async def send_message(
+            self, channel: mdl.OutgoingChannelDescriptor,
+            content: str) -> None:
+        """
+        Send a message to a specific channel.
+
+        Normally, you don't need this since your normal response gets routed to
+        the same channel you were just contacted on. If you want to respond on
+        a different channel instead, or send messages on multiple channels, you
+        can use this tool.
+        """
+        await self._agent.add_and_send_agent_message(channel, content)
 
 
 def _make_filesystem_proxy(
@@ -70,11 +89,11 @@ def _make_filesystem_proxy(
 
 class Client:
     """A client providing tools via MCP servers."""
-    def __init__(self, agent_workspace: pathlib.Path):
+    def __init__(self, agent: "agt.Agent"):
         self._logger = logging.getLogger(type(self).__name__)
         server = fastmcp.FastMCP(name="Clawp MCP server")
-        server.mount(_make_filesystem_proxy(agent_workspace))
-        server.mount(ClawpMcpServer(), namespace="clawp")
+        server.mount(_make_filesystem_proxy(agent.workspace_dir))
+        server.mount(ClawpMcpServer(agent), namespace="clawp")
         self._client = fastmcp.Client(server)
         self._tools = None
 

@@ -19,7 +19,8 @@ import typing as t
 
 import pydantic as pyd
 
-from . import base, channel
+from . import base
+from . import channel as chan
 
 
 class StartMessageMetadata(base.BaseModel):
@@ -30,7 +31,7 @@ class StartMessageMetadata(base.BaseModel):
 class EndMessageMetadata(base.BaseModel):
     """Metadata available when a message is fully received."""
     time: base.Iso8601Millis
-    channel: t.Optional[channel.ChannelDescriptor]
+    channel: t.Optional[chan.ChannelDescriptor]
 
 
 class MessageMetadata(StartMessageMetadata, EndMessageMetadata):
