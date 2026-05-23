@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+import abc
 import asyncio
 import collections.abc as cl_abc
 import json
@@ -424,3 +425,91 @@ class SessionMessageStore:
     async def read_session_messages(self) -> list[msg.Message]:
         return await self._message_store.read_session_messages(
             self._session_seq)
+
+
+class MemoryStore(abc.ABC):
+    """A persistent store for memory logs."""
+    @abc.abstractmethod
+    async def log_memory(self, content: str) -> None:
+        """
+        Log a memory.
+
+        The memory is persisted with the current time and can later be found
+        via search_memory().
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def search_memory(
+            self, *, start_time: t.Optional[we.Instant],
+            end_time: t.Optional[we.Instant],
+            search_term: t.Optional[str]) -> cl_abc.AsyncGenerator[mdl.Memory]:
+        """
+        Search memories.
+
+        Asynchronously iterates over all stored memories matching the given
+        search criteria. Memories are iterated in ascending order of their
+        time.
+
+        start_time and end_time filter for memories in the
+        time range they bound. If one or both are None, memories are not
+        filtered by start/end time.
+
+        If search_term is given, a simple case-insensitive substring match is
+        made to filter results.
+
+        If no filters are given, all memories are returned.
+        """
+        raise NotImplementedError
+
+
+class JsonlMemoryStore(MemoryStore):
+    """Memory store backed by a jsonl file."""
+    def __init__(self, base_dir: pathlib.Path) -> None:
+        self._base_dir = base_dir
+
+    @property
+    def _file_path(self) -> pathlib.Path:
+        return self._base_dir / "memory.jsonl"
+
+    async def log_memory(self, content: str) -> None:
+        memory = mdl.Memory(time=we.Instant.now(), content=content)
+        await asyncio.to_thread(self._sync_log_memory, memory)
+
+    def _sync_log_memory(self, memory: mdl.Memory) -> None:
+        if not self._base_dir.exists():
+            self._base_dir.mkdir(parents=True, exist_ok=True)
+        with open(self._file_path, "a") as f:
+            f.write(memory.model_dump_json() + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+
+    async def search_memory(
+        self, *, start_time: t.Optional[we.Instant] = None,
+        end_time: t.Optional[we.Instant] = None,
+        search_term: t.Optional[str] = None
+    ) -> cl_abc.AsyncGenerator[mdl.Memory, None]:
+        start_time = start_time or we.Instant.MIN
+        end_time = end_time or we.Instant.MAX
+
+        def is_relevant(memory):
+            if not start_time <= memory.time <= end_time:
+                return False
+            if (search_term is not None
+                    and search_term.lower() not in memory.content.lower()):
+                return False
+            return True
+
+        async for memory in self._read_memories():
+            if is_relevant(memory):
+                yield memory
+
+    async def _read_memories(self):
+        if not self._file_path.exists():
+            return
+        for line in await asyncio.to_thread(self._read_lines):
+            yield mdl.Memory.model_validate_json(line)
+
+    def _read_lines(self):
+        with open(self._file_path, "r") as f:
+            return f.readlines()

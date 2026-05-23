@@ -37,6 +37,7 @@ from .config import (
     MatrixConfig,
     OpenRouterConfig,
 )
+from .memory import Memory
 from .message import (
     AgentMessage,
     BaseMessage,
@@ -71,8 +72,10 @@ from .message import (
 )
 
 __all__ = [
+    # base
     "BaseModel",
     "Iso8601Millis",
+    # channel
     "BaseChannelDescriptor",
     "ChannelDescriptor",
     "ChannelStatus",
@@ -86,10 +89,14 @@ __all__ = [
     "OutgoingChannelDescriptorTypeAdapter",
     "SystemChannelDescriptor",
     "WebUiChannelDescriptor",
+    # config
     "Config",
     "GatewayConfig",
     "MatrixConfig",
     "OpenRouterConfig",
+    # memory
+    "Memory",
+    # message
     "AgentMessage",
     "BaseMessage",
     "BaseStreamingMessageFragment",
