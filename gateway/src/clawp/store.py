@@ -32,15 +32,15 @@ from . import message as msg
 from . import model as mdl
 
 
-class MessageStoreError(Exception):
+class StoreError(Exception):
     pass
 
 
-class MessageStoreConcurrentError(MessageStoreError, RuntimeError):
+class StoreConcurrentError(StoreError, RuntimeError):
     """Raised when another message store already claimed the same directory."""
 
 
-class MessageStoreFormatError(MessageStoreError, ValueError):
+class StoreFormatError(StoreError, ValueError):
     """Raised when the file structure is invalid."""
 
 
@@ -86,7 +86,7 @@ class MessageStore:
         try:
             await asyncio.wait_for(self._message_store_lock.acquire(), 10**-2)
         except asyncio.TimeoutError:
-            raise MessageStoreConcurrentError(
+            raise StoreConcurrentError(
                 "another message store is already active")
         self._ensure_valid_store_format()
         return self
@@ -156,7 +156,7 @@ class MessageStore:
             return
         for seq in range(session_seq):
             if not path.with_name(f"{seq}.jsonl").exists():
-                raise MessageStoreFormatError(
+                raise StoreFormatError(
                     f"can't create session file {path}, because previous "
                     f"session {seq} doesn't exist")
         header = {
@@ -205,7 +205,7 @@ class MessageStore:
                     await asyncio.to_thread(
                         self._delete_corrupted_last_line, path, json_line)
                 else:
-                    raise MessageStoreFormatError(
+                    raise StoreFormatError(
                         f"invalid line in session file {path}: {json_line}")
         return messages
 
@@ -230,13 +230,13 @@ class MessageStore:
                 pos -= 1
                 f.seek(pos)
             if pos == 0:
-                raise MessageStoreFormatError(
+                raise StoreFormatError(
                     f"header of session file {path} is corrupt")
             # Check that the last line is actually the one we expected.
             f.seek(pos + 1)
             line_in_file = f.read()
             if line_in_file != line:
-                raise MessageStoreFormatError(
+                raise StoreFormatError(
                     f"attempted to delete corrupted line '{line}' in {path}, "
                     f"but last line was actually '{line_in_file}'")
             # Go to the position where the last line starts and truncate from
@@ -314,16 +314,16 @@ class MessageStore:
         prev_seq = None
         for seq, _ in self._list_all_session_files():
             if prev_seq is None and seq != 0:
-                raise MessageStoreFormatError(
+                raise StoreFormatError(
                     "session sequence numbers don't start at 0")
             if prev_seq is not None and prev_seq + 1 != seq:
-                raise MessageStoreFormatError(
+                raise StoreFormatError(
                     f"broken session sequence numbers after {prev_seq}")
             prev_seq = seq
             session_file_version = self._ensure_valid_session_format(seq)
             session_file_versions.add(session_file_version)
         if len(session_file_versions) > 1:
-            raise MessageStoreFormatError(
+            raise StoreFormatError(
                 "inconsistent message store with "
                 f"{len(session_file_versions)} different versions")
         version_on_disk = next(iter(session_file_versions), self.VERSION)
@@ -333,7 +333,7 @@ class MessageStore:
                 f"{self.VERSION}.")
             self._upgrade_files(from_version=version_on_disk)
         elif version_on_disk > self.VERSION:
-            raise MessageStoreFormatError(
+            raise StoreFormatError(
                 f"store on disk has higher version {version_on_disk} than "
                 "known the this implementation, unable to downgrade")
         else:
@@ -359,9 +359,9 @@ class MessageStore:
             assert isinstance(header_dict["version"], int)
             assert isinstance(header_dict["session_seq"], int)
         except Exception as e:
-            raise MessageStoreFormatError("invalid header format") from e
+            raise StoreFormatError("invalid header format") from e
         if seq != header_dict["session_seq"]:
-            raise MessageStoreFormatError(
+            raise StoreFormatError(
                 f"inconsistent session file {path}: directory suggests "
                 f"session {seq}, but file header says "
                 f"{header_dict['session_seq']}")
@@ -507,8 +507,14 @@ class JsonlMemoryStore(MemoryStore):
     async def _read_memories(self):
         if not self._file_path.exists():
             return
+
         for line in await asyncio.to_thread(self._read_lines):
-            yield mdl.Memory.model_validate_json(line)
+            try:
+                yield mdl.Memory.model_validate_json(line)
+            except pyd.ValidationError as e:
+                raise StoreFormatError(
+                    f"invalid line in memory file {self._file_path}: {line}"
+                ) from e
 
     def _read_lines(self):
         with open(self._file_path, "r") as f:

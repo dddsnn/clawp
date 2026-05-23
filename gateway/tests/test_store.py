@@ -141,7 +141,7 @@ class TestMessageStore:
 
     async def test_append_message_raises_if_previous_file_doesnt_exist(
             self, message_store):
-        with pytest.raises(store.MessageStoreFormatError):
+        with pytest.raises(store.StoreFormatError):
             await message_store.append_message(1, MockMessage(payload="a"))
 
     async def test_append_message(self, message_store, session_file):
@@ -266,7 +266,7 @@ class TestMessageStore:
 
     async def test_only_one_instance_can_be_active(self, make_message_store):
         async with make_message_store():
-            with pytest.raises(store.MessageStoreConcurrentError):
+            with pytest.raises(store.StoreConcurrentError):
                 async with make_message_store():
                     pass
 
@@ -287,7 +287,7 @@ class TestMessageStore:
     async def test_aenter_raises_if_session_seq_doesnt_start_at_0(
             self, make_message_store, session_file):
         create_file(session_file(1), [json.dumps(session_file_header(1))])
-        with pytest.raises(store.MessageStoreFormatError):
+        with pytest.raises(store.StoreFormatError):
             async with make_message_store():
                 pass
 
@@ -295,14 +295,14 @@ class TestMessageStore:
             self, make_message_store, session_file):
         create_file(session_file(0), [json.dumps(session_file_header(0))])
         create_file(session_file(2), [json.dumps(session_file_header(2))])
-        with pytest.raises(store.MessageStoreFormatError):
+        with pytest.raises(store.StoreFormatError):
             async with make_message_store():
                 pass
 
     async def test_aenter_raises_if_session_has_invalid_header_json(
             self, make_message_store, session_file):
         create_file(session_file(0), ["not json"])
-        with pytest.raises(store.MessageStoreFormatError):
+        with pytest.raises(store.StoreFormatError):
             async with make_message_store():
                 pass
 
@@ -314,7 +314,7 @@ class TestMessageStore:
         header = session_file_header(0)
         header[key] = value
         create_file(session_file(0), [json.dumps(header)])
-        with pytest.raises(store.MessageStoreFormatError):
+        with pytest.raises(store.StoreFormatError):
             async with make_message_store():
                 pass
 
@@ -323,7 +323,7 @@ class TestMessageStore:
         header = session_file_header(0)
         header["session_seq"] = 1
         create_file(session_file(0), [json.dumps(header)])
-        with pytest.raises(store.MessageStoreFormatError):
+        with pytest.raises(store.StoreFormatError):
             async with make_message_store():
                 pass
 
@@ -398,7 +398,7 @@ class TestMessageStore:
             session_file(0), [json.dumps(session_file_header(0, version=0))])
         create_file(
             session_file(1), [json.dumps(session_file_header(1, version=1))])
-        with pytest.raises(store.MessageStoreFormatError):
+        with pytest.raises(store.StoreFormatError):
             async with make_message_store():
                 pass
 
@@ -409,7 +409,7 @@ class TestMessageStore:
                 json.dumps(
                     session_file_header(
                         0, version=store.MessageStore.VERSION + 1))])
-        with pytest.raises(store.MessageStoreFormatError):
+        with pytest.raises(store.StoreFormatError):
             async with make_message_store():
                 pass
 
@@ -459,7 +459,7 @@ class TestMessageStore:
             f.write("not json\n")
             f.write('{"payload":"a"}\n')
         async with message_store:
-            with pytest.raises(store.MessageStoreFormatError):
+            with pytest.raises(store.StoreFormatError):
                 await message_store.read_session_messages(0)
 
     async def test_read_raises_on_empty_non_last_line(
@@ -471,7 +471,7 @@ class TestMessageStore:
             f.write("\n")
             f.write('{"payload":"a"}\n')
         async with message_store:
-            with pytest.raises(store.MessageStoreFormatError):
+            with pytest.raises(store.StoreFormatError):
                 await message_store.read_session_messages(0)
 
     async def test_message_with_unicode_and_newlines(self, message_store):
@@ -601,3 +601,21 @@ class TestJsonlMemoryStore:
             results,
             contains_exactly(
                 memory(content="Hello World"), memory(content="hello again")))
+
+    async def test_search_memory_raises_format_error_on_corrupt_line(
+            self, memory_store):
+        await memory_store.log_memory("valid event")
+        # Manually append an invalid line.
+        with open(memory_store._base_dir / "memory.jsonl", "a") as f:
+            f.write("this is not json\n")
+        with pytest.raises(store.StoreFormatError):
+            [m async for m in memory_store.search_memory()]
+
+    async def test_search_memory_raises_format_error_on_empty_line(
+            self, memory_store):
+        await memory_store.log_memory("valid event")
+        # Manually append an empty line.
+        with open(memory_store._base_dir / "memory.jsonl", "a") as f:
+            f.write("\n")
+        with pytest.raises(store.StoreFormatError):
+            [m async for m in memory_store.search_memory()]
