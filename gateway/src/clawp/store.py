@@ -342,8 +342,8 @@ class MessageStore:
     def __init__(self, base_dir: pathlib.Path) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._base_dir = base_dir
-        self._open_files: dict[pathlib.Path, t.IO] = {}
-        self._open_files_lock = asyncio.Lock()
+        self._open_ios: dict[int, JsonlIO[mdl.Message]] = {}
+        self._open_ios_lock = asyncio.Lock()
 
     async def __aenter__(self) -> t.Self:
         try:
@@ -351,33 +351,25 @@ class MessageStore:
         except asyncio.TimeoutError:
             raise StoreConcurrentError(
                 "another message store is already active")
-        self._ensure_valid_store_format()
+        await self._ensure_valid_store_format()
         return self
 
     async def __aexit__(self, *_) -> None:
-        async with self._open_files_lock:
-            await self._close_files()
+        async with self._open_ios_lock:
+            await self._close_ios()
         self._message_store_lock.release()
 
-    async def _close_files(self):
+    async def _close_ios(self):
         close_tasks = set()
-        for path, f in self._open_files.items():
-            self._logger.debug(f"Closing {path}.")
-            close_tasks.add(
-                asyncio.create_task(
-                    asyncio.to_thread(self._safe_close_file, f)))
+        for session_seq, io in self._open_ios.items():
+            self._logger.debug(f"Closing {self._session_path(session_seq)}.")
+            close_tasks.add(asyncio.create_task(io.close()))
         if close_tasks:
             _, pending = await asyncio.wait(close_tasks, timeout=10)
             if pending:
                 self._logger.exception(
                     f"Timeout while closing files ({len(pending)} not done).")
-        self._open_files.clear()
-
-    def _safe_close_file(self, f: t.IO):
-        try:
-            f.close()
-        except Exception:
-            self._logger.exception(f"Error closing file {f}.")
+        self._open_ios.clear()
 
     def _sessions_dir(self) -> pathlib.Path:
         return self._base_dir / "sessions"
@@ -395,28 +387,25 @@ class MessageStore:
         needs to be created but now all previous sessions exist a
         MessageStoreFormatError is raised.
         """
-        async with self._open_files_lock:
-            await asyncio.to_thread(
-                self._sync_append_message, session_seq, await message.model)
+        async with self._open_ios_lock:
+            io = self._get_io(session_seq)
+            try:
+                await io.append(await message.model)
+            except FileNotFoundError:
+                await self._ensure_session_file(session_seq, io)
+                await io.append(await message.model)
 
-    def _sync_append_message(
-            self, session_seq: int, message_model: mdl.Message):
-        path = self._session_path(session_seq)
+    def _get_io(self, session_seq):
         try:
-            f = self._open_files[path]
+            io = self._open_ios[session_seq]
         except KeyError:
-            self._ensure_session_file(session_seq)
-            assert path.exists()
-            f = open(path, "a")
-            self._open_files[path] = f
-        f.write(message_model.model_dump_json() + "\n")
-        f.flush()
-        os.fsync(f.fileno())
+            io = JsonlIO(
+                self._session_path(session_seq), mdl.MessageTypeAdapter)
+            self._open_ios[session_seq] = io
+        return io
 
-    def _ensure_session_file(self, session_seq: int):
+    async def _ensure_session_file(self, session_seq: int, io: JsonlIO):
         path = self._session_path(session_seq)
-        if path.exists():
-            return
         for seq in range(session_seq):
             if not path.with_name(f"{seq}.jsonl").exists():
                 raise StoreFormatError(
@@ -427,11 +416,7 @@ class MessageStore:
             "session_seq": session_seq,}
         if not path.parent.exists():
             self._logger.info(f"Creating sessions directory {path.parent}.")
-            path.parent.mkdir(parents=True)
-        with open(path, "w") as f:
-            f.write(json.dumps(header) + "\n")
-            f.flush()
-            os.fsync(f.fileno())
+        await io.create(header)
         self._logger.info(f"Created new session file {path}.")
 
     async def read_session_messages(self,
@@ -446,66 +431,11 @@ class MessageStore:
         Raises a MessageStoreFormatError if any line doesn't parse to a message
         (that includes empty lines).
         """
-        path = self._session_path(session_seq)
-        json_lines = await asyncio.to_thread(self._sync_read_messages, path)
-        # Do the parsing in the async method here because we need an event loop
-        # for the messages' from_model() (which wants to schedule a task for
-        # the StreamableList).
-        messages = []
-        for i, json_line in enumerate(json_lines):
-            try:
-                message = msg.Message.from_model(
-                    mdl.MessageTypeAdapter.validate_json(json_line))
-                messages.append(message)
-            except pyd.ValidationError:
-                # A truncated last line likely means the app crashed
-                # mid-write. Log a warning and discard it.
-                if i == len(json_lines) - 1:
-                    self._logger.warning(
-                        f"Last line ({json_line}) in session file {path} is "
-                        "corrupt. Assuming an unclean shutdown, ignoring the "
-                        "line and deleting it from the file.", exc_info=True)
-                    await asyncio.to_thread(
-                        self._delete_corrupted_last_line, path, json_line)
-                else:
-                    raise StoreFormatError(
-                        f"invalid line in session file {path}: {json_line}")
-        return messages
-
-    def _sync_read_messages(self, path):
+        io = self._get_io(session_seq)
         try:
-            with open(path, "r") as f:
-                lines = f.readlines()
+            return [msg.Message.from_model(m) async for m in io.read_all()]
         except FileNotFoundError:
             return []
-        # Skip the header (first line).
-        return lines[1:]
-
-    def _delete_corrupted_last_line(self, path: pathlib.Path, line: str):
-        with path.open("r+") as f:
-            # Move the pointer to the end of the file and remember where it is.
-            f.seek(0, os.SEEK_END)
-            pos_past_end = f.tell() + 1
-            # Read the file backwards until we find a newline (except if it is
-            # the last character).
-            pos = f.tell()
-            while pos > 0 and f.read(1) != "\n" and pos != pos_past_end:
-                pos -= 1
-                f.seek(pos)
-            if pos == 0:
-                raise StoreFormatError(
-                    f"header of session file {path} is corrupt")
-            # Check that the last line is actually the one we expected.
-            f.seek(pos + 1)
-            line_in_file = f.read()
-            if line_in_file != line:
-                raise StoreFormatError(
-                    f"attempted to delete corrupted line '{line}' in {path}, "
-                    f"but last line was actually '{line_in_file}'")
-            # Go to the position where the last line starts and truncate from
-            # there.
-            f.seek(pos)
-            f.truncate()
 
     def get_active_session_seq(self) -> int:
         """
@@ -543,7 +473,7 @@ class MessageStore:
         """Get a message store specific to a session."""
         return SessionMessageStore(session_seq, self)
 
-    def _ensure_valid_store_format(self) -> None:
+    async def _ensure_valid_store_format(self) -> None:
         """
         Ensure that base_dir is consistent and valid.
 
@@ -583,7 +513,7 @@ class MessageStore:
                 raise StoreFormatError(
                     f"broken session sequence numbers after {prev_seq}")
             prev_seq = seq
-            session_file_version = self._ensure_valid_session_format(seq)
+            session_file_version = await self._ensure_valid_session_format(seq)
             session_file_versions.add(session_file_version)
         if len(session_file_versions) > 1:
             raise StoreFormatError(
@@ -594,19 +524,24 @@ class MessageStore:
             self._logger.info(
                 f"Found store with version {version_on_disk}, upgrading to "
                 f"{self.VERSION}.")
-            self._upgrade_files(from_version=version_on_disk)
+            await self._upgrade_files(from_version=version_on_disk)
         elif version_on_disk > self.VERSION:
             raise StoreFormatError(
                 f"store on disk has higher version {version_on_disk} than "
                 "known the this implementation, unable to downgrade")
         else:
+            # Re-validate with upgrader if already current just to ensure all
+            # jsonl lines parse.
+            if version_on_disk == self.VERSION:
+                for seq, file in list(self._list_all_session_files()):
+                    io = JsonlIO(file, mdl.MessageTypeAdapter)
+                    await io.upgrade_and_validate(self._upgraders)
             self._logger.debug(
                 f"Found valid message store at {self._base_dir} with version "
                 f"{self.VERSION}.")
 
     def _list_all_session_files(
             self) -> cl_abc.Generator[tuple[int, pathlib.Path]]:
-
         for seq in range(self.get_active_session_seq() + 1):
             session_file = self._session_path(seq)
             if session_file.is_file():
@@ -614,12 +549,11 @@ class MessageStore:
             elif seq != 0:
                 self._logger.warning(f"Missing session file {session_file}.")
 
-    def _ensure_valid_session_format(self, seq: int):
+    async def _ensure_valid_session_format(self, seq: int):
         path = self._session_path(seq)
+        io = JsonlIO(path, mdl.MessageTypeAdapter)
         try:
-            with path.open() as f:
-                header_dict = json.loads(f.readline())
-            assert isinstance(header_dict["version"], int)
+            header_dict = await io.header
             assert isinstance(header_dict["session_seq"], int)
         except Exception as e:
             raise StoreFormatError("invalid header format") from e
@@ -630,7 +564,7 @@ class MessageStore:
                 f"{header_dict['session_seq']}")
         return header_dict["version"]
 
-    def _upgrade_files(self, from_version: int) -> None:
+    async def _upgrade_files(self, from_version: int) -> None:
         """
         Upgrade the on-disk data to the current version.
 
@@ -648,14 +582,12 @@ class MessageStore:
             f"backup_{self._base_dir.name}_version_{from_version}_"
             f"{we.Instant.now()}")
         backup_directory = self._base_dir.parent / backup_directory_name
-        shutil.copytree(self._base_dir, backup_directory)
+        await asyncio.to_thread(
+            shutil.copytree, self._base_dir, backup_directory)
         for _, file in list(self._list_all_session_files()):
             assert file.is_file()
-            for version in range(from_version, self.VERSION):
-                upgrader = self._upgraders[version]
-                self._logger.debug(
-                    f"Upgrading {file} from {version} to {version+1}.")
-                upgrader(file)
+            io = JsonlIO(file, mdl.MessageTypeAdapter)
+            await io.upgrade_and_validate(self._upgraders)
 
     _upgraders: dict[int, t.Callable[[pathlib.Path], None]] = {}
     """

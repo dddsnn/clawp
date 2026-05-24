@@ -756,6 +756,46 @@ class TestMessageStore:
             async with make_message_store():
                 pass
 
+    async def test_aenter_deletes_truncated_last_line(
+            self, make_message_store, session_file):
+        async with make_message_store() as store:
+            message = MockMessage(payload="a")
+            await store.append_message(0, message)
+        # Simulate a crash by appending a partial line.
+        with open(session_file(0), "a") as f:
+            f.write('{"payload": "some s')
+        async with store:
+            assert_that(
+                read_file_content(session_file(0)),
+                contains_exactly(
+                    json_equivalent(session_file_header(0)),
+                    json_equivalent({"payload": "encoded a"})))
+
+    async def test_aenter_raises_on_corrupt_non_last_line(
+            self, make_message_store, session_file):
+        async with make_message_store() as message_store:
+            message = MockMessage(payload="a")
+            await message_store.append_message(0, message)
+        # Write a corrupt line followed by a valid line.
+        with open(session_file(0), "a") as f:
+            f.write("not json\n")
+            f.write('{"payload":"a"}\n')
+        with pytest.raises(store.StoreFormatError):
+            async with message_store:
+                pass
+
+    async def test_aenter_raises_on_empty_non_last_line(
+            self, make_message_store, session_file):
+        async with make_message_store() as message_store:
+            message = MockMessage(payload="a")
+            await message_store.append_message(0, message)
+        with open(session_file(0), "a") as f:
+            f.write("\n")
+            f.write('{"payload":"a"}\n')
+        with pytest.raises(store.StoreFormatError):
+            async with message_store:
+                pass
+
     async def test_append_after_reopen(self, make_message_store):
         async with make_message_store() as store:
             message1 = MockMessage(payload="a")
@@ -765,57 +805,6 @@ class TestMessageStore:
             await store.append_message(0, message2)
             messages = await store.read_session_messages(0)
             assert messages == [message1, message2]
-
-    async def test_read_discards_truncated_last_line(
-            self, make_message_store, session_file):
-        async with make_message_store() as store:
-            message = MockMessage(payload="a")
-            await store.append_message(0, message)
-        # Simulate a crash by appending a partial line.
-        with open(session_file(0), "a") as f:
-            f.write('{"payload": "some s')
-        async with store:
-            messages = await store.read_session_messages(0)
-            assert messages == [message]
-
-    async def test_read_deletes_truncated_last_line(
-            self, make_message_store, session_file):
-        async with make_message_store() as store:
-            message = MockMessage(payload="a")
-            await store.append_message(0, message)
-        # Simulate a crash by appending a partial line.
-        with open(session_file(0), "a") as f:
-            f.write('{"payload": "some s')
-        async with store:
-            await store.read_session_messages(0)
-        content = read_file_content(session_file(0))
-        assert len(content) == 2
-        assert json.loads(content[1]) == (await message.model).model_dump()
-
-    async def test_read_raises_on_corrupt_non_last_line(
-            self, make_message_store, session_file):
-        async with make_message_store() as message_store:
-            message = MockMessage(payload="a")
-            await message_store.append_message(0, message)
-        # Write a corrupt line followed by a valid line.
-        with open(session_file(0), "a") as f:
-            f.write("not json\n")
-            f.write('{"payload":"a"}\n')
-        async with message_store:
-            with pytest.raises(store.StoreFormatError):
-                await message_store.read_session_messages(0)
-
-    async def test_read_raises_on_empty_non_last_line(
-            self, make_message_store, session_file):
-        async with make_message_store() as message_store:
-            message = MockMessage(payload="a")
-            await message_store.append_message(0, message)
-        with open(session_file(0), "a") as f:
-            f.write("\n")
-            f.write('{"payload":"a"}\n')
-        async with message_store:
-            with pytest.raises(store.StoreFormatError):
-                await message_store.read_session_messages(0)
 
     async def test_message_with_unicode_and_newlines(self, message_store):
         message = MockMessage(payload="hello\nworld\n\ttab\u00e9\U0001f600")
