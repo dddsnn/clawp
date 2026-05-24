@@ -154,8 +154,8 @@ class TestJsonlIO:
         with pytest.raises(ValueError):
             await jsonl_io.create({"version": "not an int"})
 
-    async def test_create_raises_on_existing_file(self, jsonl_io):
-        write_file_content(jsonl_io, ["a"])
+    async def test_create_raises_on_existing_file(self, jsonl_io, jsonl_path):
+        write_file_content(jsonl_path, ["a"])
         with pytest.raises(FileExistsError):
             await jsonl_io.create({"version": 0})
 
@@ -163,10 +163,17 @@ class TestJsonlIO:
         with pytest.raises(FileNotFoundError):
             await jsonl_io.header
 
-    async def test_header_raises_on_invalid_header(self, jsonl_io):
-        write_file_content(jsonl_io, [json.dumps({"missing_version": 0})])
+    async def test_header_raises_on_invalid_header(self, jsonl_io, jsonl_path):
+        write_file_content(jsonl_path, [json.dumps({"missing_version": 0})])
         with pytest.raises(store.StoreFormatError):
             await jsonl_io.header
+
+    async def test_create_creates_directory_if_not_exists(self, tmp_path):
+        jsonl_path = tmp_path / "doesnt_exist_yet" / "test.jsonl"
+        async with store.JsonlIO(jsonl_path, MockMessageModel) as jsonl_io:
+            assert not await jsonl_io.exists()
+            await jsonl_io.create({"version": 0})
+            assert await jsonl_io.exists()
 
     async def test_append_and_read_all(self, jsonl_io):
         await jsonl_io.create({"version": 0})
@@ -188,14 +195,14 @@ class TestJsonlIO:
         await jsonl_io.append(MockMessageModel(payload="a"))
         assert not jsonl_io._write_file.closed
         await jsonl_io.close()
-        assert jsonl_io._write_file.closed
+        assert jsonl_io._write_file is None
 
     async def test_aexit(self, jsonl_io):
         async with jsonl_io:
             await jsonl_io.create({"version": 0})
             await jsonl_io.append(MockMessageModel(payload="a"))
             assert not jsonl_io._write_file.closed
-        assert jsonl_io._write_file.closed
+        assert jsonl_io._write_file is None
 
     async def test_append_after_close(self, jsonl_io):
         await jsonl_io.create({"version": 0})
@@ -391,22 +398,45 @@ class TestJsonlIO:
         with pytest.raises(store.StoreFormatError):
             await jsonl_io.upgrade_and_validate({})
 
-    async def test_upgrade_and_validate_discards_corrupt_last_line(
+    async def test_upgrade_and_validate_raises_on_invalid_model_last_line(
             self, jsonl_io, jsonl_path):
         write_file_content(
-            jsonl_path, [
-                json.dumps({"version": 0}),
-                json.dumps({"payload": "a"}), "not { valid json"])
+            jsonl_path,
+            [json.dumps({"version": 0}),
+             json.dumps({"not_payload": "a"})])
+        with pytest.raises(store.StoreFormatError):
+            await jsonl_io.upgrade_and_validate({})
+
+    async def test_upgrade_and_validate_raises_on_empty_line_last_line(
+            self, jsonl_io, jsonl_path):
+        write_file_content(jsonl_path, [json.dumps({"version": 0}), ""])
+        with pytest.raises(store.StoreFormatError):
+            await jsonl_io.upgrade_and_validate({})
+
+    async def test_upgrade_and_validate_discards_corrupt_unterminated_line(
+            self, jsonl_io, jsonl_path):
+        write_file_content(
+            jsonl_path,
+            [json.dumps({"version": 0}),
+             json.dumps({"payload": "a"})])
+        with jsonl_path.open("a") as f:
+            # Use raw write() so we don't write a newline and terminate the
+            # line.
+            f.write("not { valid json")
         await jsonl_io.upgrade_and_validate({})
         assert_that([m async for m in jsonl_io.read_all()],
                     contains_exactly(has_properties(payload="a")))
 
-    async def test_upgrade_and_validate_deletes_corrupt_last_line(
+    async def test_upgrade_and_validate_deletes_corrupt_unterminated_line(
             self, jsonl_io, jsonl_path):
         write_file_content(
-            jsonl_path, [
-                json.dumps({"version": 0}),
-                json.dumps({"payload": "a"}), "not { valid json"])
+            jsonl_path,
+            [json.dumps({"version": 0}),
+             json.dumps({"payload": "a"})])
+        with jsonl_path.open("a") as f:
+            # Use raw write() so we don't write a newline and terminate the
+            # line.
+            f.write("not { valid json")
         await jsonl_io.upgrade_and_validate({})
         assert_that(
             read_file_content(jsonl_path),
