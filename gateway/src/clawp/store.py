@@ -398,9 +398,9 @@ class MessageStore:
     """
     Registry of upgrade functions, keyed by the version they upgrade from.
 
-    Each function takes the base directory and transforms the on-disk data from
-    version N to N+1. All upgraders stay in the codebase so that any previous
-    version can be upgraded by running them in sequence.
+    Each function takes a file containing data in version N and transforms it
+    in place to version N+1. All upgraders stay in the codebase so that any
+    previous version can be upgraded by running them in sequence.
     """
 
     for version_number in range(VERSION):
