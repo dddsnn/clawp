@@ -58,6 +58,7 @@ class JsonlIO(t.Generic[TModel]):
         self._file_path = file_path
         self._model_type = model_type
         self._write_file: t.IO | None = None
+        self._lock = asyncio.Lock()
 
     async def close(self) -> None:
         """
@@ -66,9 +67,10 @@ class JsonlIO(t.Generic[TModel]):
         Closes the file if it was kept open for writing. Does nothing if not
         opened.
         """
-        if self._write_file is not None:
-            await asyncio.to_thread(self._sync_close)
-            self._write_file = None
+        async with self._lock:
+            if self._write_file is not None:
+                await asyncio.to_thread(self._sync_close)
+                self._write_file = None
 
     def _sync_close(self):
         try:
@@ -85,6 +87,10 @@ class JsonlIO(t.Generic[TModel]):
 
     async def exists(self) -> bool:
         """Check whether the file exists."""
+        async with self._lock:
+            return await self._exists_locked()
+
+    async def _exists_locked(self):
         return await asyncio.to_thread(self._file_path.exists)
 
     @property
@@ -95,9 +101,13 @@ class JsonlIO(t.Generic[TModel]):
         If the header has an invalid format, StoreFormatError is raised. If the
         file doesn't exist, FileNotFoundError is raised.
         """
-        if not await self.exists():
-            raise FileNotFoundError(f"file {self._file_path} doesn't exist")
+        async with self._lock:
+            return await self._header_locked
 
+    @property
+    async def _header_locked(self):
+        if not await self._exists_locked():
+            raise FileNotFoundError(f"file {self._file_path} doesn't exist")
         return await asyncio.to_thread(self._sync_read_header)
 
     def _sync_read_header(self):
@@ -127,12 +137,13 @@ class JsonlIO(t.Generic[TModel]):
         ValueError is raised. If the file already exists, FileExistsError is
         raised.
         """
-        try:
-            if type(header["version"]) is not int:
-                raise ValueError("'version' must be an int")
-        except KeyError:
-            raise ValueError("header must contain 'version'")
-        await asyncio.to_thread(self._sync_create, header)
+        async with self._lock:
+            try:
+                if type(header["version"]) is not int:
+                    raise ValueError("'version' must be an int")
+            except KeyError:
+                raise ValueError("header must contain 'version'")
+            await asyncio.to_thread(self._sync_create, header)
 
     def _sync_create(self, header):
         if self._file_path.exists():
@@ -153,10 +164,11 @@ class JsonlIO(t.Generic[TModel]):
         the file for appending and keeps it open for later. close() or
         __aexit__() must be called to close the file again.
         """
-        if self._write_file is None:
-            await asyncio.to_thread(self._sync_open_for_appending)
-        assert self._write_file is not None
-        await asyncio.to_thread(self._sync_append, model)
+        async with self._lock:
+            if self._write_file is None:
+                await asyncio.to_thread(self._sync_open_for_appending)
+            assert self._write_file is not None
+            await asyncio.to_thread(self._sync_append, model)
 
     def _sync_open_for_appending(self):
         self._write_file = open(self._file_path, "a")
@@ -177,17 +189,19 @@ class JsonlIO(t.Generic[TModel]):
         StoreFormatError. If the file doesn't exist, FileNotFoundError is
         raised.
         """
-        if not await self.exists():
-            raise FileNotFoundError(f"file {self._file_path} doesn't exist")
-        lines = await self._read_lines()
-        if not lines:
-            raise StoreFormatError("missing header (empty file)")
-        for line in lines[1:]:
-            try:
-                yield self._model_type.model_validate_json(line)
-            except pyd.ValidationError as e:
-                raise StoreFormatError(
-                    f"invalid line in {self._file_path}: {line}") from e
+        async with self._lock:
+            if not await self._exists_locked():
+                raise FileNotFoundError(
+                    f"file {self._file_path} doesn't exist")
+            lines = await self._read_lines()
+            if not lines:
+                raise StoreFormatError("missing header (empty file)")
+            for line in lines[1:]:
+                try:
+                    yield self._model_type.model_validate_json(line)
+                except pyd.ValidationError as e:
+                    raise StoreFormatError(
+                        f"invalid line in {self._file_path}: {line}") from e
 
     async def _read_lines(self):
         return await asyncio.to_thread(self._sync_read_lines)
@@ -222,12 +236,14 @@ class JsonlIO(t.Generic[TModel]):
         :param upgraders: A dictionary mapping a version number N to a function
             upgrading a file in place from version N to N+1.
         """
-        file_version = (await self.header)["version"]
-        target_version = max(upgraders.keys(), default=-1) + 1
-        if file_version > target_version:
-            raise StoreFormatError(f"file has future version {file_version}")
-        await self._run_upgrade(upgraders, file_version, target_version)
-        await self._validate_file()
+        async with self._lock:
+            file_version = (await self._header_locked)["version"]
+            target_version = max(upgraders.keys(), default=-1) + 1
+            if file_version > target_version:
+                raise StoreFormatError(
+                    f"file has future version {file_version}")
+            await self._run_upgrade(upgraders, file_version, target_version)
+            await self._validate_file()
 
     async def _run_upgrade(self, upgraders, from_version, target_version):
         for v in range(from_version, target_version):
