@@ -186,6 +186,10 @@ class TestJsonlIO:
 
         assert_that([m async for m in jsonl_io.read_all()], [model1, model2])
 
+    async def test_append_raises_if_file_doesnt_exist(self, jsonl_io):
+        with pytest.raises(FileNotFoundError):
+            await jsonl_io.append(MockMessageModel(payload="a"))
+
     async def test_read_all_raises_on_nonexistent_file(self, jsonl_io):
         with pytest.raises(FileNotFoundError):
             [m async for m in jsonl_io.read_all()]

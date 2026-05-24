@@ -162,7 +162,8 @@ class JsonlIO(t.Generic[TModel]):
 
         Uses a file opened for appending earlier if it exists, otherwise opens
         the file for appending and keeps it open for later. close() or
-        __aexit__() must be called to close the file again.
+        __aexit__() must be called to close the file again. If the file
+        doesn't, exist, FileNotFoundError is raised.
         """
         async with self._lock:
             if self._write_file is None:
@@ -171,6 +172,10 @@ class JsonlIO(t.Generic[TModel]):
             await asyncio.to_thread(self._sync_append, model)
 
     def _sync_open_for_appending(self):
+        with open(self._file_path):
+            # Open to check that the file exists. Bubble up the
+            # FileNotFoundError.
+            pass
         self._write_file = open(self._file_path, "a")
 
     def _sync_append(self, model: TModel):
