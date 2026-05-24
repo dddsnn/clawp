@@ -44,7 +44,7 @@ class StoreFormatError(StoreError, ValueError):
     """Raised when the file structure is invalid."""
 
 
-TModel = t.TypeVar("TModel", bound=mdl.BaseModel)
+TModel = t.TypeVar("TModel", bound=mdl.BaseModel | pyd.TypeAdapter)
 
 
 class JsonlIO(t.Generic[TModel]):
@@ -198,10 +198,16 @@ class JsonlIO(t.Generic[TModel]):
                 raise StoreFormatError("missing header (empty file)")
             for line in lines[1:]:
                 try:
-                    yield self._model_type.model_validate_json(line)
+                    yield self._validate_line(line)
                 except pyd.ValidationError as e:
                     raise StoreFormatError(
                         f"invalid line in {self._file_path}: {line}") from e
+
+    def _validate_line(self, line: str) -> TModel:
+        if isinstance(self._model_type, pyd.TypeAdapter):
+            return self._model_type.validate_json(line)
+        assert issubclass(self._model_type, pyd.BaseModel)
+        return self._model_type.model_validate_json(line)
 
     async def _read_lines(self):
         return await asyncio.to_thread(self._sync_read_lines)
@@ -255,7 +261,7 @@ class JsonlIO(t.Generic[TModel]):
         lines = await self._read_lines()
         for i, line in enumerate(lines[1:], start=1):
             try:
-                self._model_type.model_validate_json(line)
+                self._validate_line(line)
             except pyd.ValidationError as e:
                 is_last_line = i == len(lines) - 1
                 if is_last_line:

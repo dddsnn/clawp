@@ -190,6 +190,14 @@ class TestJsonlIO:
         with pytest.raises(FileNotFoundError):
             [m async for m in jsonl_io.read_all()]
 
+    async def test_read_all_works_with_type_adapter(self, jsonl_path):
+        type_adapter = pyd.TypeAdapter(MockMessageModel)
+        async with store.JsonlIO(jsonl_path, type_adapter) as jsonl_io:
+            await jsonl_io.create({"version": 0})
+            await jsonl_io.append(MockMessageModel(payload="a"))
+            assert_that([m async for m in jsonl_io.read_all()],
+                        contains_exactly(has_properties(payload="a")))
+
     async def test_close(self, jsonl_io):
         await jsonl_io.create({"version": 0})
         await jsonl_io.append(MockMessageModel(payload="a"))
@@ -443,6 +451,16 @@ class TestJsonlIO:
             contains_exactly(
                 json_equivalent({"version": 0}),
                 json_equivalent({"payload": "a"})))
+
+    async def test_upgrade_and_validate_works_with_type_adapter(
+            self, jsonl_path):
+        write_file_content(
+            jsonl_path,
+            [json.dumps({"version": 0}),
+             json.dumps({"payload": "a"})])
+        type_adapter = pyd.TypeAdapter(MockMessageModel)
+        async with store.JsonlIO(jsonl_path, type_adapter) as jsonl_io:
+            await jsonl_io.upgrade_and_validate({})
 
 
 class TestMessageStore:
