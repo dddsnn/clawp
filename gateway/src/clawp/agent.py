@@ -204,8 +204,7 @@ class Session:
         parts = util.StreamableList()
         stream_task = await self._provider.stream_agent_message(
             parts, self._messages, self._mcp_client.tools.values())
-        metadata = self._make_metadata(
-            util.FutureValue(), util.ImmediateValue(outgoing_channel))
+        metadata = self._make_metadata(util.FutureValue(), outgoing_channel)
         message = msg.AgentMessage(metadata, parts)
         await self._append_message(message)
         return message, stream_task
