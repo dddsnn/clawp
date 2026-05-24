@@ -827,14 +827,18 @@ def memory(**kwargs):
 
 class TestJsonlMemoryStore:
     @pytest.fixture
-    def memory_store(self, tmp_path):
-        return store.JsonlMemoryStore(tmp_path / "memory")
+    def base_dir(self, tmp_path):
+        return tmp_path / "memory"
 
-    async def test_log_memory_creates_file(self, memory_store):
+    @pytest.fixture
+    def memory_store(self, base_dir):
+        return store.JsonlMemoryStore(base_dir)
+
+    async def test_log_memory_creates_file(self, memory_store, base_dir):
         await memory_store.log_memory("test event")
-        lines = read_file_content(memory_store._base_dir / "memory.jsonl")
-        assert len(lines) == 1
-        data = json.loads(lines[0])
+        lines = read_file_content(base_dir / "memory.jsonl")
+        assert len(lines) == 2
+        data = json.loads(lines[1])
         assert data["content"] == "test event"
         assert "id" in data
         assert "time" in data
@@ -924,19 +928,19 @@ class TestJsonlMemoryStore:
                 memory(content="Hello World"), memory(content="hello again")))
 
     async def test_search_memory_raises_format_error_on_corrupt_line(
-            self, memory_store):
+            self, memory_store, base_dir):
         await memory_store.log_memory("valid event")
         # Manually append an invalid line.
-        with open(memory_store._base_dir / "memory.jsonl", "a") as f:
+        with open(base_dir / "memory.jsonl", "a") as f:
             f.write("this is not json\n")
         with pytest.raises(store.StoreFormatError):
             [m async for m in memory_store.search_memory()]
 
     async def test_search_memory_raises_format_error_on_empty_line(
-            self, memory_store):
+            self, memory_store, base_dir):
         await memory_store.log_memory("valid event")
         # Manually append an empty line.
-        with open(memory_store._base_dir / "memory.jsonl", "a") as f:
+        with open(base_dir / "memory.jsonl", "a") as f:
             f.write("\n")
         with pytest.raises(store.StoreFormatError):
             [m async for m in memory_store.search_memory()]

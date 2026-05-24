@@ -717,24 +717,19 @@ class MemoryStore(abc.ABC):
 
 class JsonlMemoryStore(MemoryStore):
     """Memory store backed by a jsonl file."""
+    VERSION = 0
+    """Current message store format version."""
     def __init__(self, base_dir: pathlib.Path) -> None:
-        self._base_dir = base_dir
-
-    @property
-    def _file_path(self) -> pathlib.Path:
-        return self._base_dir / "memory.jsonl"
+        file_path = base_dir / "memory.jsonl"
+        self._io = JsonlIO(file_path, mdl.Memory)
 
     async def log_memory(self, content: str) -> None:
         memory = mdl.Memory(time=we.Instant.now(), content=content)
-        await asyncio.to_thread(self._sync_log_memory, memory)
-
-    def _sync_log_memory(self, memory: mdl.Memory) -> None:
-        if not self._base_dir.exists():
-            self._base_dir.mkdir(parents=True, exist_ok=True)
-        with open(self._file_path, "a") as f:
-            f.write(memory.model_dump_json() + "\n")
-            f.flush()
-            os.fsync(f.fileno())
+        try:
+            await self._io.append(memory)
+        except FileNotFoundError:
+            await self._io.create({"version": self.VERSION})
+            await self._io.append(memory)
 
     async def search_memory(
         self, *, start_time: t.Optional[we.Instant] = None,
@@ -752,22 +747,9 @@ class JsonlMemoryStore(MemoryStore):
                 return False
             return True
 
-        async for memory in self._read_memories():
-            if is_relevant(memory):
-                yield memory
-
-    async def _read_memories(self):
-        if not self._file_path.exists():
+        try:
+            async for memory in self._io.read_all():
+                if is_relevant(memory):
+                    yield memory
+        except FileNotFoundError:
             return
-
-        for line in await asyncio.to_thread(self._read_lines):
-            try:
-                yield mdl.Memory.model_validate_json(line)
-            except pyd.ValidationError as e:
-                raise StoreFormatError(
-                    f"invalid line in memory file {self._file_path}: {line}"
-                ) from e
-
-    def _read_lines(self):
-        with open(self._file_path, "r") as f:
-            return f.readlines()
