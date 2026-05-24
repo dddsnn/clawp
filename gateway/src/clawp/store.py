@@ -44,6 +44,109 @@ class StoreFormatError(StoreError, ValueError):
     """Raised when the file structure is invalid."""
 
 
+TModel = t.TypeVar("TModel", bound=mdl.BaseModel)
+
+
+class JsonlIO(t.Generic[TModel]):
+    """
+    IO on a JSONL file.
+
+    Represents one JSONL file with a header.
+    """
+    def __init__(self, file_path: pathlib.Path, model_type: type[TModel]):
+        self._logger = logging.getLogger(type(self).__name__)
+        self._file_path = file_path
+        self._model_type = model_type
+        self._write_file: t.IO | None = None
+
+    async def close(self) -> None:
+        """
+        Close the file.
+
+        Closes the file if it was kept open for writing. Does nothing if not
+        opened.
+        """
+
+    async def __aenter__(self) -> t.Self:
+        return self
+
+    async def __aexit__(self, *_) -> bool:
+        await self.close()
+        return False
+
+    async def exists(self) -> bool:
+        """Check whether the file exists."""
+
+    @property
+    async def header(self) -> dict:
+        """
+        Read the file's header dict.
+
+        If the header has an invalid format, StoreFormatError is raised. If the
+        file doesn't exist, FileNotFoundError is raised.
+        """
+
+    async def create(self, header: dict) -> None:
+        """
+        Create the file with the given header.
+
+        The header must have a version key, which must be an integer, or a
+        ValueError is raised. If the file already exists, FileExistsError is
+        raised.
+        """
+
+    async def append(self, model: TModel) -> None:
+        """
+        Append a model to the file.
+
+        Dumps the given model as json and appends it as a line to the file.
+
+        Uses a file opened for appending earlier if it exists, otherwise opens
+        the file for appending and keeps it open for later. close() or
+        __aexit__() must be called to close the file again.
+        """
+
+    async def read_all(self) -> cl_abc.AsyncGenerator[TModel]:
+        """
+        Read all models from the file.
+
+        Opens the file, skips past the header, and iterates over models parsed
+        from the lines of the file.
+
+        If a line doesn't parse successfully (including empty lines), raises a
+        StoreFormatError. If the file doesn't exist, FileNotFoundError is
+        raised.
+        """
+        yield "to make it a generator"
+
+    async def upgrade_and_validate(
+            self, upgraders: dict[int, t.Callable[[pathlib.Path],
+                                                  None]]) -> None:
+        """
+        Upgrade and validate the file.
+
+        Reads the file, parses the header, and tries to upgrade the file to the
+        target version if necessary. The target version is N+1, where N is the
+        maximum of the keys in the upgraders dict. If the version in the header
+        is less than the target version, runs the necessary upgraders in
+        sequence until the file has the target version. If the target version
+        is less than the current version, raises a StoreFormatError (can't
+        downgrade).
+
+        After the upgrade, reads the entire file and validates that every model
+        parses correctly. If the model on the last line doesn't parse
+        correctly, a write error during an unclean shutdown is assumed. In this
+        case, a warning is logged and the corrupt line removed. On any other
+        validation error, a StoreFormatError is raised.
+
+        If any error occurs in validation, StoreFormatError is raised. If the
+        file doesn't exist, FileNotFoundError is raised.
+
+        :param upgraders: A dictionary mapping a version number N to a function
+            upgrading a file in place from version N to N+1.
+        """
+
+
 class MessageStore:
     """
     Persistent store for an agent's messages using JSONL files.
