@@ -22,7 +22,6 @@ import logging
 import logging.config
 import pathlib
 import signal
-import uuid
 
 from . import agent as agt
 from . import api
@@ -78,16 +77,18 @@ async def main():
     channels = make_channels(config.gateway)
     channel_repo = chan.ChannelRepository(channels.values())
     openrouter_provider = prov.OpenrouterProvider(config.gateway.openrouter)
-    agent_id = uuid.UUID(int=0)
-    agent = agt.Agent(
-        agent_id, base_dir=config.gateway.agents_base_dir / str(agent_id),
-        channel_repo=channel_repo, provider=openrouter_provider)
-    clawp_api = api.Api(agent, API_HOST, API_PORT, API_LOG_LEVEL)
+    agent_repo = agt.AgentRepository(
+        base_dir=config.gateway.agents_base_dir, channel_repo=channel_repo,
+        provider=openrouter_provider)
     async with contextlib.AsyncExitStack() as stack:
         await stack.enter_async_context(channel_repo)
         await stack.enter_async_context(openrouter_provider)
-        await stack.enter_async_context(agent)
-        await stack.enter_async_context(clawp_api)
+        await stack.enter_async_context(agent_repo)
+        agent_ids = agent_repo.list_agents()
+        assert len(agent_ids) == 1
+        agent = agent_repo.get_agent(next(iter(agent_ids)))
+        await stack.enter_async_context(
+            api.Api(agent, API_HOST, API_PORT, API_LOG_LEVEL))
         await shutdown_event.wait()
 
 
