@@ -30,10 +30,6 @@ from . import config as cfg
 from . import model as mdl
 from . import provider as prov
 
-API_HOST = "0.0.0.0"
-API_PORT = 8000
-API_LOG_LEVEL = "info"
-
 _log_fmt = "%(asctime)s|%(module)s|%(name)s|%(levelname)s: %(message)s"
 logging.config.dictConfig({
     "version": 1,
@@ -87,8 +83,7 @@ async def main():
         agent_ids = agent_repo.list_agents()
         assert len(agent_ids) == 1
         agent = agent_repo.get_agent(next(iter(agent_ids)))
-        await stack.enter_async_context(
-            api.Api(agent, API_HOST, API_PORT, API_LOG_LEVEL))
+        await stack.enter_async_context(api.Api(config.gateway.api, agent))
         await shutdown_event.wait()
 
 

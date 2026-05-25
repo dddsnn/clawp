@@ -9,3 +9,7 @@ gateway:
     username: "@your-user:matrix.org"
     # password: "" # Provided by CLAWP_MATRIX_PASSWORD environment variable.
     device_id: "clawp"
+  api:
+    host: "0.0.0.0"
+    port: 8000
+    log_level: "info"

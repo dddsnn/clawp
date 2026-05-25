@@ -32,6 +32,7 @@ from .channel import (
     WebUiChannelDescriptor,
 )
 from .config import (
+    ApiConfig,
     Config,
     GatewayConfig,
     MatrixConfig,
@@ -90,6 +91,7 @@ __all__ = [
     "SystemChannelDescriptor",
     "WebUiChannelDescriptor",
     # config
+    "ApiConfig",
     "Config",
     "GatewayConfig",
     "MatrixConfig",

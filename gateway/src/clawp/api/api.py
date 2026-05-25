@@ -225,14 +225,13 @@ async def _generate_tool_call_fragments(
 
 
 class Api:
-    def __init__(
-            self, agent: agt.Agent, host: str = "127.0.0.1", port: int = 8000,
-            log_level: str = "info") -> None:
+    def __init__(self, config: mdl.ApiConfig, agent: agt.Agent) -> None:
         app = fastapi.FastAPI()
         app.state.agent = agent
         app.include_router(router)
         config = uvicorn.Config(
-            app=app, host=host, port=port, log_level=log_level)
+            app=app, host=str(config.host), port=config.port,
+            log_level=config.log_level)
         self._server = uvicorn.Server(config)
         self._serve_task: t.Optional[asyncio.Task[None]] = None
 

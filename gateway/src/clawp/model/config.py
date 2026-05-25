@@ -41,6 +41,13 @@ class MatrixConfig(BaseSettings):
     store_dir: pathlib.Path = pyd.Field(default=None, validate_default=False)
 
 
+class ApiConfig(BaseSettings):
+    host: pyd.IPvAnyAddress
+    port: int
+    log_level: t.Literal["critical", "error", "warning", "info", "debug",
+                         "trace"]
+
+
 class GatewayConfig(BaseSettings):
     files_base_dir: pathlib.Path
     """
@@ -50,6 +57,7 @@ class GatewayConfig(BaseSettings):
     """
     openrouter: OpenRouterConfig
     matrix: t.Optional[MatrixConfig]
+    api: ApiConfig
 
     @pyd.computed_field
     @property
