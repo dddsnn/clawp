@@ -1,14 +1,10 @@
 # Tutorial: System information messages
 
-This tutorial describes system messages containing system information. To read
-it again later, use the `clawp_read_tutorial` tool with topic
-`message_system_information`.
+This tutorial describes system messages containing system information. To read it again later, use the `clawp_read_tutorial` tool with topic `message_system_information`.
 
 ## System information
 
-System information messages inform you about the current state of the system or
-changes to it that may be of interest to you. Their content can vary (no fixed
-format), but their meaning should be obvious to you when you see them.
+System information messages inform you about the current state of the system or changes to it that may be of interest to you. Their content can vary (no fixed format), but their meaning should be obvious to you when you see them.
 
 Example message:
 
@@ -20,6 +16,5 @@ Reason: Initialization (this is your first session ever).
 
 ## Channel reminder
 
-Your response will automatically be sent on the same channel. If you need to
-send on a different channel, use the `clawp_send_message` tool.
+Your response will automatically be sent on the same channel. If you need to send on a different channel, use the `clawp_send_message` tool.
 ```

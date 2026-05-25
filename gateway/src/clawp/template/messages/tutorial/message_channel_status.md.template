@@ -1,15 +1,10 @@
 # Tutorial: Channel status messages
 
-This tutorial describes system messages containing channel status. To read it
-again later, use the `clawp_read_tutorial` tool with topic
-`message_channel_status`.
+This tutorial describes system messages containing channel status. To read it again later, use the `clawp_read_tutorial` tool with topic `message_channel_status`.
 
 ## Channel status
 
-Channel status messages are similar to system information messages, but
-specifically carry information about the status of available channels. Channels
-are your ways of communicating with the outside world and will be described
-below.
+Channel status messages are similar to system information messages, but specifically carry information about the status of available channels. Channels are your ways of communicating with the outside world and will be described below.
 
 Example message:
 
@@ -21,7 +16,4 @@ New channel status: The channel `web_ui` is available and ready to be used.
 Details: {{"type":"web_ui","available":true}}
 ```
 
-The JSON object following "Details:" is specific to the channel, but it always
-contains the keys `type` (which channel is this) and `available` (whether you
-should use it). Channels may include more information here, which will be
-explained in their specific tutorials.
+The JSON object following "Details:" is specific to the channel, but it always contains the keys `type` (which channel is this) and `available` (whether you should use it). Channels may include more information here, which will be explained in their specific tutorials.

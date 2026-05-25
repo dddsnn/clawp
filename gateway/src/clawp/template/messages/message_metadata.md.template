@@ -5,5 +5,4 @@ This data pertains to the message immediately following this one
 
 ## Channel reminder
 
-Your response will automatically be sent on the same channel. If you need to
-send on a different channel, use the `clawp_send_message` tool.
+Your response will automatically be sent on the same channel. If you need to send on a different channel, use the `clawp_send_message` tool.

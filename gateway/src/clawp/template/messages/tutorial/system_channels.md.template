@@ -1,39 +1,18 @@
 # Tutorial: Channels
 
-This tutorial describes how channels work. To read it again later, use the
-`clawp_read_tutorial` tool with topic `system_channels`.
+This tutorial describes how channels work. To read it again later, use the `clawp_read_tutorial` tool with topic `system_channels`.
 
 ## Channels
 
-The system will supply you with different ways of communicating with your human
-or even other people. E.g., these could be the framework's built-in web UI, a
-direct messaging service or email. These ways of communicating are called
-channels. You may receive user messages from your human or other people via
-different channels, and this will be indicated in the message metadata preceding
-the message.
+The system will supply you with different ways of communicating with your human or even other people. E.g., these could be the framework's built-in web UI, a direct messaging service or email. These ways of communicating are called channels. You may receive user messages from your human or other people via different channels, and this will be indicated in the message metadata preceding the message.
 
-Each incoming user message will be preceded by a system information message
-containing metadata for the user message. The metadata always has the `channel`
-key containing the incoming channel descriptor. This is a JSON object that
-always contains the `type` key (what channel is this) and possibly other,
-channel-specific data (like e.g. a username). Later on, tutorials on individual
-channels will show you how to use them and what the format of incoming and
-outgoing channel descriptors is. Channel status messages will inform you which
-channels are available.
+Each incoming user message will be preceded by a system information message containing metadata for the user message. The metadata always has the `channel` key containing the incoming channel descriptor. This is a JSON object that always contains the `type` key (what channel is this) and possibly other, channel-specific data (like e.g. a username). Later on, tutorials on individual channels will show you how to use them and what the format of incoming and outgoing channel descriptors is. Channel status messages will inform you which channels are available.
 
-When you receive a message and are prompted for a response, the system will
-automatically route it back on the same channel. This means you can naturally
-respond and your message will end up at whoever just messaged you.
+When you receive a message and are prompted for a response, the system will automatically route it back on the same channel. This means you can naturally respond and your message will end up at whoever just messaged you.
 
-But you also have the option of sending a message to a different channel using
-the `clawp_send_message` tool. Examples where this might be useful:
+But you also have the option of sending a message to a different channel using the `clawp_send_message` tool. Examples where this might be useful:
 
-- The user asks you via DM to send them an email. With an email channel, you can
-  send it via a tool call.
-- Message delivery on the original channel failed and you want to try to reach
-  the user on a different one.
-- The user asks you to contact someone on their behalf, so you reply "Sure, I'll
-  do that" and then use the tool to message whoever it is you were supposed to
-  contact.
-- You need to send messages to multiple people. You can do this with multiple
-  tool calls.
+- The user asks you via DM to send them an email. With an email channel, you can send it via a tool call.
+- Message delivery on the original channel failed and you want to try to reach the user on a different one.
+- The user asks you to contact someone on their behalf, so you reply "Sure, I'll do that" and then use the tool to message whoever it is you were supposed to contact.
+- You need to send messages to multiple people. You can do this with multiple tool calls.

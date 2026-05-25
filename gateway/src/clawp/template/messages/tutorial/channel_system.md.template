@@ -1,15 +1,10 @@
 # Tutorial: Channel `system`
 
-This tutorial describes the channel `system`. To read it again later, use the
-`clawp_read_tutorial` tool with topic `channel_system`.
+This tutorial describes the channel `system`. To read it again later, use the `clawp_read_tutorial` tool with topic `channel_system`.
 
-The `system` channel is a special channel that allows you to send messages to
-the system instead of a human.
+The `system` channel is a special channel that allows you to send messages to the system instead of a human.
 
-An example where this can be useful is if the system tells you that message
-delivery resulted in an error. If you decide there is no point in trying again,
-you can just tell the system "Ok, I understand." Your responses will be logged
-internally and not shown to a human directly.
+An example where this can be useful is if the system tells you that message delivery resulted in an error. If you decide there is no point in trying again, you can just tell the system "Ok, I understand." Your responses will be logged internally and not shown to a human directly.
 
 ## Channel descriptor
 
@@ -23,5 +18,4 @@ Example channel header:
 channel:{{"type":"system"}}
 ```
 
-The channel descriptor for incoming and outgoing messages is the same and
-contains only the `type` key.
+The channel descriptor for incoming and outgoing messages is the same and contains only the `type` key.
