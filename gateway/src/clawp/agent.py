@@ -464,6 +464,7 @@ class AgentRepository:
         self._channel_repo = channel_repo
         self._provider = provider
         self._agents = {}
+        self._running = False
 
     def list_agents(self) -> set[uuid.UUID]:
         return set(self._agents)
@@ -472,18 +473,26 @@ class AgentRepository:
         return self._agents[agent_id]
 
     async def __aenter__(self) -> t.Self:
+        if not self._base_dir.is_dir():
+            self._logger.info(f"Creating agent repository {self._base_dir}.")
+            self._base_dir.mkdir(parents=True, exist_ok=True)
         for agent in self._discover_agents():
             self._logger.info(f"Starting {agent}.")
             try:
                 self._agents[agent.id] = await agent.__aenter__()
             except Exception:
                 self._logger.exception(f"Error starting {agent}.")
+                raise
+        self._running = True
         return self
 
     async def __aexit__(self, *args) -> bool:
+        self._running = False
         stop_tasks = {
             asyncio.create_task(a.__aexit__(*args))
             for a in self._agents.values()}
+        if not stop_tasks:
+            stop_tasks.add(asyncio.create_task(asyncio.sleep(0)))
         done, pending = await asyncio.wait(stop_tasks, timeout=120)
         for task in pending:
             self._logger.warning("Agent shutdown timed out.")
@@ -492,6 +501,7 @@ class AgentRepository:
             if task.exception():
                 self._logger.error(
                     "Error shutting down agent.", exc_info=task.exception())
+        self._agents.clear()
         return False
 
     def _discover_agents(self) -> cl_abc.Generator[Agent]:
@@ -500,23 +510,48 @@ class AgentRepository:
                 self._logger.warning(f"Ignoring unexpected non-directory {d}.")
                 continue
             try:
-                yield self._make_agent(d)
+                yield self._instantiate_agent(d)
             except ValueError:
                 self._logger.exception(
                     f"Ignoring invalid agent directory {d}.")
 
-    def _make_agent(self, dir: pathlib.Path) -> Agent:
+    def _instantiate_agent(self, dir: pathlib.Path) -> Agent:
         try:
             agent_id = uuid.UUID(dir.name)
         except ValueError as e:
             raise ValueError("invalid agent ID in directory name") from e
-        workspace_dir = dir / "workspace"
-        if not workspace_dir.is_dir():
+        workspace_dir = self._workspace_dir(dir)
+        if not self._workspace_dir(dir).is_dir():
             raise ValueError(f"missing workspace directory {workspace_dir}")
-        message_store_dir = dir / "message_store"
-        if not workspace_dir.is_dir():
+        message_store_dir = self._message_store_dir(dir)
+        if not message_store_dir.is_dir():
             raise ValueError(f"missing message store {message_store_dir}")
         message_store = store.MessageStore(message_store_dir)
         return Agent(
             agent_id, workspace_dir=workspace_dir, message_store=message_store,
             channel_repo=self._channel_repo, provider=self._provider)
+
+    def _workspace_dir(self, agent_base_dir: pathlib.Path) -> pathlib.Path:
+        return agent_base_dir / "workspace"
+
+    def _message_store_dir(self, agent_base_dir: pathlib.Path) -> pathlib.Path:
+        return agent_base_dir / "message_store"
+
+    async def hatch_agent(self) -> Agent:
+        """Hatch a new agent."""
+        if not self._running:
+            raise RuntimeError("not running, can't hatch a new agent")
+        agent_id = uuid.uuid4()
+        self._logger.info(f"Setting up files for new agent {agent_id}.")
+        agent_base_dir = self._base_dir / str(agent_id)
+        self._workspace_dir(agent_base_dir).mkdir(parents=True, exist_ok=True)
+        self._message_store_dir(agent_base_dir).mkdir(
+            parents=True, exist_ok=True)
+        agent = self._instantiate_agent(agent_base_dir)
+        self._logger.info(f"Starting new {agent}.")
+        try:
+            self._agents[agent.id] = await agent.__aenter__()
+        except Exception:
+            self._logger.exception(f"Error starting new {agent}.")
+            raise
+        return self._agents[agent.id]

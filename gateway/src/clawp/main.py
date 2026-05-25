@@ -80,9 +80,10 @@ async def main():
         await stack.enter_async_context(channel_repo)
         await stack.enter_async_context(openrouter_provider)
         await stack.enter_async_context(agent_repo)
-        agent_ids = agent_repo.list_agents()
-        assert len(agent_ids) == 1
-        agent = agent_repo.get_agent(next(iter(agent_ids)))
+        try:
+            agent = agent_repo.get_agent(next(iter(agent_repo.list_agents())))
+        except StopIteration:
+            agent = await agent_repo.hatch_agent()
         await stack.enter_async_context(api.Api(config.gateway.api, agent))
         await shutdown_event.wait()
 
