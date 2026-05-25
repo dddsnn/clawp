@@ -20,3 +20,58 @@ PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
 
 You should have received a copy of the GNU Affero General Public License along
 with clawp. If not, see <https://www.gnu.org/licenses/>.
+
+## Installing and running
+
+### Docker
+
+Use the `docker-compose.yaml` to, which expects a `config.yaml` in the root
+directory and mounts `clawp_files/` for data:
+
+```
+docker compose up --build
+```
+
+Run tests with the `docker-compose.test.yaml`
+
+```
+docker compose -f docker-compose.test.yaml up --build --exit-code-from=test
+```
+
+### Local
+
+Clawp needs external dependencies:
+
+- `uv`
+- `libolm` (for Matrix encryption)
+- the `rust-mcp-filesystem` MCP server, which can be install with
+  `cargo install --locked rust-mcp-filesystem@0.4.1`
+
+Then install via
+
+```
+uv sync --frozen
+```
+
+Available extras (using `--extra`):
+
+- `test`: dependencies to run tests
+- `dev`: dependencies for development
+
+From the root directory, run Clawp with
+
+```
+uv --project gateway run clawp
+```
+
+Run tests with
+
+```
+uv --project gateway run pytest gateway
+```
+
+## Configuration
+
+Clawp is mostly configured via a configuration file. See `config.yaml.example`.
+Some values (secrets) can also be supplied as environment variables, these are
+marked with comments in the example file.
