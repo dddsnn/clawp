@@ -2,14 +2,21 @@ config_version: 0
 gateway:
   files_base_dir: "/tmp/clawp"
   openrouter:
-    # api_key: "" # Provided by CLAWP_OPENROUTER_API_KEY environment variable.
+    # The api_key can be provided via the CLAWP_OPENROUTER_API_KEY environment
+    # variable.
+    # api_key: ""
     model: "stepfun/step-3.5-flash:free"
-  matrix:
-    homeserver: "https://matrix.org"
-    username: "@your-user:matrix.org"
-    # password: "" # Provided by CLAWP_MATRIX_PASSWORD environment variable.
-    device_id: "clawp"
   api:
     host: "0.0.0.0"
     port: 8000
     log_level: "info"
+  channels:
+    matrix:
+      accounts:
+        - homeserver: "https://matrix.org"
+          username: "@your-user:matrix.org"
+          # The password for this account can be provided via the
+          # CLAWP_MATRIX_PASSWORD_0 environment variable, the next one via
+          # CLAWP_MATRIX_PASSWORD_1 etc.
+          # password: ""
+          device_id: "clawp"

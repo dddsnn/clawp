@@ -9,6 +9,6 @@ services:
       - "./clawp_files/:/app/clawp_files/"
     environment:
       - "CLAWP_OPENROUTER_API_KEY"
-      - "CLAWP_MATRIX_PASSWORD"
+      - "CLAWP_MATRIX_PASSWORD_0"
     ports:
       - "8000:8000"

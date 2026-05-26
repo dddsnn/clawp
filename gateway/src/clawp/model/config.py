@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+import os
 import pathlib
 import typing as t
 
@@ -32,13 +33,48 @@ class OpenRouterConfig(BaseSettings):
     model: str
 
 
-class MatrixConfig(BaseSettings):
+class MatrixAccountConfig(BaseSettings):
     homeserver: str
     username: str
-    password: str = pyd.Field(alias="MATRIX_PASSWORD")
+    # Default this to None, it will be loaded from env by MatrixConfig.
+    password: str = pyd.Field(default=None, validate_default=False)
     device_id: str
+
+
+class MatrixConfig(BaseSettings):
     # Default this to None, it will be set relative to the gateway's store_dir.
     store_dir: pathlib.Path = pyd.Field(default=None, validate_default=False)
+    accounts: list[MatrixAccountConfig]
+
+    @pyd.model_validator(mode="before")
+    @classmethod
+    def load_passwords_from_env(cls, data: t.Any) -> t.Any:
+        try:
+            assert isinstance(data, dict)
+            accounts = data["accounts"]
+            assert isinstance(accounts, list)
+            assert all(isinstance(a, dict) for a in accounts)
+        except (AssertionError, KeyError):
+            raise ValueError("invalid accounts format")
+        # For each account, look for CLAWP_MATRIX_PASSWORD_N in the
+        # environment.
+        for i, account in enumerate(accounts):
+            if account.get("password") is not None:
+                # A password has been specified in the dict, prefer that over
+                # an env variable.
+                continue
+            try:
+                env_password = os.environ[f"CLAWP_MATRIX_PASSWORD_{i}"]
+            except KeyError:
+                # No password in environment, it must be in the dict already or
+                # fail validation.
+                continue
+            account["password"] = env_password
+        return data
+
+
+class ChannelsConfig(BaseSettings):
+    matrix: MatrixConfig
 
 
 class ApiConfig(BaseSettings):
@@ -56,8 +92,8 @@ class GatewayConfig(BaseSettings):
     All persistent files the gateway needs will be stored below this path.
     """
     openrouter: OpenRouterConfig
-    matrix: t.Optional[MatrixConfig]
     api: ApiConfig
+    channels: ChannelsConfig
 
     @pyd.computed_field
     @property
