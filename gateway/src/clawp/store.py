@@ -324,9 +324,9 @@ class MessageStore:
 
     MessageStore is an asynchronous context manager that takes control of the
     base_dir. When the context manager enters, it locks the directory (so only
-    one instance may be active at any one time) and checks base_dir for
-    consistency. If it contains files with an older format, they are upgraded
-    to the current one (a backup is created first).
+    one instance may be active at any one time for this base directory) and
+    checks base_dir for consistency. If it contains files with an older format,
+    they are upgraded to the current one (a backup is created first).
     """
 
     VERSION = 0
@@ -337,7 +337,8 @@ class MessageStore:
     _upgraders dictionary
     """
 
-    _message_store_lock = asyncio.Lock()
+    _active_base_dirs = set()
+    _active_base_dirs_lock = asyncio.Lock()
 
     def __init__(self, base_dir: pathlib.Path) -> None:
         self._logger = logging.getLogger(type(self).__name__)
@@ -346,18 +347,20 @@ class MessageStore:
         self._open_ios_lock = asyncio.Lock()
 
     async def __aenter__(self) -> t.Self:
-        try:
-            await asyncio.wait_for(self._message_store_lock.acquire(), 10**-2)
-        except asyncio.TimeoutError:
-            raise StoreConcurrentError(
-                "another message store is already active")
+        async with self._active_base_dirs_lock:
+            if self._base_dir in self._active_base_dirs:
+                raise StoreConcurrentError(
+                    f"another message store is already active for "
+                    f"{self._base_dir}")
+            self._active_base_dirs.add(self._base_dir)
         await self._ensure_valid_store_format()
         return self
 
     async def __aexit__(self, *_) -> None:
         async with self._open_ios_lock:
             await self._close_ios()
-        self._message_store_lock.release()
+        async with self._active_base_dirs_lock:
+            self._active_base_dirs.discard(self._base_dir)
 
     async def _close_ios(self):
         close_tasks = set()

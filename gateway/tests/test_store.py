@@ -106,13 +106,7 @@ def base_dir(tmp_path):
 
 
 @pytest.fixture
-async def make_message_store(base_dir, monkeypatch):
-    # Set a new class-level _message_store_lock so it is bound to this
-    # test's event loop.
-    assert not store.MessageStore._message_store_lock.locked()
-    monkeypatch.setattr(
-        store.MessageStore, "_message_store_lock", asyncio.Lock())
-
+async def make_message_store(base_dir):
     def factory():
         return store.MessageStore(base_dir)
 
@@ -607,11 +601,21 @@ class TestMessageStore:
             messages = await store.read_session_messages(0)
             assert messages == [message]
 
-    async def test_only_one_instance_can_be_active(self, make_message_store):
-        async with make_message_store():
+    async def test_only_one_instance_can_be_active_per_directory(
+            self, tmp_path):
+        base_dir = tmp_path / "store"
+        async with store.MessageStore(base_dir):
             with pytest.raises(store.StoreConcurrentError):
-                async with make_message_store():
+                async with store.MessageStore(base_dir):
                     pass
+
+    async def test_allows_multiple_instances_for_other_directories(
+            self, tmp_path):
+        base_dir1 = tmp_path / "store1"
+        base_dir2 = tmp_path / "store2"
+        async with store.MessageStore(base_dir1):
+            async with store.MessageStore(base_dir2):
+                pass
 
     async def test_aenter_creates_base_dir_and_sessions_dir(self, tmp_path):
         base_dir = tmp_path / "store"
