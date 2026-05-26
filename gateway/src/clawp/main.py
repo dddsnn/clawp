@@ -76,15 +76,14 @@ async def main():
     agent_repo = agt.AgentRepository(
         base_dir=config.gateway.agents_base_dir, channel_repo=channel_repo,
         provider=openrouter_provider)
+    clawp_api = api.Api(config.gateway.api, agent_repo)
     async with contextlib.AsyncExitStack() as stack:
         await stack.enter_async_context(channel_repo)
         await stack.enter_async_context(openrouter_provider)
         await stack.enter_async_context(agent_repo)
-        try:
-            agent = agent_repo.get_agent(next(iter(agent_repo.list_agents())))
-        except StopIteration:
-            agent = await agent_repo.hatch_agent()
-        await stack.enter_async_context(api.Api(config.gateway.api, agent))
+        await stack.enter_async_context(clawp_api)
+        if not agent_repo.list_agents():
+            await agent_repo.hatch_agent()
         await shutdown_event.wait()
 
 

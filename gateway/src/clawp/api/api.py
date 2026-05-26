@@ -21,6 +21,7 @@ import contextlib
 import enum
 import logging
 import typing as t
+import uuid
 
 import fastapi
 import uvicorn
@@ -56,9 +57,10 @@ async def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@router.get("/messages")
+@router.get("/agents/{agent_id}/messages")
 async def get_messages(
-        agent: dep.Agent, ge_time: we.Instant = we.Instant.MIN,
+        agent: dep.Agent, agent_id: uuid.UUID,
+        ge_time: we.Instant = we.Instant.MIN,
         lt_seq: int = 2**64) -> list[mdl.Message]:
     """
     Get a list of messages.
@@ -76,10 +78,12 @@ async def get_messages(
     return result
 
 
-@router.websocket("/stream/{cachebuster_to_circumvent_reconnection_delay}")
+@router.websocket(
+    "/agents/{agent_id}/stream/{cachebuster_to_circumvent_reconnection_delay}")
 async def websocket_stream(
         websocket: fastapi.WebSocket, agent: dep.AgentWs,
-        cachebuster_to_circumvent_reconnection_delay: str) -> None:
+        cachebuster_to_circumvent_reconnection_delay: str,
+        agent_id: uuid.UUID) -> None:
     """
     Open a websocket to stream messages.
 
@@ -225,9 +229,11 @@ async def _generate_tool_call_fragments(
 
 
 class Api:
-    def __init__(self, config: mdl.ApiConfig, agent: agt.Agent) -> None:
+    def __init__(
+            self, config: mdl.ApiConfig,
+            agent_repo: agt.AgentRepository) -> None:
         app = fastapi.FastAPI()
-        app.state.agent = agent
+        app.state.agent_repo = agent_repo
         app.include_router(router)
         config = uvicorn.Config(
             app=app, host=str(config.host), port=config.port,
