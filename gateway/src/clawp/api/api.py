@@ -81,7 +81,7 @@ async def get_messages(
 @router.websocket(
     "/agents/{agent_id}/stream/{cachebuster_to_circumvent_reconnection_delay}")
 async def websocket_stream(
-        websocket: fastapi.WebSocket, agent: dep.AgentWs,
+        websocket: fastapi.WebSocket, agent: dep.Agent,
         cachebuster_to_circumvent_reconnection_delay: str,
         agent_id: uuid.UUID) -> None:
     """

@@ -19,14 +19,15 @@ import typing as t
 import uuid
 
 import fastapi
+import fastapi.requests
 
 from .. import agent as agt
 
 
-def get_agent_repo_from_request(
-        request: fastapi.Request) -> agt.AgentRepository:
+def get_agent_repo(
+        conn: fastapi.requests.HTTPConnection) -> agt.AgentRepository:
     try:
-        agent_repo = request.app.state.agent_repo
+        agent_repo = conn.app.state.agent_repo
         assert isinstance(agent_repo, agt.AgentRepository)
     except (AttributeError, AssertionError) as e:
         raise fastapi.HTTPException(
@@ -34,27 +35,7 @@ def get_agent_repo_from_request(
     return agent_repo
 
 
-def get_agent_repo_from_websocket(
-        websocket: fastapi.WebSocket) -> agt.AgentRepository:
-    try:
-        agent_repo = websocket.app.state.agent_repo
-        assert isinstance(agent_repo, agt.AgentRepository)
-    except (AttributeError, AssertionError) as e:
-        raise RuntimeError("Agent repo is not available") from e
-    return agent_repo
-
-
-def get_agent_from_request(
-        agent_id: uuid.UUID, agent_repo: AgentRepository) -> agt.Agent:
-    try:
-        return agent_repo.get_agent(agent_id)
-    except KeyError:
-        raise fastapi.HTTPException(
-            status_code=404, detail=f"No agent with ID {agent_id}")
-
-
-def get_agent_from_websocket(
-        agent_id: uuid.UUID, agent_repo: AgentRepositoryWs) -> agt.Agent:
+def get_agent(agent_id: uuid.UUID, agent_repo: AgentRepository) -> agt.Agent:
     try:
         return agent_repo.get_agent(agent_id)
     except KeyError:
@@ -63,8 +44,5 @@ def get_agent_from_websocket(
 
 
 AgentRepository = t.Annotated[agt.AgentRepository,
-                              fastapi.Depends(get_agent_repo_from_request)]
-AgentRepositoryWs = t.Annotated[agt.AgentRepository,
-                                fastapi.Depends(get_agent_repo_from_websocket)]
-Agent = t.Annotated[agt.Agent, fastapi.Depends(get_agent_from_request)]
-AgentWs = t.Annotated[agt.Agent, fastapi.Depends(get_agent_from_websocket)]
+                              fastapi.Depends(get_agent_repo)]
+Agent = t.Annotated[agt.Agent, fastapi.Depends(get_agent)]
