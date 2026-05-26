@@ -29,6 +29,7 @@ import type {
 type ActivePartType = StreamingMessageMarkerPartStart['part_type'];
 
 export type ConnectionState =
+  | { status: 'uninitialized' }
   | { status: 'connected' }
   | { status: 'disconnected' }
   | { status: 'connecting', attempt: number, error?: string };
@@ -41,7 +42,7 @@ export const useChatStore = defineStore('chat', () => {
     developer: true,
   });
 
-  const connectionState = ref<ConnectionState>({ status: 'connecting', attempt: 1 });
+  const connectionState = ref<ConnectionState>({ status: 'uninitialized' });
 
   // Streaming State
   const activeStreamingMessage = ref<StreamingAssistantMessage | null>(null);

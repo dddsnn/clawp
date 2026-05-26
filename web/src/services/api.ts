@@ -15,50 +15,52 @@
 // You should have received a copy of the GNU Affero General Public License along
 // with clawp. If not, see <https://www.gnu.org/licenses/>.
 
-import { useChatStore } from '../stores/chatStore';
-import { useAgentStore } from '../stores/agentStore';
 import { z } from 'zod';
+import { useChatStore } from '../stores/chatStore';
 import { MessageSchema, WebsocketChunkSchema, AgentInformationSchema } from '../types/api';
-import type { WebsocketChunk, UserInputMessage } from '../types/api';
+import type { WebsocketChunk, UserInputMessage, AgentInformation } from '../types/api';
 
 const MessagesResponseSchema = z.array(MessageSchema);
 const AgentsResponseSchema = z.array(AgentInformationSchema);
 
-export class ApiService {
-  private store: ReturnType<typeof useChatStore>;
-  private agentStore: ReturnType<typeof useAgentStore>;
+export async function fetchAgents(): Promise<AgentInformation[]> {
+  const response = await fetch('/api/v1/agents');
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  const rawData = await response.json();
+  return AgentsResponseSchema.parse(rawData);
+}
+
+export async function fetchHistory(agentId: string) {
+  const response = await fetch(`/api/v1/agents/${agentId}/messages`);
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  const rawData = await response.json();
+  return MessagesResponseSchema.parse(rawData);
+}
+
+export class ChatConnection {
   private ws: WebSocket | null = null;
-  private isIntentionallyClosed = false;
+  private isDestroyed = false;
+  private store: ReturnType<typeof useChatStore>;
+  public readonly agentId: string;
 
-  constructor() {
+  constructor(agentId: string) {
+    this.agentId = agentId;
     this.store = useChatStore();
-    this.agentStore = useAgentStore();
   }
 
-  async fetchAgents() {
-    try {
-      const response = await fetch('/api/v1/agents');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const rawData = await response.json();
-      const agents = AgentsResponseSchema.parse(rawData);
-      this.agentStore.setAgents(agents);
-    } catch (error) {
-      console.error('Failed to fetch agents:', error);
-    }
-  }
-
-  init(agentId: string) {
-    this.disconnect();
-    this.isIntentionallyClosed = false;
+  connect() {
+    this.isDestroyed = false;
     this.store.clearMessages();
     this.store.setConnectionState({ status: 'connecting', attempt: 1 });
-    this.connectWebSocket(agentId);
+    this.connectWebSocket();
   }
 
   disconnect() {
-    this.isIntentionallyClosed = true;
+    this.isDestroyed = true;
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -66,44 +68,53 @@ export class ApiService {
     this.store.setConnectionState({ status: 'disconnected' });
   }
 
-  private connectWebSocket(agentId: string) {
+  private connectWebSocket() {
     let attemptCounter = 1;
 
-    const connect = () => {
-      // If we've selected a different agent while waiting to reconnect, don't reconnect this old one
-      if (this.agentStore.selectedAgentId !== agentId) return;
+    const connectLoop = () => {
+      if (this.isDestroyed) return;
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${protocol}//${window.location.host}/api/v1/agents/${agentId}/stream/${Date.now()}`;
+      const wsUrl = `${protocol}//${window.location.host}/api/v1/agents/${this.agentId}/stream/${Date.now()}`;
 
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = async () => {
-        console.log('WebSocket connected.');
+        if (this.isDestroyed) {
+          this.ws?.close();
+          return;
+        }
+        console.log(`WebSocket connected to agent ${this.agentId}.`);
         attemptCounter = 1;
         this.store.setConnectionState({ status: 'connected' });
-        await this.fetchHistory(agentId);
+
+        try {
+          const messages = await fetchHistory(this.agentId);
+          if (this.isDestroyed) return;
+          for (const msg of messages) {
+            this.store.addMessage(msg);
+          }
+        } catch (error) {
+          console.error('Failed to fetch history:', error);
+        }
       };
 
       this.ws.onmessage = (event) => {
+        if (this.isDestroyed) return;
         try {
           const rawData = JSON.parse(event.data);
           const chunk = WebsocketChunkSchema.parse(rawData);
           this.processChunk(chunk);
         } catch (error) {
-          console.error('Failed to parse or validate websocket message:', error, event.data);
+          console.error('Failed to parse websocket message:', error, event.data);
         }
       };
 
       this.ws.onclose = () => {
-        if (this.isIntentionallyClosed) {
-          console.log('WebSocket intentionally disconnected.');
-          return;
-        }
+        if (this.isDestroyed) return;
 
         console.log(`WebSocket disconnected. Reconnecting in 3s... (Attempt ${attemptCounter})`);
 
-        // Preserve existing error message if present, otherwise clear it on close.
         const currentState = this.store.connectionState;
         const errorMessage = currentState.status === 'connecting' ? currentState.error : undefined;
 
@@ -114,20 +125,15 @@ export class ApiService {
         });
 
         attemptCounter++;
-        setTimeout(() => connect(), 3000);
+        setTimeout(() => connectLoop(), 3000);
       };
 
       this.ws.onerror = (error) => {
+        if (this.isDestroyed) return;
         const currentState = this.store.connectionState;
         const isNormalReconnection = currentState.status === 'connecting' && !currentState.error;
         let errorMessage;
-        if (isNormalReconnection) {
-          // We were already reconnecting, this error is just letting us know
-          // that the server is unreachable, which shouldn't get logged as an
-          // error.
-          errorMessage = undefined;
-        } else {
-          // We were previously connected and an error has occured.
+        if (!isNormalReconnection) {
           errorMessage = "Websocket connection error";
           console.error('WebSocket error:', error);
         }
@@ -139,29 +145,7 @@ export class ApiService {
       };
     };
 
-    connect();
-  }
-
-  private async fetchHistory(agentId: string) {
-    try {
-      const response = await fetch(`/api/v1/agents/${agentId}/messages`);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const rawData = await response.json();
-      const messages = MessagesResponseSchema.parse(rawData);
-      
-      for (const msg of messages) {
-        // The store's addMessage() is idempotent, it checks whether the
-        // message exists already before adding it.
-        this.store.addMessage(msg);
-      }
-
-    } catch (error) {
-      console.error('Failed to fetch or validate message history:', error);
-      throw error;
-    }
+    connectLoop();
   }
 
   private processChunk(chunk: WebsocketChunk) {
@@ -198,7 +182,7 @@ export class ApiService {
     }
   }
 
-  async sendMessage(text: string) {
+  sendMessage(text: string) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       console.error("WebSocket is not connected. Cannot send message.");
       return;

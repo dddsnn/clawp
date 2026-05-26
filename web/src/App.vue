@@ -18,39 +18,56 @@ with clawp. If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, watch } from 'vue';
+import { onMounted, onUnmounted, watch, shallowRef } from 'vue';
 import { storeToRefs } from 'pinia';
 import TopBar from './components/layout/TopBar.vue';
 import ChatWindow from './components/chat/ChatWindow.vue';
-import { ApiService } from './services/api';
+import { fetchAgents, ChatConnection } from './services/api';
 import { useAgentStore } from './stores/agentStore';
+import { useChatStore } from './stores/chatStore';
 import { Users } from 'lucide-vue-next';
 
-const apiService = new ApiService();
 const agentStore = useAgentStore();
+const chatStore = useChatStore();
 const { agents, selectedAgentId } = storeToRefs(agentStore);
 
-const handleSend = async (text: string) => {
-  await apiService.sendMessage(text);
+const currentConnection = shallowRef<ChatConnection | null>(null);
+
+const handleSend = (text: string) => {
+  currentConnection.value?.sendMessage(text);
 };
 
 onMounted(async () => {
-  await apiService.fetchAgents();
-  if (agents.value.length > 0) {
-    agentStore.setSelectedAgentId(agents.value[0].id);
+  try {
+    const fetchedAgents = await fetchAgents();
+    agentStore.setAgents(fetchedAgents);
+    if (fetchedAgents.length > 0) {
+      agentStore.setSelectedAgentId(fetchedAgents[0].id);
+    }
+  } catch (error) {
+    console.error('Failed to load agents:', error);
   }
 });
 
 watch(selectedAgentId, (newId) => {
+  if (currentConnection.value) {
+    currentConnection.value.disconnect();
+    currentConnection.value = null;
+  }
+
   if (newId) {
-    apiService.init(newId);
+    currentConnection.value = new ChatConnection(newId);
+    currentConnection.value.connect();
   } else {
-    apiService.disconnect();
+    chatStore.clearMessages();
+    chatStore.setConnectionState({ status: 'uninitialized' });
   }
 });
 
 onUnmounted(() => {
-  apiService.disconnect();
+  if (currentConnection.value) {
+    currentConnection.value.disconnect();
+  }
 });
 </script>
 
