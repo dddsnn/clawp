@@ -20,10 +20,10 @@ with clawp. If not, see <https://www.gnu.org/licenses/>.
 <script setup lang="ts">
 import { storeToRefs } from 'pinia';
 import { useChatStore } from '../../stores/chatStore';
-import { Eye, EyeOff, WifiOff, Loader2 } from 'lucide-vue-next';
+import { WifiOff, Loader2 } from 'lucide-vue-next';
 
 const chatStore = useChatStore();
-const { visibility, connectionState } = storeToRefs(chatStore);
+const { connectionState } = storeToRefs(chatStore);
 </script>
 
 <template>
@@ -46,19 +46,6 @@ const { visibility, connectionState } = storeToRefs(chatStore);
     <header class="flex items-center justify-between px-4 py-3 bg-white border-b shadow-sm">
       <div class="flex items-center space-x-2">
         <h1 class="text-xl font-semibold text-slate-800 tracking-tight">Clawp AI agent framework</h1>
-      </div>
-
-      <div class="flex items-center space-x-4 bg-slate-100 p-1.5 rounded-lg border border-slate-200 shadow-inner">
-        <button 
-          v-for="(val, key) in visibility" 
-          :key="key"
-          @click="chatStore.toggleVisibility(key as any)"
-          class="flex items-center space-x-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors"
-          :class="[val ? 'bg-white shadow-sm text-slate-900 border border-slate-200' : 'text-slate-500 hover:text-slate-700']"
-        >
-          <component :is="val ? Eye : EyeOff" class="w-4 h-4" />
-          <span class="capitalize">{{ key }}</span>
-        </button>
       </div>
     </header>
   </div>

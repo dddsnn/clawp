@@ -1,0 +1,48 @@
+<script setup lang="ts">
+import { storeToRefs } from 'pinia';
+import { Eye, EyeOff } from 'lucide-vue-next';
+import { useChatStore } from '../../stores/chatStore';
+import MessageList from './MessageList.vue';
+import ChatInput from './ChatInput.vue';
+
+const emit = defineEmits<{
+  (e: 'send', message: string): void
+}>();
+
+const chatStore = useChatStore();
+const { visibility } = storeToRefs(chatStore);
+
+const handleSend = (text: string) => {
+  emit('send', text);
+};
+</script>
+
+<template>
+  <div class="flex flex-row flex-1 overflow-hidden w-full relative">
+    <!-- Main Chat Area -->
+    <div class="flex flex-col flex-1 min-w-0 h-full border-r border-slate-200">
+      <MessageList />
+      <ChatInput @send="handleSend" />
+    </div>
+
+    <!-- Right Sidebar / Settings Pane -->
+    <aside class="w-auto bg-slate-50 flex flex-col items-stretch py-4 px-3 space-y-4 shadow-inner overflow-y-auto border-l border-slate-200">
+      <div 
+        v-for="(val, key) in visibility" 
+        :key="key"
+        class="group relative flex justify-center w-full"
+      >
+        <button 
+          @click="chatStore.toggleVisibility(key as any)"
+          class="px-4 py-2.5 rounded-xl transition-all shadow-sm flex items-center justify-start border space-x-2 w-full"
+          :class="[val ? 'bg-white text-slate-800 border-slate-300' : 'bg-slate-100 text-slate-400 hover:text-slate-600 border-slate-200']"
+          :aria-label="`Toggle ${key} visibility`"
+          :title="`${val ? 'Hide' : 'Show'} ${key} messages`"
+        >
+          <component :is="val ? Eye : EyeOff" class="w-5 h-5 shrink-0" />
+          <span class="capitalize font-medium text-sm">{{ key }}</span>
+        </button>
+      </div>
+    </aside>
+  </div>
+</template>
