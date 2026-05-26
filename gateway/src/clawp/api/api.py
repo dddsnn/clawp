@@ -57,6 +57,15 @@ async def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.get("/agents")
+async def list_agents(
+        agent_repo: dep.AgentRepository) -> list[mdl.AgentInformation]:
+    """Get a list of agents."""
+    return [
+        mdl.AgentInformation(id=agent.id)
+        for agent in agent_repo.iter_agents()]
+
+
 @router.get("/agents/{agent_id}/messages")
 async def get_messages(
         agent: dep.Agent, agent_id: uuid.UUID,
