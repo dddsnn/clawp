@@ -10,7 +10,7 @@ const emit = defineEmits<{
 }>();
 
 const chatStore = useChatStore();
-const { visibility } = storeToRefs(chatStore);
+const { connectionState, visibility } = storeToRefs(chatStore);
 
 const handleSend = (text: string) => {
   emit('send', text);
@@ -18,6 +18,21 @@ const handleSend = (text: string) => {
 </script>
 
 <template>
+    <div class="flex flex-col z-10 sticky top-0">
+    <!-- Connection Status Banner -->
+    <div v-if="connectionState.status === 'disconnected'" class="bg-slate-500 text-white px-4 py-1.5 text-sm flex items-center justify-center space-x-2 shadow-inner">
+        <WifiOff class="w-4 h-4" />
+        <span>Disconnected from chat.</span>
+    </div>
+    <div v-else-if="connectionState.status === 'connecting' && connectionState.error" class="bg-red-500 text-white px-4 py-1.5 text-sm flex items-center justify-center space-x-2 shadow-inner">
+        <Loader2 class="w-4 h-4 animate-spin" />
+        <span>Error: {{ connectionState.error }}. Reconnecting... (Attempt {{ connectionState.attempt }})</span>
+    </div>
+    <div v-else-if="connectionState.status === 'connecting'" class="bg-blue-500 text-white px-4 py-1.5 text-sm flex items-center justify-center space-x-2 shadow-inner">
+        <Loader2 class="w-4 h-4 animate-spin" />
+        <span>Connecting to chat... (Attempt {{ connectionState.attempt }})</span>
+    </div>
+    </div>
   <div class="flex flex-row flex-1 overflow-hidden w-full relative">
     <!-- Main Chat Area -->
     <div class="flex flex-col flex-1 min-w-0 h-full border-r border-slate-200">
