@@ -466,8 +466,8 @@ class AgentRepository:
         self._agents = {}
         self._running = False
 
-    def list_agents(self) -> set[uuid.UUID]:
-        return set(self._agents)
+    def iter_agents(self) -> cl_abc.Generator[Agent]:
+        yield from self._agents.values()
 
     def get_agent(self, agent_id: uuid.UUID) -> Agent:
         return self._agents[agent_id]
