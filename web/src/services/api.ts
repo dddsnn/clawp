@@ -16,25 +16,45 @@
 // with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 import { useChatStore } from '../stores/chatStore';
+import { useAgentStore } from '../stores/agentStore';
 import { z } from 'zod';
-import { MessageSchema, WebsocketChunkSchema } from '../types/api';
+import { MessageSchema, WebsocketChunkSchema, AgentInformationSchema } from '../types/api';
 import type { WebsocketChunk, UserInputMessage } from '../types/api';
 
 const MessagesResponseSchema = z.array(MessageSchema);
+const AgentsResponseSchema = z.array(AgentInformationSchema);
 
 export class ApiService {
   private store: ReturnType<typeof useChatStore>;
+  private agentStore: ReturnType<typeof useAgentStore>;
   private ws: WebSocket | null = null;
   private isIntentionallyClosed = false;
 
   constructor() {
     this.store = useChatStore();
+    this.agentStore = useAgentStore();
   }
 
-  init() {
+  async fetchAgents() {
+    try {
+      const response = await fetch('/api/v1/agents');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const rawData = await response.json();
+      const agents = AgentsResponseSchema.parse(rawData);
+      this.agentStore.setAgents(agents);
+    } catch (error) {
+      console.error('Failed to fetch agents:', error);
+    }
+  }
+
+  init(agentId: string) {
+    this.disconnect();
     this.isIntentionallyClosed = false;
+    this.store.clearMessages();
     this.store.setConnectionState({ status: 'connecting', attempt: 1 });
-    this.connectWebSocket();
+    this.connectWebSocket(agentId);
   }
 
   disconnect() {
@@ -46,16 +66,15 @@ export class ApiService {
     this.store.setConnectionState({ status: 'disconnected' });
   }
 
-  private connectWebSocket() {
+  private connectWebSocket(agentId: string) {
     let attemptCounter = 1;
 
     const connect = () => {
+      // If we've selected a different agent while waiting to reconnect, don't reconnect this old one
+      if (this.agentStore.selectedAgentId !== agentId) return;
+
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      // Add a timestamp as a way to circumvent Firefox's websocket reconnection restrictions.
-      // After a few failed connection attempts, Firefox will delay further attempts in a way that
-      // is outside our control. Adding this path parameter (which the API ignores) circumvents
-      // that check.
-      const wsUrl = `${protocol}//${window.location.host}/api/v1/stream/${Date.now()}`;
+      const wsUrl = `${protocol}//${window.location.host}/api/v1/agents/${agentId}/stream/${Date.now()}`;
 
       this.ws = new WebSocket(wsUrl);
 
@@ -63,9 +82,7 @@ export class ApiService {
         console.log('WebSocket connected.');
         attemptCounter = 1;
         this.store.setConnectionState({ status: 'connected' });
-        // Fetch the entire history every time we connect (even on a
-        // reconnect) to ensure we've not missed anything.
-        await this.fetchHistory();
+        await this.fetchHistory(agentId);
       };
 
       this.ws.onmessage = (event) => {
@@ -125,9 +142,9 @@ export class ApiService {
     connect();
   }
 
-  private async fetchHistory() {
+  private async fetchHistory(agentId: string) {
     try {
-      const response = await fetch('/api/v1/messages');
+      const response = await fetch(`/api/v1/agents/${agentId}/messages`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }

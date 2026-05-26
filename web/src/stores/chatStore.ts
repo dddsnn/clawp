@@ -73,6 +73,12 @@ export const useChatStore = defineStore('chat', () => {
     messages.value.sort((a, b) => a.metadata.seq_in_session - b.metadata.seq_in_session);
   }
 
+  function clearMessages() {
+    messages.value = [];
+    activeStreamingMessage.value = null;
+    activeStreamPartType.value = null;
+  }
+
   // Used by the stream to create the placeholder agent message before fragments arrive
   function startStreamingMessage(seqInSession: number) {
     const existingMsg = messages.value.find(m => m.metadata.seq_in_session === seqInSession);
@@ -150,6 +156,7 @@ export const useChatStore = defineStore('chat', () => {
     activeStreamPartType,
     setConnectionState,
     addMessage,
+    clearMessages,
     startStreamingMessage,
     endStreamingMessage,
     setActivePartType,

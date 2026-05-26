@@ -208,6 +208,14 @@ export const UserInputMessageSchema = z.object({
   content: z.string(),
 });
 
+// --- Agent Types ---
+
+export const AgentInformationSchema = z.object({
+  id: z.string().uuid(),
+});
+
+export type AgentInformation = z.infer<typeof AgentInformationSchema>;
+
 // --- Exported Types ---
 
 export type Message = z.infer<typeof MessageSchema>;
