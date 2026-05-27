@@ -40,7 +40,9 @@ logging.config.dictConfig({
     "loggers": {
         "httpcore": {"level": "INFO", "handlers": ["stream_handler"]},
         "nio": {"level": "INFO", "handlers": ["stream_handler"]},
-        "peewee": {"level": "INFO", "handlers": ["stream_handler"]}},})
+        "peewee": {"level": "INFO", "handlers": ["stream_handler"]},
+        "mcp.server.lowlevel.server": {
+            "level": "INFO", "handlers": ["stream_handler"]}},})
 logger = logging.getLogger(__name__)
 
 
