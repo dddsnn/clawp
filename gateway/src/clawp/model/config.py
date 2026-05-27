@@ -15,12 +15,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+import abc
 import os
 import pathlib
 import typing as t
 
 import pydantic as pyd
 import pydantic_settings as pyd_set
+
+
+class Account(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def id(self) -> str:
+        raise NotImplementedError
 
 
 class BaseSettings(pyd_set.BaseSettings):
@@ -33,12 +41,16 @@ class OpenRouterConfig(BaseSettings):
     model: str
 
 
-class MatrixAccountConfig(BaseSettings):
+class MatrixAccountConfig(BaseSettings, Account):
     homeserver: str
     username: str
     # Default this to None, it will be loaded from env by MatrixConfig.
     password: str = pyd.Field(default=None, validate_default=False)
     device_id: str
+
+    @property
+    def id(self) -> str:
+        return self.username
 
 
 class MatrixConfig(BaseSettings):
@@ -53,13 +65,31 @@ class MatrixConfig(BaseSettings):
             assert isinstance(data, dict)
             accounts = data["accounts"]
             assert isinstance(accounts, list)
-            assert all(isinstance(a, dict) for a in accounts)
+            assert all(
+                isinstance(a, (dict, MatrixAccountConfig)) for a in accounts)
         except (AssertionError, KeyError):
             raise ValueError("invalid accounts format")
         # For each account, look for CLAWP_MATRIX_PASSWORD_N in the
         # environment.
         for i, account in enumerate(accounts):
-            if account.get("password") is not None:
+            if isinstance(account, dict):
+
+                def get_password():
+                    return account.get("password")
+
+                def set_password(password):
+                    account["password"] = password
+
+            else:
+                assert isinstance(account, MatrixAccountConfig)
+
+                def get_password():
+                    return getattr(account, "password", None)
+
+                def set_password(password):
+                    account.password = password
+
+            if get_password() is not None:
                 # A password has been specified in the dict, prefer that over
                 # an env variable.
                 continue
@@ -69,7 +99,7 @@ class MatrixConfig(BaseSettings):
                 # No password in environment, it must be in the dict already or
                 # fail validation.
                 continue
-            account["password"] = env_password
+            set_password(env_password)
         return data
 
 

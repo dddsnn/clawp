@@ -27,7 +27,6 @@ from . import agent as agt
 from . import api
 from . import channel as chan
 from . import config as cfg
-from . import model as mdl
 from . import provider as prov
 
 _log_fmt = "%(asctime)s|%(module)s|%(name)s|%(levelname)s: %(message)s"
@@ -57,28 +56,19 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def make_channels(config: mdl.GatewayConfig) -> dict[str, chan.Channel]:
-    channels = {"system": chan.SystemChannel(), "web_ui": chan.WebUiChannel()}
-    if config.matrix:
-        channels["matrix"] = chan.MatrixChannel(config.matrix)
-    return channels
-
-
 async def main():
     shutdown_event = asyncio.Event()
     asyncio.get_running_loop().add_signal_handler(
         signal.SIGTERM, shutdown, shutdown_event)
     args = parse_args()
     config = cfg.load_config(args.config_file)
-    channels = make_channels(config.gateway)
-    channel_repo = chan.ChannelRepository(channels.values())
+    channel_pool = chan.ChannelPool(config.gateway.channels)
     openrouter_provider = prov.OpenrouterProvider(config.gateway.openrouter)
     agent_repo = agt.AgentRepository(
-        base_dir=config.gateway.agents_base_dir, channel_repo=channel_repo,
+        base_dir=config.gateway.agents_base_dir, channel_pool=channel_pool,
         provider=openrouter_provider)
     clawp_api = api.Api(config.gateway.api, agent_repo)
     async with contextlib.AsyncExitStack() as stack:
-        await stack.enter_async_context(channel_repo)
         await stack.enter_async_context(openrouter_provider)
         await stack.enter_async_context(agent_repo)
         await stack.enter_async_context(clawp_api)

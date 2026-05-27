@@ -279,38 +279,39 @@ class Agent:
     sessions are properly opened and closed.
     """
     def __init__(
-            self, agent_id: uuid.UUID, *, workspace_dir: pathlib.Path,
-            message_store: store.MessageStore,
-            channel_repo: chan.ChannelRepository,
+            self, agent_information: mdl.AgentInformation, *,
+            workspace_dir: pathlib.Path, message_store: store.MessageStore,
+            channel_router: chan.ChannelRouter,
             provider: "prov.Provider") -> None:
         self._logger = logging.getLogger(type(self).__name__)
         if not workspace_dir.is_dir():
             raise ValueError("workspace doesn't exist")
-        self._agent_id = agent_id
+        self._agent_information = agent_information
         self._workspace_dir = workspace_dir
         self._message_store = message_store
         self._mcp_client = tool.Client(self)
-        self._channel_repo = channel_repo
+        self._channel_router = channel_router
         self._session_factory = ft.partial(
-            Session, message_sender=channel_repo, provider=provider,
+            Session, message_sender=channel_router, provider=provider,
             mcp_client=self._mcp_client)
         self._session = None
         self._lock = asyncio.Lock()
 
     @property
-    def id(self) -> uuid.UUID:
-        return self._agent_id
+    def information(self) -> mdl.AgentInformation:
+        return self._agent_information
 
     @property
     def workspace_dir(self) -> pathlib.Path:
         return self._workspace_dir
 
     def __str__(self) -> str:
-        return f"{type(self).__name__} {self.id}"
+        return f"{type(self).__name__} {self.information.id}"
 
     async def __aenter__(self) -> t.Self:
         await self._message_store.__aenter__()
         await self._mcp_client.__aenter__()
+        await self._channel_router.__aenter__()
         async with self._lock:
             self._read_incoming_messages_task = asyncio.create_task(
                 self._read_incoming_messages())
@@ -331,6 +332,11 @@ class Agent:
             except Exception:
                 self._logger.exception(
                     "Error waiting for incoming message task.")
+        try:
+            async with asyncio.timeout(5):
+                await self._channel_router.__aexit__(*args)
+        except Exception:
+            self._logger.exception("Error closing channel router.")
         try:
             async with asyncio.timeout(10):
                 await self._message_store.__aexit__(*args)
@@ -354,8 +360,8 @@ class Agent:
         await self._session.__aenter__()
         if active_session_seq == 0 and not self._session.num_messages:
             self._logger.info(
-                f"Existing agent {self._agent_id} has no sessions. Starting "
-                "the first one.")
+                f"Existing agent {self} has no sessions. Starting the first "
+                "one.")
             await self._send_session_init_messages()
 
     async def _start_new_session(self):
@@ -368,18 +374,15 @@ class Agent:
 
     async def _send_session_init_messages(self):
         async for message in self._onboarding_messages():
-            await self._channel_repo.system_channel.add_incoming_message(
+            await self._channel_router.system_channel.add_incoming_message(
                 "developer", message)
         # Tell the agent that this is a new session.
-        await self._channel_repo.system_channel.add_incoming_message(
+        await self._channel_router.system_channel.add_incoming_message(
             "system", await tpl.render_message_template(
                 "system_information/session_initialization.md"))
         # Tell the agent about available channels.
-        for channel in self._channel_repo.channels.values():
-            if isinstance(channel, chan.NopChannel):
-                # NopChannels should be hidden from the agent.
-                continue
-            await self._channel_repo.system_channel.add_incoming_message(
+        for channel in self._channel_router.channels.values():
+            await self._channel_router.system_channel.add_incoming_message(
                 "system", await
                 tpl.render_channel_status(await channel.status))
 
@@ -407,7 +410,7 @@ class Agent:
     async def _read_incoming_messages(self) -> None:
         handle_task = None
         try:
-            async for message in self._channel_repo.incoming_messages():
+            async for message in self._channel_router.incoming_messages():
                 async with self._lock:
                     handle_task = asyncio.create_task(
                         self._handle_incoming_message(message))
@@ -450,18 +453,17 @@ class Agent:
         """
         # TODO handle errors? rollback?++++++++++++
         message = await self._session.add_agent_message(channel, content)
-        await self._channel_repo.send(message)
+        await self._channel_router.send(message)
 
 
 class AgentRepository:
     """A repository of agents."""
     def __init__(
-            self, *, base_dir: pathlib.Path,
-            channel_repo: chan.ChannelRepository,
+            self, *, base_dir: pathlib.Path, channel_pool: chan.ChannelPool,
             provider: "prov.Provider") -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._base_dir = base_dir
-        self._channel_repo = channel_repo
+        self._channel_pool = channel_pool
         self._provider = provider
         self._agents = {}
         self._running = False
@@ -479,7 +481,7 @@ class AgentRepository:
         for agent in self._discover_agents():
             self._logger.info(f"Starting {agent}.")
             try:
-                self._agents[agent.id] = await agent.__aenter__()
+                self._agents[agent.information.id] = await agent.__aenter__()
             except Exception:
                 self._logger.exception(f"Error starting {agent}.")
                 raise
@@ -488,8 +490,17 @@ class AgentRepository:
 
     async def __aexit__(self, *args) -> bool:
         self._running = False
+        await self._stop_agents()
+        for agent in self._agents.values():
+            agent_base_dir = self._agent_base_dir(agent.information.id)
+            self._agent_information_file(agent_base_dir).write_text(
+                agent.information.model_dump_json())
+        self._agents.clear()
+        return False
+
+    async def _stop_agents(self):
         stop_tasks = {
-            asyncio.create_task(a.__aexit__(*args))
+            asyncio.create_task(a.__aexit__(None, None, None))
             for a in self._agents.values()}
         if not stop_tasks:
             stop_tasks.add(asyncio.create_task(asyncio.sleep(0)))
@@ -501,8 +512,9 @@ class AgentRepository:
             if task.exception():
                 self._logger.error(
                     "Error shutting down agent.", exc_info=task.exception())
-        self._agents.clear()
-        return False
+
+    def _agent_base_dir(self, agent_id: uuid.UUID) -> pathlib.Path:
+        return self._base_dir / str(agent_id)
 
     def _discover_agents(self) -> cl_abc.Generator[Agent]:
         for d in self._base_dir.iterdir():
@@ -516,10 +528,7 @@ class AgentRepository:
                     f"Ignoring invalid agent directory {d}.")
 
     def _instantiate_agent(self, dir: pathlib.Path) -> Agent:
-        try:
-            agent_id = uuid.UUID(dir.name)
-        except ValueError as e:
-            raise ValueError("invalid agent ID in directory name") from e
+        agent_information = self._load_or_create_agent_information(dir)
         workspace_dir = self._workspace_dir(dir)
         if not self._workspace_dir(dir).is_dir():
             raise ValueError(f"missing workspace directory {workspace_dir}")
@@ -527,9 +536,49 @@ class AgentRepository:
         if not message_store_dir.is_dir():
             raise ValueError(f"missing message store {message_store_dir}")
         message_store = store.MessageStore(message_store_dir)
+        channels = []
+        for claimed_channel in agent_information.claimed_channels:
+            try:
+                channels.append(self._channel_pool.acquire(claimed_channel))
+            except chan.ChannelUnavailableError as e:
+                self._logger.warning(
+                    f"Agent {agent_information.id} claims channel "
+                    f"{claimed_channel}, but it's not available: {e}.")
         return Agent(
-            agent_id, workspace_dir=workspace_dir, message_store=message_store,
-            channel_repo=self._channel_repo, provider=self._provider)
+            agent_information, workspace_dir=workspace_dir,
+            message_store=message_store,
+            channel_router=chan.ChannelRouter(channels),
+            provider=self._provider)
+
+    def _load_or_create_agent_information(
+            self, agent_base_dir: pathlib.Path) -> mdl.AgentInformation:
+        try:
+            agent_id = uuid.UUID(agent_base_dir.name)
+        except ValueError as e:
+            raise ValueError("invalid agent ID in directory name") from e
+        agent_information_file = self._agent_information_file(agent_base_dir)
+        try:
+            agent_information = mdl.AgentInformation.model_validate_json(
+                agent_information_file.read_bytes())
+        except FileNotFoundError:
+            # No information file, create a fresh one.
+            agent_information = mdl.AgentInformation(id=agent_id)
+            agent_information_file.write_text(
+                agent_information.model_dump_json())
+            self._logger.info(
+                f"Created new agent information {agent_information}.")
+            return agent_information
+        except Exception as e:
+            raise ValueError("invalid agent information file") from e
+        if agent_information.id != agent_id:
+            raise ValueError(
+                f"agent ID in information file ({agent_information.id}) "
+                f"doesn't match the on in the directory name ({agent_id})")
+        return agent_information
+
+    def _agent_information_file(
+            self, agent_base_dir: pathlib.Path) -> pathlib.Path:
+        return agent_base_dir / "agent_information.json"
 
     def _workspace_dir(self, agent_base_dir: pathlib.Path) -> pathlib.Path:
         return agent_base_dir / "workspace"
@@ -550,8 +599,8 @@ class AgentRepository:
         agent = self._instantiate_agent(agent_base_dir)
         self._logger.info(f"Starting new {agent}.")
         try:
-            self._agents[agent.id] = await agent.__aenter__()
+            self._agents[agent.information.id] = await agent.__aenter__()
         except Exception:
             self._logger.exception(f"Error starting new {agent}.")
             raise
-        return self._agents[agent.id]
+        return self._agents[agent.information.id]

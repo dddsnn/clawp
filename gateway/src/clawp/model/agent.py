@@ -17,8 +17,17 @@
 
 import uuid
 
+import pydantic as pyd
+
 from . import base
+from . import channel as chan
+
+
+class ClaimedChannel(base.BaseModel):
+    type: chan.ChannelType
+    id: str
 
 
 class AgentInformation(base.BaseModel):
     id: uuid.UUID
+    claimed_channels: list[ClaimedChannel] = pyd.Field(default_factory=list)

@@ -16,13 +16,10 @@
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 import abc
-import asyncio
 import collections.abc as cl_abc
 import dataclasses as dc
 import logging
 import typing as t
-
-import whenever as we
 
 from .. import message as msg
 from .. import model as mdl
@@ -100,236 +97,20 @@ class Channel(MessageSender, MessageReceiver):
 
     @property
     @abc.abstractmethod
+    def id(self) -> t.Optional[str]:
+        """
+        ID for the particular instance of the channel.
+
+        This identifies e.g. the account or username from this this channel
+        sends. None for channels that have no identity associated with them.
+        """
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
     async def status(self) -> mdl.ChannelStatus:
         """Current status of the channel."""
         raise NotImplementedError
-
-    def incoming_messages(self) -> cl_abc.AsyncGenerator[IncomingMessage]:
-        """Iterate over incoming messages."""
-        return self._publisher.subscribe()
-
-
-class NopChannel(Channel):
-    """A channel that does nothing."""
-    @property
-    async def status(self) -> str:
-        return mdl.ChannelStatus(type=self.type, available=False)
-
-    async def send(self, message: msg.AgentMessage) -> None:
-        if not await message.content:
-            # The agent may send empty messages without a header, so it's fine
-            # if they end up in a NopChannel.
-            return
-        self._logger.warning(
-            f"Non-empty message was sent to a NopChannel: {message}.")
-
-    def response_channel(
-        self, incoming_descriptor: mdl.IncomingChannelDescriptor
-    ) -> mdl.OutgoingChannelDescriptor:
-        return incoming_descriptor
-
-
-class MissingChannel(NopChannel):
-    def __init__(self):
-        super().__init__("missing")
-
-
-class UnknownChannel(NopChannel):
-    def __init__(self):
-        super().__init__("unknown")
-
-
-class SystemChannel(Channel):
-    """
-    System channel.
-
-    This built-in channel is used for all messages that the system sends the
-    agent. It's also a means for the agent to respond to the system directly
-    whenever necessary.
-    """
-    def __init__(self) -> None:
-        super().__init__("system")
-
-    @property
-    async def status(self) -> str:
-        return mdl.ChannelStatus(type=self.type, available=True)
-
-    async def send(self, message: msg.AgentMessage) -> None:
-        self._logger.info(
-            f"Agent sent system message:\n{await message.content}")
-
-    def response_channel(
-        self, incoming_descriptor: mdl.SystemChannelDescriptor
-    ) -> mdl.SystemChannelDescriptor:
-        return incoming_descriptor
-
-    async def add_incoming_message(
-            self, role: t.Literal["developer", "tool", "system"], content: str,
-            request_response: bool = False) -> None:
-        """
-        Add an incoming message.
-
-        The message will appear has having arrived on the channel and will be
-        delivered to the agent.
-        """
-        metadata = msg.IncomingMessageMetadata(
-            time=util.ImmediateValue(we.Instant.now()),
-            channel=mdl.SystemChannelDescriptor())
-        message = IncomingMessage(
-            role=role, metadata=metadata, content=content,
-            request_response=request_response)
-        await self._publisher.append(message)
-
-
-class WebUiChannel(Channel):
-    """
-    Web UI channel.
-
-    This channel is used for the built-in web UI.
-    """
-    def __init__(self) -> None:
-        super().__init__("web_ui")
-
-    @property
-    async def status(self) -> str:
-        return mdl.ChannelStatus(type=self.type, available=True)
-
-    async def send(self, message: msg.AgentMessage) -> None:
-        self._logger.debug(f"Sending {message}: {await message.content}")
-
-    def response_channel(
-        self, incoming_descriptor: mdl.WebUiChannelDescriptor
-    ) -> mdl.WebUiChannelDescriptor:
-        return incoming_descriptor
-
-    async def add_incoming_user_message(
-            self, time: we.Instant, content: str) -> None:
-        """
-        Add a user message.
-
-        The message will appear has having arrived on the channel and will be
-        delivered to the agent.
-        """
-        metadata = msg.IncomingMessageMetadata(
-            time=util.ImmediateValue(time),
-            channel=mdl.WebUiChannelDescriptor())
-        message = IncomingMessage(
-            role="user", metadata=metadata, content=content,
-            request_response=True)
-        await self._publisher.append(message)
-
-
-class ChannelRepository(MessageSender):
-    """
-    A repository of all of an agent's channels
-
-    Maintains the channels available to an agent, multiplexes incoming messages
-    into a single stream, and routes outgoing messages to the appropriate
-    channel based on the message's metadata.
-
-    The built-in channels system and web_ui must always exist. The NopChannels
-    unknown and missing are added automatically.
-
-    The asynchronous context manager takes control of the contexts of the
-    channels, i.e. it expects them to not have been entered and instead
-    controls their lifecycles.
-    """
-    @dc.dataclass
-    class ChannelStatus:
-        channel: Channel
-        read_task: t.Optional[asyncio.Task] = None
-
-    def __init__(self, channels: cl_abc.Iterable[Channel]) -> None:
-        self._logger = logging.getLogger(type(self).__name__)
-        self._publisher = util.Publisher()
-        self._stati = {}
-        for channel in channels:
-            if channel.type in self._stati:
-                raise ValueError(f"Channel {channel.type} specified twice.")
-            self._stati[channel.type] = self.ChannelStatus(channel)
-        if not any(isinstance(c, SystemChannel) for c in channels):
-            raise ValueError("missing system channel")
-        if not any(isinstance(c, WebUiChannel) for c in channels):
-            raise ValueError("missing web UI channel")
-        if not any(isinstance(c, MissingChannel) for c in channels):
-            self._stati["missing"] = self.ChannelStatus(MissingChannel())
-        if not any(isinstance(c, UnknownChannel) for c in channels):
-            self._stati["unknown"] = self.ChannelStatus(UnknownChannel())
-
-    async def __aenter__(self) -> t.Self:
-        self._logger.info(
-            "Starting channel repository with channels "
-            f"{sorted(self._stati)}.")
-        await self._publisher.__aenter__()
-        for status in self._stati.values():
-            await status.channel.__aenter__()
-            status.read_task = asyncio.create_task(
-                self._read_channel(status.channel))
-        return self
-
-    async def __aexit__(self, *args) -> bool:
-        await self._publisher.__aexit__(*args)
-        for status in self._stati.values():
-            status.read_task.cancel()
-            try:
-                async with asyncio.timeout(60):
-                    await status.read_task
-                    await status.channel.__aexit__(*args)
-            except Exception:
-                self._logger.exception(
-                    f"Error waiting for shutdown of {status.channel.type}.")
-        return False
-
-    async def _read_channel(self, channel: Channel):
-        publish_task = None
-        try:
-            async for message in channel.incoming_messages():
-                publish_task = asyncio.create_task(
-                    self._publisher.append(message))
-                await asyncio.shield(publish_task)
-        except asyncio.CancelledError:
-            if not publish_task:
-                return
-            try:
-                async with asyncio.timeout(60):
-                    await publish_task
-            except Exception:
-                self._logger.exception("Error waiting for final publish.")
-                publish_task.cancel()
-
-    @property
-    def channels(self) -> dict[str, Channel]:
-        return {t: s.channel for t, s in self._stati.items()}
-
-    @property
-    def system_channel(self) -> SystemChannel:
-        system_channel = self.channels["system"]
-        assert isinstance(system_channel, SystemChannel)
-        return system_channel
-
-    async def send(self, message: msg.AgentMessage) -> None:
-        """
-        Send a message.
-
-        The message's metadata is checked to see which channel the message
-        should be sent on. If the channel doesn't exist, a KeyError is raised.
-        """
-        try:
-            channel_status = self._stati[message.metadata.channel.type]
-        except KeyError:
-            raise ValueError(
-                f"no such channel {message.metadata.channel.type}")
-        self._logger.debug(f"Sending {message}: {await message.content}")
-        await channel_status.channel.send(message)
-
-    def response_channel(
-        self, incoming_descriptor: mdl.IncomingChannelDescriptor
-    ) -> mdl.OutgoingChannelDescriptor:
-        try:
-            channel_status = self._stati[incoming_descriptor.type]
-        except KeyError:
-            raise ValueError(f"no such channel {incoming_descriptor.type}")
-        return channel_status.channel.response_channel(incoming_descriptor)
 
     def incoming_messages(self) -> cl_abc.AsyncGenerator[IncomingMessage]:
         """Iterate over incoming messages."""

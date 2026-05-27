@@ -16,6 +16,7 @@
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
+import pathlib
 import typing as t
 
 import nio
@@ -34,7 +35,9 @@ class MatrixChannel(base.Channel):
     This channel is used to communicate via Matrix. Credentials are
     configured on construction.
     """
-    def __init__(self, config: mdl.MatrixConfig) -> None:
+    def __init__(
+            self, store_dir: pathlib.Path,
+            config: mdl.MatrixAccountConfig) -> None:
         super().__init__("matrix")
         self._config = config
         client_config = nio.AsyncClientConfig(
@@ -42,8 +45,7 @@ class MatrixChannel(base.Channel):
         self._client = nio.AsyncClient(
             self._config.homeserver, self._config.username,
             device_id=self._config.device_id,
-            store_path=str(self._config.store_dir.resolve()),
-            config=client_config)
+            store_path=str(store_dir.resolve()), config=client_config)
         self._client.add_event_callback(
             self._on_room_message_text, nio.RoomMessageText)
         self._sync_forever_task = None
@@ -74,6 +76,10 @@ class MatrixChannel(base.Channel):
             self._logger.exception(
                 "Error closing underlying network connection.")
         return False
+
+    @property
+    def id(self) -> str:
+        return self._config.username
 
     @property
     async def status(self) -> str:

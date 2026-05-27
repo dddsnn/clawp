@@ -1,0 +1,201 @@
+# Copyright 2026 Marc Lehmann
+
+# This file is part of clawp.
+#
+# clawp is free software: you can redistribute it and/or modify it under the
+# terms of the GNU Affero General Public License as published by the Free
+# Software Foundation, either version 3 of the License, or (at your option) any
+# later version.
+#
+# clawp is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+# A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+# details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with clawp. If not, see <https://www.gnu.org/licenses/>.
+
+import asyncio
+import collections.abc as cl_abc
+import dataclasses as dc
+import logging
+import typing as t
+
+from .. import message as msg
+from .. import model as mdl
+from .. import util
+from . import base, builtin, matrix
+
+
+class ChannelUnavailableError(Exception):
+    """Raised when a channel is not available in the pool."""
+
+
+class ChannelRouter(base.MessageSender):
+    """
+    A router for all of an agent's channels.
+
+    Maintains the channels available to an agent, multiplexes incoming messages
+    into a single stream, and routes outgoing messages to the appropriate
+    channel based on the message's metadata.
+
+    Only one channel of each type may be added. The built-in channels system
+    and web_ui are added automatically if they don't exist.
+
+    The asynchronous context manager takes control of the contexts of the
+    channels, i.e. it expects them to not have been entered and instead
+    controls their lifecycles.
+    """
+    @dc.dataclass
+    class ChannelStatus:
+        channel: base.Channel
+        read_task: t.Optional[asyncio.Task] = None
+
+    def __init__(self, channels: list[base.Channel]) -> None:
+        self._logger = logging.getLogger(type(self).__name__)
+        self._publisher = util.Publisher()
+        self._stati = {}
+        for channel in channels:
+            if channel.type in self._stati:
+                raise ValueError(f"Channel {channel.type} specified twice.")
+            self._stati[channel.type] = self.ChannelStatus(channel)
+        if not any(isinstance(c, builtin.SystemChannel) for c in channels):
+            self._stati["system"] = self.ChannelStatus(builtin.SystemChannel())
+        if not any(isinstance(c, builtin.WebUiChannel) for c in channels):
+            self._stati["web_ui"] = self.ChannelStatus(builtin.WebUiChannel())
+
+    async def __aenter__(self) -> t.Self:
+        self._logger.info(
+            "Starting channel router with channels "
+            f"{sorted(self._stati)}.")
+        await self._publisher.__aenter__()
+        for status in self._stati.values():
+            await status.channel.__aenter__()
+            status.read_task = asyncio.create_task(
+                self._read_channel(status.channel))
+        return self
+
+    async def __aexit__(self, *args) -> bool:
+        await self._publisher.__aexit__(*args)
+        for status in self._stati.values():
+            status.read_task.cancel()
+            try:
+                async with asyncio.timeout(60):
+                    await status.read_task
+                    await status.channel.__aexit__(*args)
+            except Exception:
+                self._logger.exception(
+                    f"Error waiting for shutdown of {status.channel.type}.")
+        return False
+
+    async def _read_channel(self, channel: base.Channel):
+        publish_task = None
+        try:
+            async for message in channel.incoming_messages():
+                publish_task = asyncio.create_task(
+                    self._publisher.append(message))
+                await asyncio.shield(publish_task)
+        except asyncio.CancelledError:
+            if not publish_task:
+                return
+            try:
+                async with asyncio.timeout(60):
+                    await publish_task
+            except Exception:
+                self._logger.exception("Error waiting for final publish.")
+                publish_task.cancel()
+
+    @property
+    def channels(self) -> dict[str, base.Channel]:
+        return {t: s.channel for t, s in self._stati.items()}
+
+    @property
+    def system_channel(self) -> builtin.SystemChannel:
+        system_channel = self.channels["system"]
+        assert isinstance(system_channel, builtin.SystemChannel)
+        return system_channel
+
+    async def send(self, message: msg.AgentMessage) -> None:
+        """
+        Send a message.
+
+        The message's metadata is checked to see which channel the message
+        should be sent on. If the channel doesn't exist, a KeyError is raised.
+        """
+        try:
+            channel_status = self._stati[message.metadata.channel.type]
+        except KeyError:
+            raise ValueError(
+                f"no such channel {message.metadata.channel.type}")
+        self._logger.debug(f"Sending {message}: {await message.content}")
+        await channel_status.channel.send(message)
+
+    def response_channel(
+        self, incoming_descriptor: mdl.IncomingChannelDescriptor
+    ) -> mdl.OutgoingChannelDescriptor:
+        try:
+            channel_status = self._stati[incoming_descriptor.type]
+        except KeyError:
+            raise ValueError(f"no such channel {incoming_descriptor.type}")
+        return channel_status.channel.response_channel(incoming_descriptor)
+
+    def incoming_messages(self) -> cl_abc.AsyncGenerator[base.IncomingMessage]:
+        """Iterate over incoming messages."""
+        return self._publisher.subscribe()
+
+
+class ChannelPool:
+    """
+    A pool of all available channels.
+
+    Creates channels from the channels config, and makes them available. Each
+    channel can only be acquired once at a time.
+    """
+    @dc.dataclass
+    class ChannelStatus:
+        channel: base.Channel
+        status: t.Literal["available", "acquired"] = "available"
+
+    def __init__(self, config: mdl.ChannelsConfig) -> None:
+        self._channels = {"matrix": self._make_matrix_channels(config.matrix)}
+
+    def _make_matrix_channels(
+            self, config: mdl.MatrixConfig) -> dict[str, matrix.MatrixChannel]:
+        channels = {}
+        for account in config.accounts:
+            channel_status = self.ChannelStatus(
+                channel=matrix.MatrixChannel(
+                    store_dir=config.store_dir, config=account))
+            channels[account.id] = channel_status
+        return channels
+
+    def acquire(self, claimed_channel: mdl.ClaimedChannel) -> base.Channel:
+        """
+        Acquire a specific channel.
+
+        If there is no such channel, or if it has already been acquired,
+        ChannelUnavailableError is raised.
+        """
+        try:
+            status = self._channels[claimed_channel.type][claimed_channel.id]
+        except KeyError:
+            raise ChannelUnavailableError("no such channel")
+        if status.status != "available":
+            raise ChannelUnavailableError("channel not available")
+        status.status = "acquired"
+        return status.channel
+
+    def release(self, channel: base.Channel) -> None:
+        """
+        Release an acquired channel so it can be aquired again.
+
+        If the channel has not been acquired, ChannelUnavailableError is
+        raised.
+        """
+        try:
+            status = self._channels[channel.type][channel.id]
+        except KeyError:
+            raise ChannelUnavailableError("no such channel")
+        if status.status != "acquired":
+            raise ChannelUnavailableError("channel has not been acquired")
+        status.status = "available"

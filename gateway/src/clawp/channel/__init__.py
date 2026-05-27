@@ -17,23 +17,26 @@
 
 from .base import (
     Channel,
-    ChannelRepository,
     IncomingMessage,
     MessageReceiver,
     MessageSender,
-    NopChannel,
-    SystemChannel,
-    WebUiChannel,
 )
+from .builtin import SystemChannel, WebUiChannel
+from .management import ChannelPool, ChannelRouter, ChannelUnavailableError
 from .matrix import MatrixChannel
 
 __all__ = [
+    # base
     "Channel",
-    "ChannelRepository",
     "IncomingMessage",
-    "MatrixChannel",
     "MessageReceiver",
     "MessageSender",
-    "NopChannel",
+    # builtin
     "SystemChannel",
-    "WebUiChannel",]
+    "WebUiChannel",
+    # management
+    "ChannelPool",
+    "ChannelRouter",
+    "ChannelUnavailableError",
+    # matrix
+    "MatrixChannel",]

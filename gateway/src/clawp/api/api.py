@@ -61,9 +61,7 @@ async def healthz() -> dict[str, str]:
 async def list_agents(
         agent_repo: dep.AgentRepository) -> list[mdl.AgentInformation]:
     """Get a list of agents."""
-    return [
-        mdl.AgentInformation(id=agent.id)
-        for agent in agent_repo.iter_agents()]
+    return [agent.information for agent in agent_repo.iter_agents()]
 
 
 @router.get("/agents/{agent_id}/messages")
@@ -128,7 +126,7 @@ async def websocket_stream(
     """
     web_ui_channel = next(
         s.channel
-        for s in agent._channel_repo._stati.values()
+        for s in agent._channel_router._stati.values()
         if s.channel.type == "web_ui")
     await websocket.accept()
     send_task = asyncio.create_task(
