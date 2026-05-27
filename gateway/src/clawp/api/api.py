@@ -77,7 +77,7 @@ async def get_messages(
     the given one).
     """
     result = []
-    for message in agent._session._messages:
+    for message in agent.messages():
         if message.metadata.seq_in_session >= lt_seq:
             break
         if await message.metadata.time.value >= ge_time:
@@ -124,10 +124,6 @@ async def websocket_stream(
     long annoying wait times. Adding a path parameter that can change between
     requests circumvents this restriction.
     """
-    web_ui_channel = next(
-        s.channel
-        for s in agent._channel_router._stati.values()
-        if s.channel.type == "web_ui")
     await websocket.accept()
     send_task = asyncio.create_task(
         _send_websocket(websocket, agent.subscribe()))
@@ -135,7 +131,7 @@ async def websocket_stream(
         while True:
             input_message = mdl.UserInputMessage.model_validate(
                 await websocket.receive_json())
-            await web_ui_channel.add_incoming_user_message(
+            await agent.web_ui_channel.add_incoming_user_message(
                 we.Instant.now(), input_message.content)
     except fastapi.WebSocketDisconnect:
         # The client closed the connection.

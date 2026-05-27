@@ -255,6 +255,10 @@ class Session:
         await self._append_message(message)
         return message
 
+    def messages(self) -> cl_abc.Generator[msg.Message]:
+        """Iterate all messages."""
+        yield from self._messages
+
     def subscribe(self) -> cl_abc.AsyncGenerator[msg.Message]:
         """Subscribe to messages in this session."""
         return self._publisher.subscribe()
@@ -304,6 +308,11 @@ class Agent:
     @property
     def workspace_dir(self) -> pathlib.Path:
         return self._workspace_dir
+
+    @property
+    def web_ui_channel(self) -> chan.WebUiChannel:
+        """The agent's web UI channel."""
+        return self._channel_router.web_ui_channel
 
     def __str__(self) -> str:
         return f"{type(self).__name__} {self.information.id}"
@@ -431,6 +440,15 @@ class Agent:
             await self._session.add_incoming_message(message)
         except Exception:
             self._logger.exception("Error handling incoming message.")
+
+    def messages(self) -> cl_abc.Generator[msg.Message]:
+        """
+        Iterate all of this agent's messages.
+
+        Yields all messages across all sessions that exist at the time of the
+        call. To get live updates, use subscribe().
+        """
+        yield from self._session.messages()
 
     def subscribe(self) -> cl_abc.AsyncGenerator[msg.Message]:
         """

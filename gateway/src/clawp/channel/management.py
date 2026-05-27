@@ -115,6 +115,12 @@ class ChannelRouter(base.MessageSender):
         assert isinstance(system_channel, builtin.SystemChannel)
         return system_channel
 
+    @property
+    def web_ui_channel(self) -> builtin.WebUiChannel:
+        web_ui_channel = self.channels["web_ui"]
+        assert isinstance(web_ui_channel, builtin.WebUiChannel)
+        return web_ui_channel
+
     async def send(self, message: msg.AgentMessage) -> None:
         """
         Send a message.
