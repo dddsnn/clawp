@@ -22,7 +22,7 @@ import { computed, ref, onMounted } from 'vue';
 import { useScroll } from '@vueuse/core';
 import { useChatStore } from '../../stores/chatStore';
 import MessageBubble from './MessageBubble.vue';
-import { Bot } from 'lucide-vue-next';
+import { Bot, Loader2, AlertCircle } from 'lucide-vue-next';
 
 const store = useChatStore();
 const scrollContainer = ref<HTMLElement | null>(null);
@@ -73,11 +73,25 @@ onMounted(() => {
     class="flex-1 overflow-y-auto p-4 md:p-8"
   >
     <div class="max-w-4xl mx-auto space-y-6">
-      
-      <!-- Empty State -->
-      <div v-if="filteredMessages.length === 0" class="flex flex-col items-center justify-center h-64 text-slate-400 space-y-4">
-        <Bot class="w-12 h-12 text-slate-300" />
-        <p>No messages yet. Say hello!</p>
+
+      <!-- Empty / Loading / Error States -->
+      <div v-if="filteredMessages.length === 0" class="flex flex-col items-center justify-center h-64 space-y-4">
+
+        <template v-if="store.historyState.status === 'loading'">
+          <Loader2 class="w-12 h-12 text-slate-300 animate-spin" />
+          <p class="text-slate-400">Loading messages...</p>
+        </template>
+
+        <template v-else-if="store.historyState.status === 'error'">
+          <AlertCircle class="w-12 h-12 text-red-400" />
+          <p class="text-red-500 font-medium text-center">Failed to load history<br><span class="text-sm font-normal opacity-80">{{ store.historyState.error }}</span></p>
+        </template>
+
+        <template v-else>
+          <Bot class="w-12 h-12 text-slate-300" />
+          <p class="text-slate-400">No messages yet. Say hello!</p>
+        </template>
+
       </div>
 
       <!-- Message List -->

@@ -94,8 +94,12 @@ export class ChatConnection {
           for (const msg of messages) {
             this.store.addMessage(msg);
           }
+          this.store.setHistoryState({ status: 'success' });
         } catch (error) {
           console.error('Failed to fetch history:', error);
+          if (!this.isDestroyed) {
+            this.store.setHistoryState({ status: 'error', error: error instanceof Error ? error.message : 'Unknown error' });
+          }
         }
       };
 

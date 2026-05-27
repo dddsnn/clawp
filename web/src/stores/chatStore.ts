@@ -34,6 +34,11 @@ export type ConnectionState =
   | { status: 'disconnected' }
   | { status: 'connecting', attempt: number, error?: string };
 
+export type HistoryState =
+  | { status: 'loading' }
+  | { status: 'success' }
+  | { status: 'error', error: string };
+
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<Message[]>([]);
   const visibility = ref({
@@ -43,6 +48,7 @@ export const useChatStore = defineStore('chat', () => {
   });
 
   const connectionState = ref<ConnectionState>({ status: 'uninitialized' });
+  const historyState = ref<HistoryState>({ status: 'loading' });
 
   // Streaming State
   const activeStreamingMessage = ref<StreamingAssistantMessage | null>(null);
@@ -58,6 +64,10 @@ export const useChatStore = defineStore('chat', () => {
 
   function setConnectionState(state: ConnectionState) {
     connectionState.value = state;
+  }
+
+  function setHistoryState(state: HistoryState) {
+    historyState.value = state;
   }
 
   function addMessage(message: Message) {
@@ -78,6 +88,7 @@ export const useChatStore = defineStore('chat', () => {
     messages.value = [];
     activeStreamingMessage.value = null;
     activeStreamPartType.value = null;
+    historyState.value = { status: 'loading' };
   }
 
   // Used by the stream to create the placeholder agent message before fragments arrive
@@ -153,9 +164,11 @@ export const useChatStore = defineStore('chat', () => {
     displayedMessages,
     visibility,
     connectionState,
+    historyState,
     activeStreamingMessage,
     activeStreamPartType,
     setConnectionState,
+    setHistoryState,
     addMessage,
     clearMessages,
     startStreamingMessage,
