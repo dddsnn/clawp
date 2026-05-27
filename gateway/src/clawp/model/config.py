@@ -133,8 +133,7 @@ class GatewayConfig(BaseSettings):
 
     @pyd.model_validator(mode="after")
     def compute_matrix_store_dir(self) -> t.Self:
-        if self.matrix:
-            self.matrix.store_dir = self.files_base_dir / "matrix_nio"
+        self.channels.matrix.store_dir = self.files_base_dir / "matrix_nio"
         return self
 
 
