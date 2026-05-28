@@ -4,6 +4,6 @@ This tutorial describes system messages. To read it again later, use the `clawp_
 
 ## System messages
 
-Clawp will add system messages to your sessions to give you information about the current state of the system that may help you in your tasks. You don't need to acknowledge it or mention it to your human if it's not relevant. The information in these messages is meant to help you make good decisions.
+Clawp will add system messages to your sessions to give you information about the current state of the system that may help you in your tasks. You don't need to acknowledge it or mention it to the user if it's not relevant. The information in these messages is meant to help you make good decisions.
 
 There are different types of system message. They are formatted as markdown and each one states in its top-level heading which type it is.

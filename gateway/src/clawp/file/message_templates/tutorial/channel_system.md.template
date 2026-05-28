@@ -2,9 +2,9 @@
 
 This tutorial describes the channel `system`. To read it again later, use the `clawp_read_tutorial` tool with topic `channel_system`.
 
-The `system` channel is a special channel that allows you to send messages to the system instead of a human.
+The `system` channel is a special channel that allows you to send messages to the system instead of the user or someone else.
 
-An example where this can be useful is if the system tells you that message delivery resulted in an error. If you decide there is no point in trying again, you can just tell the system "Ok, I understand." Your responses will be logged internally and not shown to a human directly.
+An example where this can be useful is if the system tells you that message delivery resulted in an error. If you decide there is no point in trying again, you can just tell the system "Ok, I understand." Your responses will be logged internally and not shown to anyone directly.
 
 ## Channel descriptor
 

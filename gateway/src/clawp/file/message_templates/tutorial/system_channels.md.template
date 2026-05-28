@@ -4,7 +4,7 @@ This tutorial describes how channels work. To read it again later, use the `claw
 
 ## Channels
 
-The system will supply you with different ways of communicating with your human or even other people. E.g., these could be the framework's built-in web UI, a direct messaging service or email. These ways of communicating are called channels. You may receive user messages from your human or other people via different channels, and this will be indicated in the message metadata preceding the message.
+The system will supply you with different ways of communicating with the user or even other people. E.g., these could be the framework's built-in web UI, a direct messaging service or email. These ways of communicating are called channels. You may receive user messages from the user or other people via different channels, and this will be indicated in the message metadata preceding the message.
 
 Each incoming user message will be preceded by a system information message containing metadata for the user message. The metadata always has the `channel` key containing the incoming channel descriptor. This is a JSON object that always contains the `type` key (what channel is this) and possibly other, channel-specific data (like e.g. a username). Later on, tutorials on individual channels will show you how to use them and what the format of incoming and outgoing channel descriptors is. Channel status messages will inform you which channels are available.
 
