@@ -15,8 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
-from .render import (
-    TemplateNotFoundError,
+from .template import (
     list_tutorial_topics,
     render_channel_status,
     render_message_template,
@@ -24,7 +23,6 @@ from .render import (
 )
 
 __all__ = [
-    "TemplateNotFoundError",
     "list_tutorial_topics",
     "render_channel_status",
     "render_message_template",

@@ -28,11 +28,12 @@ import fastmcp.server.providers.proxy
 import fastmcp.tools
 import mcp.types
 
+from . import file
 from . import model as mdl
-from . import template as tpl
 
 if t.TYPE_CHECKING:
     from . import agent as agt
+
 
 class ClawpMcpServer(fastmcp.FastMCP):
     """MCP server providing tools to interact with Clawp itself."""
@@ -45,13 +46,13 @@ class ClawpMcpServer(fastmcp.FastMCP):
 
     async def list_tutorial_topics(self) -> list[str]:
         """List all tutorial topics."""
-        return await tpl.list_tutorial_topics()
+        return await file.list_tutorial_topics()
 
     async def read_tutorial(self, topic: str) -> str:
         """List all tutorial topics."""
         try:
-            return await tpl.render_tutorial(topic)
-        except tpl.TemplateNotFoundError as e:
+            return await file.render_tutorial(topic)
+        except FileNotFoundError as e:
             raise ValueError(f"topic {topic} doesn't exist") from e
 
     async def send_message(

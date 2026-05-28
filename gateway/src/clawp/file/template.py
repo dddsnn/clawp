@@ -16,20 +16,10 @@
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
-import importlib.resources
 import pathlib
 
 from .. import model as mdl
-
-
-class TemplateNotFoundError(FileNotFoundError):
-    pass
-
-
-def _do_with_templates_dir(function):
-    templates_resource = importlib.resources.files("clawp.template.messages")
-    with importlib.resources.as_file(templates_resource) as templates_dir:
-        return function(templates_dir)
+from . import base
 
 
 async def render_message_template(
@@ -42,42 +32,33 @@ async def render_message_template(
     suffix. Reads the template file and calls format() using the given
     format_kwargs.
 
-    Raises TemplateNotFoundError if no template with the given path exists.
+    Raises FileNotFoundError if no template with the given path exists.
     """
     if not isinstance(path, pathlib.Path):
         path = pathlib.Path(path)
-
-    def read_file(templates_dir: pathlib.Path):
-        file_path = templates_dir / path
-        template_suffix = file_path.suffix + ".template"
-        template_path = file_path.with_suffix(template_suffix)
-        try:
-            with template_path.open() as f:
-                return f.read()
-        except FileNotFoundError as e:
-            raise TemplateNotFoundError(
-                f"template {path} doesn't exist") from e
-
-    template = await asyncio.to_thread(_do_with_templates_dir, read_file)
+    template_suffix = path.suffix + ".template"
+    template_path = path.with_suffix(template_suffix)
+    template = await base.read_file("message_templates", template_path)
     return template.format(**format_kwargs)
 
 
 async def list_tutorial_topics() -> list[str]:
-    """List all available tuturial topics."""
+    """List all available tutorial topics."""
     def list_topics(templates_dir: pathlib.Path):
         tutorials_dir = templates_dir / "tutorial"
         return sorted(
             file.name.removesuffix(".md.template")
             for file in tutorials_dir.glob("*.md.template"))
 
-    return await asyncio.to_thread(_do_with_templates_dir, list_topics)
+    return await asyncio.to_thread(
+        base.do_with_resource_dir, "message_templates", list_topics)
 
 
 async def render_tutorial(topic: str) -> str:
     """
     Render a tutorial template by topic.
 
-    Raises TemplateNotFoundError if tutorial exists for the given topic.
+    Raises FileNotFoundError if tutorial exists for the given topic.
     """
     return await render_message_template(f"tutorial/{topic}.md")
 

@@ -27,10 +27,9 @@ import uuid
 import whenever as we
 
 from . import channel as chan
+from . import file, store, tool, util
 from . import message as msg
 from . import model as mdl
-from . import store, tool, util
-from . import template as tpl
 
 if t.TYPE_CHECKING:
     from . import provider as prov
@@ -134,7 +133,7 @@ class Session:
                 # This is a system message prompting an agent response. Add a
                 # reminder for the agent that its output will go on the system
                 # channel.
-                message_content += await tpl.render_message_template(
+                message_content += await file.render_message_template(
                     "fragments/channel_reminder.md")
             message = message_class(metadata, content=message_content)
             await self._append_message(message)
@@ -153,7 +152,7 @@ class Session:
             "seq_in_session": len(self._messages) + 1,
             "time": formatted_time,
             "channel": user_message.metadata.channel.model_dump(),}
-        message_content = await tpl.render_message_template(
+        message_content = await file.render_message_template(
             "message_metadata.md",
             metadata_json=json.dumps(header_dict, separators=(',', ':')))
         await self._append_message_now(
@@ -387,13 +386,13 @@ class Agent:
                 "developer", message)
         # Tell the agent that this is a new session.
         await self._channel_router.system_channel.add_incoming_message(
-            "system", await tpl.render_message_template(
+            "system", await file.render_message_template(
                 "system_information/session_initialization.md"))
         # Tell the agent about available channels.
         for channel in self._channel_router.channels.values():
             await self._channel_router.system_channel.add_incoming_message(
                 "system", await
-                tpl.render_channel_status(await channel.status))
+                file.render_channel_status(await channel.status))
 
     async def _onboarding_messages(self) -> cl_abc.AsyncGenerator[str]:
         """
@@ -402,7 +401,7 @@ class Agent:
         Go through all tutorial messages in a sensible order for agent
         onboarding.
         """
-        yield await tpl.render_message_template("init_system.md")
+        yield await file.render_message_template("init_system.md")
         tutorial_topics = [
             "system_sessions",
             "system_system_messages",
@@ -414,7 +413,7 @@ class Agent:
             "channel_system",
             "channel_matrix",]
         for topic in tutorial_topics:
-            yield await tpl.render_tutorial(topic)
+            yield await file.render_tutorial(topic)
 
     async def _read_incoming_messages(self) -> None:
         handle_task = None
