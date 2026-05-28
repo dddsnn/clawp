@@ -15,12 +15,40 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+import pathlib
+import typing as t
 import uuid
 
 import pydantic as pyd
 
 from . import base
 from . import channel as chan
+
+
+class AgentPersonalityFile(base.BaseModel):
+    path: pathlib.Path
+    description: str
+
+
+class AgentPersonality(base.BaseModel):
+    name: str
+    personality_files: list[AgentPersonalityFile]
+
+
+class AgentPersonalityWithFileContents(AgentPersonality):
+    personality_file_contents: dict[pathlib.Path, str]
+
+    @pyd.model_validator(mode="after")
+    def check_all_file_contents_present(self) -> t.Self:
+        for pf in self.personality_files:
+            if pf.path not in self.personality_file_contents:
+                raise ValueError(
+                    f"no content for personality file at {pf.path}")
+        return self
+
+    def get_personality(self) -> AgentPersonality:
+        return AgentPersonality(
+            name=self.name, personality_files=self.personality_files)
 
 
 class ClaimedChannel(base.BaseModel):
@@ -30,4 +58,5 @@ class ClaimedChannel(base.BaseModel):
 
 class AgentInformation(base.BaseModel):
     id: uuid.UUID
+    personality: AgentPersonality
     claimed_channels: list[ClaimedChannel] = pyd.Field(default_factory=list)

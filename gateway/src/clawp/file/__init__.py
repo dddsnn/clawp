@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+from .personality import list_personalities, read_personality
 from .template import (
     list_tutorial_topics,
     render_channel_status,
@@ -23,6 +24,10 @@ from .template import (
 )
 
 __all__ = [
+    # personality
+    "list_personalities",
+    "read_personality",
+    # template
     "list_tutorial_topics",
     "render_channel_status",
     "render_message_template",

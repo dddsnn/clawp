@@ -545,7 +545,7 @@ class AgentRepository:
                     f"Ignoring invalid agent directory {d}.")
 
     def _instantiate_agent(self, dir: pathlib.Path) -> Agent:
-        agent_information = self._load_or_create_agent_information(dir)
+        agent_information = self._load_agent_information(dir)
         workspace_dir = self._workspace_dir(dir)
         if not self._workspace_dir(dir).is_dir():
             raise ValueError(f"missing workspace directory {workspace_dir}")
@@ -567,7 +567,7 @@ class AgentRepository:
             channel_router=chan.ChannelRouter(channels),
             provider=self._provider)
 
-    def _load_or_create_agent_information(
+    def _load_agent_information(
             self, agent_base_dir: pathlib.Path) -> mdl.AgentInformation:
         try:
             agent_id = uuid.UUID(agent_base_dir.name)
@@ -577,14 +577,6 @@ class AgentRepository:
         try:
             agent_information = mdl.AgentInformation.model_validate_json(
                 agent_information_file.read_bytes())
-        except FileNotFoundError:
-            # No information file, create a fresh one.
-            agent_information = mdl.AgentInformation(id=agent_id)
-            agent_information_file.write_text(
-                agent_information.model_dump_json())
-            self._logger.info(
-                f"Created new agent information {agent_information}.")
-            return agent_information
         except Exception as e:
             raise ValueError("invalid agent information file") from e
         if agent_information.id != agent_id:
@@ -603,16 +595,13 @@ class AgentRepository:
     def _message_store_dir(self, agent_base_dir: pathlib.Path) -> pathlib.Path:
         return agent_base_dir / "message_store"
 
-    async def hatch_agent(self) -> Agent:
+    async def hatch_agent(self, personality_name: str) -> Agent:
         """Hatch a new agent."""
         if not self._running:
             raise RuntimeError("not running, can't hatch a new agent")
         agent_id = uuid.uuid4()
-        self._logger.info(f"Setting up files for new agent {agent_id}.")
-        agent_base_dir = self._base_dir / str(agent_id)
-        self._workspace_dir(agent_base_dir).mkdir(parents=True, exist_ok=True)
-        self._message_store_dir(agent_base_dir).mkdir(
-            parents=True, exist_ok=True)
+        agent_base_dir = await self._initialize_agent_files(
+            agent_id, personality_name)
         agent = self._instantiate_agent(agent_base_dir)
         self._logger.info(f"Starting new {agent}.")
         try:
@@ -621,3 +610,29 @@ class AgentRepository:
             self._logger.exception(f"Error starting new {agent}.")
             raise
         return self._agents[agent.information.id]
+
+    async def _initialize_agent_files(self, agent_id, personality_name):
+        try:
+            personality_with_contents = await file.read_personality(
+                personality_name)
+        except Exception as e:
+            raise ValueError(
+                f"can't use personality {personality_name}") from e
+        self._logger.info(f"Setting up files for new agent {agent_id}.")
+        agent_base_dir = self._base_dir / str(agent_id)
+        agent_base_dir.mkdir(parents=True, exist_ok=True)
+        agent_information = mdl.AgentInformation(
+            id=agent_id,
+            personality=personality_with_contents.get_personality())
+        self._agent_information_file(agent_base_dir).write_text(
+            agent_information.model_dump_json())
+        self._logger.info(
+            f"Created new agent information {agent_information}.")
+        self._message_store_dir(agent_base_dir).mkdir(
+            parents=True, exist_ok=True)
+        workspace_dir = self._workspace_dir(agent_base_dir)
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        for pf in personality_with_contents.personality_files:
+            (workspace_dir / pf.path).write_text(
+                personality_with_contents.personality_file_contents[pf.path])
+        return agent_base_dir

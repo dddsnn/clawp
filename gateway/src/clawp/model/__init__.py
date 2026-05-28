@@ -15,7 +15,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
-from .agent import AgentInformation, ClaimedChannel
+from .agent import (
+    AgentInformation,
+    AgentPersonality,
+    AgentPersonalityWithFileContents,
+    ClaimedChannel,
+)
 from .base import BaseModel, Iso8601Millis
 from .channel import (
     BaseChannelDescriptor,
@@ -78,6 +83,8 @@ from .message import (
 __all__ = [
     # agent
     "AgentInformation",
+    "AgentPersonality",
+    "AgentPersonalityWithFileContents",
     "ClaimedChannel",
     # base
     "BaseModel",

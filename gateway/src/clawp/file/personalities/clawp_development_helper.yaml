@@ -1,0 +1,4 @@
+name: clawp_development_helper
+personality_files:
+  - path: "AGENTS.md"
+    description: "Your task and mission statement"
