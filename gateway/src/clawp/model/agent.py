@@ -36,8 +36,12 @@ class AgentPersonality(base.BaseModel):
 
 
 class AgentPersonalityWithFileContents(AgentPersonality):
-    personality_file_contents: dict[pathlib.Path, str]
+    personality_file_contents: dict[pathlib.Path, t.Optional[str]]
+    """
+    File content for each of the personality files.
 
+    A content of None indicates that the file is missing.
+    """
     @pyd.model_validator(mode="after")
     def check_all_file_contents_present(self) -> t.Self:
         for pf in self.personality_files:

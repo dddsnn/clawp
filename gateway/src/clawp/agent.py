@@ -642,6 +642,10 @@ class AgentRepository:
         workspace_dir = self._workspace_dir(agent_base_dir)
         workspace_dir.mkdir(parents=True, exist_ok=True)
         for pf in personality_with_contents.personality_files:
-            (workspace_dir / pf.path).write_text(
+            file_content = (
                 personality_with_contents.personality_file_contents[pf.path])
+            if file_content is None:
+                # File shouldn't exist.
+                continue
+            (workspace_dir / pf.path).write_text(file_content)
         return agent_base_dir

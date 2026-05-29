@@ -47,8 +47,12 @@ async def read_personality(name: str) -> mdl.AgentPersonalityWithFileContents:
     personality = mdl.AgentPersonality.model_validate(personality_dict)
     file_contents = {}
     for pf in personality.personality_files:
-        file_contents[pf.path] = await base.read_file(
-            "personalities",
-            pathlib.Path(name) / pf.path)
+        try:
+            content = await base.read_file(
+                "personalities",
+                pathlib.Path(name) / pf.path)
+        except FileNotFoundError:
+            content = None
+        file_contents[pf.path] = content
     return mdl.AgentPersonalityWithFileContents.model_validate(
         personality_dict | {"personality_file_contents": file_contents})
