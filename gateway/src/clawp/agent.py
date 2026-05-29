@@ -394,14 +394,8 @@ class Agent:
                 "system", await
                 file.render_channel_status(await channel.status))
         # Tell the agent about their workspace and personality files.
-        personality_files_description = "\n".join([
-            f"- {pf.path}: {pf.description}"
-            for pf in self.information.personality.personality_files])
         await self._channel_router.system_channel.add_incoming_message(
-            "system", await file.render_message_template(
-                "system_information/workspace.md",
-                workspace_dir=self.workspace_dir,
-                personality_files=personality_files_description))
+            "system", await file.render_workspace_info(self))
         for pf in self.information.personality.personality_files:
             await self._channel_router.system_channel.add_incoming_message(
                 "system", await

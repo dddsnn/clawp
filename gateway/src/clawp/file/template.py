@@ -17,9 +17,13 @@
 
 import asyncio
 import pathlib
+import typing as t
 
 from .. import model as mdl
 from . import base
+
+if t.TYPE_CHECKING:
+    from .. import agent as agt
 
 
 async def render_message_template(
@@ -93,3 +97,18 @@ async def render_file_content(
         content = "<file is empty>"
     return await render_message_template(
         "file_content.md", file_path=relative_file_path, content=content)
+
+
+async def render_workspace_info(agent: "agt.Agent") -> str:
+    """
+    Render a message informing the agent about their workspace.
+
+    This message includes a list and description of all their personality
+    files.
+    """
+    personality_files_description = "\n".join([
+        f"- {pf.path}: {pf.description}"
+        for pf in agent.information.personality.personality_files])
+    return await render_message_template(
+        "system_information/workspace.md", workspace_dir=agent.workspace_dir,
+        personality_files=personality_files_description)

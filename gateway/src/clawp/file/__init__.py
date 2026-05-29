@@ -22,6 +22,7 @@ from .template import (
     render_file_content,
     render_message_template,
     render_tutorial,
+    render_workspace_info,
 )
 
 __all__ = [
@@ -33,4 +34,5 @@ __all__ = [
     "render_channel_status",
     "render_file_content",
     "render_message_template",
-    "render_tutorial",]
+    "render_tutorial",
+    "render_workspace_info",]
