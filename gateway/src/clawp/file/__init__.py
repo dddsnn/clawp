@@ -19,6 +19,7 @@ from .personality import list_personalities, read_personality
 from .template import (
     list_tutorial_topics,
     render_channel_status,
+    render_file_content,
     render_message_template,
     render_tutorial,
 )
@@ -30,5 +31,6 @@ __all__ = [
     # template
     "list_tutorial_topics",
     "render_channel_status",
+    "render_file_content",
     "render_message_template",
     "render_tutorial",]

@@ -1,0 +1,7 @@
+# System information
+
+Your workspace directory is `{workspace_dir}`. You have full read and write access there.
+
+These are your personality files in your workspace directory:
+
+{personality_files}

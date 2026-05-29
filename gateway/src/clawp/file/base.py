@@ -26,7 +26,7 @@ def do_with_resource_dir(resource_name: str, function):
         return function(resource_dir)
 
 
-async def read_file(resource_name: str, file_path: pathlib.Path):
+async def read_file(resource_name: str, file_path: pathlib.Path) -> str:
     """Read a file in the given resource."""
     def read(resource_dir: pathlib.Path):
         if file_path.is_absolute():

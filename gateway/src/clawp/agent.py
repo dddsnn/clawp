@@ -393,6 +393,19 @@ class Agent:
             await self._channel_router.system_channel.add_incoming_message(
                 "system", await
                 file.render_channel_status(await channel.status))
+        # Tell the agent about their workspace and personality files.
+        personality_files_description = "\n".join([
+            f"- {pf.path}: {pf.description}"
+            for pf in self.information.personality.personality_files])
+        await self._channel_router.system_channel.add_incoming_message(
+            "system", await file.render_message_template(
+                "system_information/workspace.md",
+                workspace_dir=self.workspace_dir,
+                personality_files=personality_files_description))
+        for pf in self.information.personality.personality_files:
+            await self._channel_router.system_channel.add_incoming_message(
+                "system", await
+                file.render_file_content(self.workspace_dir, pf.path))
 
     async def _onboarding_messages(self) -> cl_abc.AsyncGenerator[str]:
         """
@@ -408,10 +421,12 @@ class Agent:
             "message_system_information",
             "message_message_metadata",
             "message_channel_status",
+            "message_file_content",
             "system_channels",
             "channel_web_ui",
             "channel_system",
-            "channel_matrix",]
+            "channel_matrix",
+            "system_workspace",]
         for topic in tutorial_topics:
             yield await file.render_tutorial(topic)
 

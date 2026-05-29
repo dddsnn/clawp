@@ -72,3 +72,24 @@ async def render_channel_status(channel_status: mdl.ChannelStatus) -> str:
     return await render_message_template(
         template, channel_type=channel_status.type,
         status_json=channel_status.model_dump_json())
+
+
+async def render_file_content(
+        workspace_directory: pathlib.Path,
+        relative_file_path: pathlib.Path) -> str:
+    """
+    Render a file content message.
+
+    Reads the file at relative_file_path relative to workspace_directory. If
+    the file is empty, indicates <file is empty> in the rendered message,
+    similarly <file does not exist>.
+    """
+    file_path = workspace_directory / relative_file_path
+    try:
+        content = await asyncio.to_thread(file_path.read_text)
+    except FileNotFoundError:
+        content = "<file does not exist>"
+    if not content:
+        content = "<file is empty>"
+    return await render_message_template(
+        "file_content.md", file_path=relative_file_path, content=content)
