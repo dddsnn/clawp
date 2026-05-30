@@ -127,6 +127,19 @@ class Session:
             metadata = self._make_metadata(
                 incoming_message.metadata.time,
                 incoming_message.metadata.channel)
+            if incoming_message.request_response:
+                try:
+                    outgoing_channel = self._message_sender.response_channel(
+                        incoming_message.metadata.channel)
+                except chan.ChannelUnavailableError:
+                    self._logger.exception(
+                        "Unable to find a response channel for incoming "
+                        f"message with content '{incoming_message.content}' "
+                        f"on channel {incoming_message.metadata.channel}. "
+                        "Message will not be added or processed at all.")
+                    return
+            else:
+                outgoing_channel = None
             message_content = incoming_message.content
             if (message_class is msg.SystemMessage
                     and incoming_message.request_response):
@@ -137,9 +150,7 @@ class Session:
                     "fragments/channel_reminder.md")
             message = message_class(metadata, content=message_content)
             await self._append_message(message)
-            if incoming_message.request_response:
-                outgoing_channel = self._message_sender.response_channel(
-                    incoming_message.metadata.channel)
+            if outgoing_channel:
                 await self._request_response(outgoing_channel)
 
     async def _add_metadata_for_user_message(
