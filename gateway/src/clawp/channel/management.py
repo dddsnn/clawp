@@ -28,7 +28,11 @@ from . import base, builtin, matrix
 
 
 class ChannelUnavailableError(Exception):
-    """Raised when a channel is not available in the pool."""
+    """Raised when a channel is not available."""
+
+
+class SendError(Exception):
+    """Raised when a message could not be sent."""
 
 
 class ChannelRouter(base.MessageSender):
@@ -126,23 +130,40 @@ class ChannelRouter(base.MessageSender):
         Send a message.
 
         The message's metadata is checked to see which channel the message
-        should be sent on. If the channel doesn't exist, a KeyError is raised.
+        should be sent on.
+
+        If the channel in the metadata doesn't exist, a ChannelUnavailableError
+        is raised. If there is an error in sending the message, a SendError is
+        raised.
         """
         try:
             channel_status = self._stati[message.metadata.channel.type]
         except KeyError:
-            raise ValueError(
+            raise ChannelUnavailableError(
                 f"no such channel {message.metadata.channel.type}")
         self._logger.debug(f"Sending {message}: {await message.content}")
-        await channel_status.channel.send(message)
+        try:
+            await channel_status.channel.send(message)
+        except Exception as e:
+            raise SendError(f"error sending message: {e}") from e
 
     def response_channel(
         self, incoming_descriptor: mdl.IncomingChannelDescriptor
     ) -> mdl.OutgoingChannelDescriptor:
+        """
+        Create a channel descriptor for a response.
+
+        Looks up the channel in the given channel descriptor and requests an
+        outgoing descriptor from it that will lead to the message being routed
+        back to the sender of the incoming message.
+
+        If the channel doesn't exist, a ChannelUnavailableError is raised.
+        """
         try:
             channel_status = self._stati[incoming_descriptor.type]
         except KeyError:
-            raise ValueError(f"no such channel {incoming_descriptor.type}")
+            raise ChannelUnavailableError(
+                f"no such channel {incoming_descriptor.type}")
         return channel_status.channel.response_channel(incoming_descriptor)
 
     def incoming_messages(self) -> cl_abc.AsyncGenerator[base.IncomingMessage]:

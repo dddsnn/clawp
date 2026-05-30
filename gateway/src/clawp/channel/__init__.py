@@ -22,7 +22,12 @@ from .base import (
     MessageSender,
 )
 from .builtin import SystemChannel, WebUiChannel
-from .management import ChannelPool, ChannelRouter, ChannelUnavailableError
+from .management import (
+    ChannelPool,
+    ChannelRouter,
+    ChannelUnavailableError,
+    SendError,
+)
 from .matrix import MatrixChannel
 
 __all__ = [
@@ -38,5 +43,6 @@ __all__ = [
     "ChannelPool",
     "ChannelRouter",
     "ChannelUnavailableError",
+    "SendError",
     # matrix
     "MatrixChannel",]
