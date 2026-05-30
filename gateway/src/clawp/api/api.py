@@ -184,7 +184,8 @@ async def _generate_message_chunks(
         return
     # At this point, it's a streaming agent message.
     start_metadata = mdl.StartMessageMetadata(
-        seq_in_session=message.metadata.seq_in_session)
+        seq_in_session=message.metadata.seq_in_session,
+        channel=message.metadata.channel)
     yield mdl.WebsocketChunkAgentMessageMarker(
         payload=mdl.StreamingMessageMarkerMessageStart(
             metadata=start_metadata))
@@ -204,8 +205,7 @@ async def _generate_message_chunks(
         yield mdl.WebsocketChunkAgentMessageMarker(
             payload=mdl.StreamingMessageMarkerPartEnd())
     end_metadata = mdl.EndMessageMetadata(
-        time=await message.metadata.time.value,
-        channel=message.metadata.channel)
+        time=await message.metadata.time.value)
     yield mdl.WebsocketChunkAgentMessageMarker(
         payload=mdl.StreamingMessageMarkerMessageEnd(metadata=end_metadata))
 

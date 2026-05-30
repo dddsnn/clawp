@@ -19,10 +19,6 @@ import { z } from 'zod';
 
 export const Iso8601Schema = z.string().transform((str) => new Date(str));
 
-export const StartMessageMetadataSchema = z.object({
-  seq_in_session: z.number(),
-});
-
 export const BaseChannelDescriptorSchema = z.object({
   type: z.enum(['malformed', 'matrix', 'missing', 'system', 'unknown', 'web_ui']),
 });
@@ -61,9 +57,13 @@ export const ChannelDescriptorSchema: z.ZodType<ChannelDescriptor> = z.lazy(() =
   WebUiChannelDescriptorSchema,
 ]));
 
+export const StartMessageMetadataSchema = z.object({
+  seq_in_session: z.number(),
+  channel: ChannelDescriptorSchema
+});
+
 export const EndMessageMetadataSchema = z.object({
   time: Iso8601Schema,
-  channel: ChannelDescriptorSchema,
 });
 
 export const MessageMetadataSchema = StartMessageMetadataSchema.merge(EndMessageMetadataSchema);
@@ -234,5 +234,6 @@ export interface StreamingAssistantMessage {
   errors: string[];
   metadata: {
     seq_in_session: number;
+    channel: ChannelDescriptor;
   };
 }

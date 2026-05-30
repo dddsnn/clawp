@@ -92,7 +92,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   // Used by the stream to create the placeholder agent message before fragments arrive
-  function startStreamingMessage(seqInSession: number) {
+  function startStreamingMessage(seqInSession: number, channel: ChannelDescriptor) {
     const existingMsg = messages.value.find(m => m.metadata.seq_in_session === seqInSession);
     if (existingMsg) {
       // If we already have this message (e.g. from history), we should not start a new stream for it.
@@ -108,11 +108,12 @@ export const useChatStore = defineStore('chat', () => {
       errors: [],
       metadata: {
         seq_in_session: seqInSession,
+        channel: channel,
       },
     };
   }
 
-  function endStreamingMessage(time: Date, channel: ChannelDescriptor) {
+  function endStreamingMessage(time: Date) {
     if (!activeStreamingMessage.value) return;
     
     const finalizedMessage: AssistantMessage = {
@@ -120,7 +121,6 @@ export const useChatStore = defineStore('chat', () => {
       metadata: {
         ...activeStreamingMessage.value.metadata,
         time,
-        channel,
       },
     };
     

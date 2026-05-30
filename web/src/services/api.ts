@@ -162,7 +162,7 @@ export class ChatConnection {
       const marker = chunk.payload;
       
       if (marker.marker_type === 'message_start') {
-        this.store.startStreamingMessage(marker.metadata.seq_in_session);
+        this.store.startStreamingMessage(marker.metadata.seq_in_session, marker.metadata.channel);
       } 
       else if (marker.marker_type === 'part_start') {
         this.store.setActivePartType(marker.part_type);
@@ -171,7 +171,7 @@ export class ChatConnection {
         this.store.clearActivePartType();
       } 
       else if (marker.marker_type === 'message_end') {
-        this.store.endStreamingMessage(marker.metadata.time, marker.metadata.channel);
+        this.store.endStreamingMessage(marker.metadata.time);
       }
       return;
     }

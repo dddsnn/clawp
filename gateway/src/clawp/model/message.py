@@ -29,12 +29,12 @@ if t.TYPE_CHECKING:
 class StartMessageMetadata(base.BaseModel):
     """Metadata available when a message is first created."""
     seq_in_session: int
+    channel: chan.ChannelDescriptor
 
 
 class EndMessageMetadata(base.BaseModel):
     """Metadata available when a message is fully received."""
     time: base.Iso8601Millis
-    channel: chan.ChannelDescriptor
 
 
 class MessageMetadata(StartMessageMetadata, EndMessageMetadata):
