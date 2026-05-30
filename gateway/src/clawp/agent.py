@@ -155,17 +155,13 @@ class Session:
 
     async def _add_metadata_for_user_message(
             self, user_message: chan.IncomingMessage):
-        time = await user_message.metadata.time.value
-        formatted_time = time.format_iso(unit="millisecond")
         # The user message will be the one right after the system message with
         # the metadata, so seq_in_session should be one more.
-        header_dict = {
-            "seq_in_session": len(self._messages) + 1,
-            "time": formatted_time,
-            "channel": user_message.metadata.channel.model_dump(),}
+        seq_in_session = len(self._messages) + 1
+        metadata = await mdl.MessageMetadata.from_incoming_message(
+            user_message.metadata, seq_in_session)
         message_content = await file.render_message_template(
-            "message_metadata.md",
-            metadata_json=json.dumps(header_dict, separators=(',', ':')))
+            "message_metadata.md", metadata_json=metadata.model_dump_json())
         await self._append_message_now(
             msg.SystemMessage, content=message_content)
 
@@ -274,12 +270,10 @@ class Session:
             raise RuntimeError(
                 "add_agent_message() must be called from a context where the "
                 "session is locked")
-        metadata = mdl.MessageMetadata(
-            seq_in_session=len(self._messages), time=we.Instant.now(),
-            channel=channel)
+        metadata = self._make_metadata(we.Instant.now(), channel)
         message = msg.AgentMessage.from_model(
             mdl.AgentMessage(
-                metadata=metadata, content=content, reasoning="",
+                metadata=await metadata.model, content=content, reasoning="",
                 tool_calls=[], errors=[]))
         await self._append_message(message)
         return message

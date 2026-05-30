@@ -54,6 +54,11 @@ class MessageMetadata(IncomingMessageMetadata):
     """
     seq_in_session: int
     """The message's sequence number in its session."""
+    @property
+    async def model(self) -> mdl.MessageMetadata:
+        return mdl.MessageMetadata(
+            time=await self.time.value, channel=self.channel,
+            seq_in_session=self.seq_in_session)
 
 
 class Message(abc.ABC):

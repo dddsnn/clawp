@@ -22,6 +22,9 @@ import pydantic as pyd
 from . import base
 from . import channel as chan
 
+if t.TYPE_CHECKING:
+    from .. import message as msg
+
 
 class StartMessageMetadata(base.BaseModel):
     """Metadata available when a message is first created."""
@@ -36,6 +39,14 @@ class EndMessageMetadata(base.BaseModel):
 
 class MessageMetadata(StartMessageMetadata, EndMessageMetadata):
     """Full message metadata."""
+    @staticmethod
+    async def from_incoming_message(
+            incoming_metadata: "msg.IncomingMessageMetadata",
+            seq_in_session: int) -> "MessageMetadata":
+        """Create from incoming metadata and a seq_in_session."""
+        return MessageMetadata(
+            time=await incoming_metadata.time.value,
+            channel=incoming_metadata.channel, seq_in_session=seq_in_session)
 
 
 class BaseMessage(base.BaseModel):
