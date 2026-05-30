@@ -141,7 +141,6 @@ class ChannelRouter(base.MessageSender):
         except KeyError:
             raise ChannelUnavailableError(
                 f"no such channel {message.metadata.channel.type}")
-        self._logger.debug(f"Sending {message}: {await message.content}")
         try:
             await channel_status.channel.send(message)
         except Exception as e:
