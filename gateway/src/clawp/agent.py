@@ -191,7 +191,13 @@ class Session:
         # it has fully arrived. Only then append it to the message store, which
         # requires the message to have finished streaming.
         await self._publisher.append(message)
-        await self._message_store.append_message(message)
+        try:
+            await self._message_store.append_message(message)
+        except Exception:
+            self._logger.exception(
+                "Error storing message in persistent store. The message was "
+                "added and is being processed in memory, but will likely not "
+                "be present when reloading from the persistent store.")
 
     async def _request_response(
             self, outgoing_channel: mdl.OutgoingChannelDescriptor) -> None:
@@ -199,7 +205,7 @@ class Session:
         while do_request:
             message, stream_task = await self._request_agent_message(
                 outgoing_channel)
-            await self._message_sender.send(message)
+            send_task = asyncio.create_task(self._message_sender.send(message))
             # Wait for the message to completely arrive before handling tool
             # calls.
             try:
@@ -208,6 +214,19 @@ class Session:
                 self._logger.exception(f"Error streaming {message}.")
             await message.wait_finalized()
             do_request = await self._handle_tool_calls(message)
+            try:
+                await send_task
+            except Exception as e:
+                self._logger.exception(
+                    "Error sending message. Informing the agent to allow a "
+                    "retry.")
+                await self._append_message_now(
+                    msg.SystemMessage, content=await
+                    file.render_message_send_error(message, e))
+                # Set outgoing_channel so the agent's response goes to the
+                # system channel.
+                outgoing_channel = mdl.SystemChannelDescriptor()
+                do_request = True
 
     async def _request_agent_message(
             self, outgoing_channel: mdl.OutgoingChannelDescriptor):
@@ -245,7 +264,7 @@ class Session:
         Add an agent message.
 
         Appends an agent message to this session with the given channel and
-        content. Returns the agent message
+        content. Returns the agent message.
 
         This method must be called from a context where the session is already
         locked, i.e. from somewhere that gets called from
@@ -487,8 +506,13 @@ class Agent:
 
         Adds an agent message with the given content to the current session and
         also sends it to the given channel.
+
+        This method must be called from a context where the session is already
+        locked, i.e. essentially from a tool callback that gets called from
+        Session.add_incoming_message().
+
+        Any error in sending is bubbled up.
         """
-        # TODO handle errors? rollback?++++++++++++
         message = await self._session.add_agent_message(channel, content)
         await self._channel_router.send(message)
 

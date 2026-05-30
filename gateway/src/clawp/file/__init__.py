@@ -20,6 +20,7 @@ from .template import (
     list_tutorial_topics,
     render_channel_status,
     render_file_content,
+    render_message_send_error,
     render_message_template,
     render_tutorial,
     render_workspace_info,
@@ -33,6 +34,7 @@ __all__ = [
     "list_tutorial_topics",
     "render_channel_status",
     "render_file_content",
+    "render_message_send_error",
     "render_message_template",
     "render_tutorial",
     "render_workspace_info",]

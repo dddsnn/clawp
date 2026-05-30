@@ -17,6 +17,7 @@
 
 import asyncio
 import pathlib
+import traceback
 import typing as t
 
 from .. import model as mdl
@@ -24,6 +25,7 @@ from . import base
 
 if t.TYPE_CHECKING:
     from .. import agent as agt
+    from .. import message as msg
 
 
 async def render_message_template(
@@ -112,3 +114,12 @@ async def render_workspace_info(agent: "agt.Agent") -> str:
     return await render_message_template(
         "system_information/workspace.md", workspace_dir=agent.workspace_dir,
         personality_files=personality_files_description)
+
+
+async def render_message_send_error(
+        message: "msg.AgentMessage", exc: Exception) -> str:
+    """Render a message informing the agent about a message send error."""
+    return await render_message_template(
+        "system_information/send_error.md",
+        channel_descriptor=message.metadata.channel.model_dump_json(),
+        traceback="".join(traceback.format_exception(exc, limit=10)))

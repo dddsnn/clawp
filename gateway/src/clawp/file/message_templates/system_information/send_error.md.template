@@ -1,0 +1,15 @@
+# System information
+
+There was an error delivering your last message to its recipient. Your message had the outgoing channel descriptor
+
+```
+{channel_descriptor}
+```
+
+This error occured
+
+```
+{traceback}
+```
+
+If you respond directly to this message, it will be sent to the system channel (e.g. if you just want to log the error). But you may also use the `clawp_send_message` tool, e.g. to retry sending your message (if you think that might succeed), or to try and reach the recipient via another channel.
