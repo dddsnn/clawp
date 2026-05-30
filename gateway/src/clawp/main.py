@@ -42,7 +42,8 @@ logging.config.dictConfig({
         "nio": {"level": "INFO", "handlers": ["stream_handler"]},
         "peewee": {"level": "INFO", "handlers": ["stream_handler"]},
         "mcp.server.lowlevel.server": {
-            "level": "INFO", "handlers": ["stream_handler"]}},})
+            "level": "INFO", "handlers": ["stream_handler"]},
+        "WebUiChannel": {"level": "INFO", "handlers": ["stream_handler"]}},})
 logger = logging.getLogger(__name__)
 
 
