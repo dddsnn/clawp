@@ -25,12 +25,13 @@ import uvicorn
 
 from .. import agent as agt
 from .. import model as mdl
-from . import agent
+from . import agent, personality
 
 logger = logging.getLogger(__name__)
 
 router = fastapi.APIRouter(prefix="/api/v1")
 router.include_router(agent.router)
+router.include_router(personality.router)
 
 
 @router.get("/healthz")

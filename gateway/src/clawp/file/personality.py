@@ -35,7 +35,7 @@ async def list_personalities() -> list[str]:
         base.do_with_resource_dir, "personalities", list_personalities)
 
 
-async def read_personality(name: str) -> mdl.AgentPersonalityWithFileContents:
+async def read_personality(name: str) -> mdl.AgentPersonality:
     """Read an agent personality by name."""
     def read_yaml(personalities_dir: pathlib.Path):
         yaml = ruamel.yaml.YAML()
@@ -44,7 +44,13 @@ async def read_personality(name: str) -> mdl.AgentPersonalityWithFileContents:
 
     personality_dict = await asyncio.to_thread(
         base.do_with_resource_dir, "personalities", read_yaml)
-    personality = mdl.AgentPersonality.model_validate(personality_dict)
+    return mdl.AgentPersonality.model_validate(personality_dict)
+
+
+async def read_personality_with_file_contents(
+        name: str) -> mdl.AgentPersonalityWithFileContents:
+    """Read an agent personality by name."""
+    personality = await read_personality(name)
     file_contents = {}
     for pf in personality.personality_files:
         try:
@@ -55,4 +61,5 @@ async def read_personality(name: str) -> mdl.AgentPersonalityWithFileContents:
             content = None
         file_contents[pf.path] = content
     return mdl.AgentPersonalityWithFileContents.model_validate(
-        personality_dict | {"personality_file_contents": file_contents})
+        personality.model_dump()
+        | {"personality_file_contents": file_contents})

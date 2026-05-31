@@ -670,8 +670,9 @@ class AgentRepository:
 
     async def _initialize_agent_files(self, agent_id, personality_name):
         try:
-            personality_with_contents = await file.read_personality(
-                personality_name)
+            personality_with_contents = (
+                await
+                file.read_personality_with_file_contents(personality_name))
         except Exception as e:
             raise ValueError(
                 f"can't use personality {personality_name}") from e
