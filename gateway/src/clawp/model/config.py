@@ -22,6 +22,7 @@ import typing as t
 
 import pydantic as pyd
 import pydantic_settings as pyd_set
+import whenever as we
 
 
 class Account(abc.ABC):
@@ -39,6 +40,15 @@ class BaseSettings(pyd_set.BaseSettings):
 class ModelConfig(BaseSettings):
     name: str
     doom_loop_max_requests: int
+    message_send_timeout: we.TimeDelta
+    request_timeout: we.TimeDelta
+
+    @pyd.model_validator(mode="after")
+    def check_timeout_proportions(self) -> t.Self:
+        if self.message_send_timeout >= self.request_timeout:
+            raise ValueError(
+                "request timeout must be greater than message send timeout")
+        return self
 
 
 class OpenRouterConfig(BaseSettings):

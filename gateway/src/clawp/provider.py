@@ -82,8 +82,8 @@ class OpenrouterProvider(Provider):
             tools: cl_abc.Iterable[fastmcp.tools.Tool]) -> asyncio.Task[None]:
         stream = await self._openrouter_client.chat.send_async(
             messages=await self._as_openrouter_messages(messages),
-            model=self._config.model, tools=self._as_openrouter_tools(tools),
-            stream=True)
+            model=self._config.model.name,
+            tools=self._as_openrouter_tools(tools), stream=True)
         stream_reader = OpenrouterStreamReader(message_parts, stream)
         return stream_reader.read_message()
 

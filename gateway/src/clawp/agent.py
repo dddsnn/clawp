@@ -123,8 +123,7 @@ class Session:
                 await self._add_metadata_for_user_message(incoming_message)
             else:
                 raise ValueError(
-                    "unable to handle message role "
-                    f"{incoming_message.role}")
+                    f"unable to handle message role {incoming_message.role}")
             metadata = self._make_metadata(
                 incoming_message.metadata.time,
                 incoming_message.metadata.channel)
@@ -152,7 +151,7 @@ class Session:
             message = message_class(metadata, content=message_content)
             await self._append_message(message)
             if outgoing_channel:
-                await self._request_response(outgoing_channel)
+                await self._request_responses(outgoing_channel)
 
     async def _add_metadata_for_user_message(
             self, user_message: chan.IncomingMessage):
@@ -196,40 +195,51 @@ class Session:
                 "added and is being processed in memory, but will likely not "
                 "be present when reloading from the persistent store.")
 
-    async def _request_response(
+    async def _request_responses(
             self, outgoing_channel: mdl.OutgoingChannelDescriptor) -> None:
-        need_another_request, num_requests = True, 0
+        num_requests = 0
         while num_requests < self._model_config.doom_loop_max_requests:
-            message, stream_task = await self._request_agent_message(
-                outgoing_channel)
-            num_requests += 1
-            send_task = asyncio.create_task(self._message_sender.send(message))
-            # Wait for the message to completely arrive before handling tool
-            # calls.
             try:
-                await stream_task
-            except Exception:
-                self._logger.exception(f"Error streaming {message}.")
-            await message.wait_finalized()
-            need_another_request = await self._handle_tool_calls(message)
-            try:
-                await send_task
-            except Exception as e:
-                self._logger.exception(
-                    "Error sending message. Informing the agent to allow a "
-                    "retry.")
-                await self._append_message_now(
-                    msg.SystemMessage, content=await
-                    file.render_message_send_error(message, e))
-                # Set outgoing_channel so the agent's response goes to the
-                # system channel.
-                outgoing_channel = mdl.SystemChannelDescriptor()
-                need_another_request = True
-            if not need_another_request:
-                break
+                async with asyncio.timeout(
+                        self._model_config.request_timeout.total("seconds")):
+                    outgoing_channel, need_another_request = (
+                        await self._request_response(outgoing_channel))
+                    if not need_another_request:
+                        break
+            except TimeoutError:
+                self._logger.error("Request timed out, giving up.")
+                return
         else:
             self._logger.warning(
                 f"Breaking out of request loop after {num_requests} requests.")
+
+    async def _request_response(
+            self, outgoing_channel: mdl.OutgoingChannelDescriptor):
+        message, stream_task = await self._request_agent_message(
+            outgoing_channel)
+        send_task = asyncio.create_task(self._message_sender.send(message))
+        # Wait for the message to completely arrive before handling tool calls.
+        try:
+            await stream_task
+        except Exception:
+            self._logger.exception(f"Error streaming {message}.")
+        await message.wait_finalized()
+        need_another_request = await self._handle_tool_calls(message)
+        try:
+            async with asyncio.timeout(
+                    self._model_config.message_send_timeout.total("seconds")):
+                await send_task
+        except Exception as e:
+            self._logger.exception(
+                "Error sending message. Informing the agent to allow a retry.")
+            await self._append_message_now(
+                msg.SystemMessage, content=await
+                file.render_message_send_error(message, e))
+            # Set outgoing_channel so the agent's response goes to the system
+            # channel.
+            outgoing_channel = mdl.SystemChannelDescriptor()
+            need_another_request = True
+        return outgoing_channel, need_another_request
 
     async def _request_agent_message(
             self, outgoing_channel: mdl.OutgoingChannelDescriptor):

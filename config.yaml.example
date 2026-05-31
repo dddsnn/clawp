@@ -8,6 +8,8 @@ gateway:
     model:
       name: "stepfun/step-3.5-flash:free"
       doom_loop_max_requests: 10
+      message_send_timeout: "PT30S"
+      request_timeout: "PT2M"
   api:
     host: "0.0.0.0"
     port: 8000
