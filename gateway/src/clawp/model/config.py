@@ -36,9 +36,14 @@ class BaseSettings(pyd_set.BaseSettings):
         env_prefix="CLAWP_", env_prefix_target="alias")
 
 
+class ModelConfig(BaseSettings):
+    name: str
+    doom_loop_max_requests: int
+
+
 class OpenRouterConfig(BaseSettings):
     api_key: str = pyd.Field(alias="OPENROUTER_API_KEY")
-    model: str
+    model: ModelConfig
 
 
 class MatrixAccountConfig(BaseSettings, Account):

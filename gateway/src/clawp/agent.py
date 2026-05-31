@@ -52,12 +52,13 @@ class Session:
     is done.
     """
     def __init__(
-            self, session_seq: int, *,
+            self, session_seq: int, *, model_config: mdl.ModelConfig,
             message_store: store.SessionMessageStore,
             message_sender: chan.MessageSender, provider: "prov.Provider",
             mcp_client: tool.Client) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._session_seq = session_seq
+        self._model_config = model_config
         self._message_store = message_store
         self._message_sender = message_sender
         self._provider = provider
@@ -197,10 +198,11 @@ class Session:
 
     async def _request_response(
             self, outgoing_channel: mdl.OutgoingChannelDescriptor) -> None:
-        do_request = True
-        while do_request:
+        need_another_request, num_requests = True, 0
+        while num_requests < self._model_config.doom_loop_max_requests:
             message, stream_task = await self._request_agent_message(
                 outgoing_channel)
+            num_requests += 1
             send_task = asyncio.create_task(self._message_sender.send(message))
             # Wait for the message to completely arrive before handling tool
             # calls.
@@ -209,7 +211,7 @@ class Session:
             except Exception:
                 self._logger.exception(f"Error streaming {message}.")
             await message.wait_finalized()
-            do_request = await self._handle_tool_calls(message)
+            need_another_request = await self._handle_tool_calls(message)
             try:
                 await send_task
             except Exception as e:
@@ -222,7 +224,12 @@ class Session:
                 # Set outgoing_channel so the agent's response goes to the
                 # system channel.
                 outgoing_channel = mdl.SystemChannelDescriptor()
-                do_request = True
+                need_another_request = True
+            if not need_another_request:
+                break
+        else:
+            self._logger.warning(
+                f"Breaking out of request loop after {num_requests} requests.")
 
     async def _request_agent_message(
             self, outgoing_channel: mdl.OutgoingChannelDescriptor):
@@ -307,7 +314,8 @@ class Agent:
     """
     def __init__(
             self, agent_information: mdl.AgentInformation, *,
-            workspace_dir: pathlib.Path, message_store: store.MessageStore,
+            model_config: mdl.ModelConfig, workspace_dir: pathlib.Path,
+            message_store: store.MessageStore,
             channel_router: chan.ChannelRouter,
             provider: "prov.Provider") -> None:
         self._logger = logging.getLogger(type(self).__name__)
@@ -319,8 +327,8 @@ class Agent:
         self._mcp_client = tool.Client(self)
         self._channel_router = channel_router
         self._session_factory = ft.partial(
-            Session, message_sender=channel_router, provider=provider,
-            mcp_client=self._mcp_client)
+            Session, model_config=model_config, message_sender=channel_router,
+            provider=provider, mcp_client=self._mcp_client)
         self._session = None
         self._lock = asyncio.Lock()
 
@@ -515,11 +523,12 @@ class AgentRepository:
     """A repository of agents."""
     def __init__(
             self, *, base_dir: pathlib.Path, channel_pool: chan.ChannelPool,
-            provider: "prov.Provider") -> None:
+            provider: "prov.Provider", model_config: mdl.ModelConfig) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._base_dir = base_dir
         self._channel_pool = channel_pool
         self._provider = provider
+        self._model_config = model_config
         self._agents = {}
         self._running = False
 
@@ -600,8 +609,8 @@ class AgentRepository:
                     f"Agent {agent_information.id} claims channel "
                     f"{claimed_channel}, but it's not available: {e}.")
         return Agent(
-            agent_information, workspace_dir=workspace_dir,
-            message_store=message_store,
+            agent_information, model_config=self._model_config,
+            workspace_dir=workspace_dir, message_store=message_store,
             channel_router=chan.ChannelRouter(channels),
             provider=self._provider)
 

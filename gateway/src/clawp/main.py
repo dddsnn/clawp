@@ -69,7 +69,8 @@ async def main():
     openrouter_provider = prov.OpenrouterProvider(config.gateway.openrouter)
     agent_repo = agt.AgentRepository(
         base_dir=config.gateway.agents_base_dir, channel_pool=channel_pool,
-        provider=openrouter_provider)
+        provider=openrouter_provider,
+        model_config=config.gateway.openrouter.model)
     clawp_api = api.Api(config.gateway.api, agent_repo)
     async with contextlib.AsyncExitStack() as stack:
         await stack.enter_async_context(openrouter_provider)

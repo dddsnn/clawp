@@ -44,6 +44,7 @@ from .config import (
     GatewayConfig,
     MatrixAccountConfig,
     MatrixConfig,
+    ModelConfig,
     OpenRouterConfig,
 )
 from .memory import Memory
@@ -110,6 +111,7 @@ __all__ = [
     "GatewayConfig",
     "MatrixAccountConfig",
     "MatrixConfig",
+    "ModelConfig",
     "OpenRouterConfig",
     # memory
     "Memory",

@@ -5,7 +5,9 @@ gateway:
     # The api_key can be provided via the CLAWP_OPENROUTER_API_KEY environment
     # variable.
     # api_key: ""
-    model: "stepfun/step-3.5-flash:free"
+    model:
+      name: "stepfun/step-3.5-flash:free"
+      doom_loop_max_requests: 10
   api:
     host: "0.0.0.0"
     port: 8000
