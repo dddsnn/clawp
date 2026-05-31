@@ -24,6 +24,10 @@ from .. import model as mdl
 from . import base
 
 
+class PersonalityNotFoundError(ValueError):
+    """Raised when a personality is requested that doesn't exist."""
+
+
 async def list_personalities() -> list[str]:
     """List the names of all available agent personalities."""
     def list_personalities(personalities_dir: pathlib.Path):
@@ -40,7 +44,10 @@ async def read_personality(name: str) -> mdl.AgentPersonality:
     def read_yaml(personalities_dir: pathlib.Path):
         yaml = ruamel.yaml.YAML()
         file_path = personalities_dir / f"{name}.yaml"
-        return yaml.load(file_path)
+        try:
+            return yaml.load(file_path)
+        except FileNotFoundError:
+            raise PersonalityNotFoundError(f"personality {name} doesn't exist")
 
     personality_dict = await asyncio.to_thread(
         base.do_with_resource_dir, "personalities", read_yaml)

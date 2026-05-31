@@ -22,8 +22,10 @@ import logging
 import uuid
 
 import fastapi
+import fastapi.exceptions as fa_exc
 import whenever as we
 
+from .. import file
 from .. import message as msg
 from .. import model as mdl
 from . import dependency as dep
@@ -53,6 +55,24 @@ async def list_agents(
         agent_repo: dep.AgentRepository) -> list[mdl.AgentInformation]:
     """Get a list of agents."""
     return [agent.information for agent in agent_repo.iter_agents()]
+
+
+@router.get("/hatch")
+async def hatch_new_agent(
+        agent_repo: dep.AgentRepository,
+        personality_name: str) -> mdl.AgentInformation:
+    """
+    Hatch a new agent.
+
+    Create a new agent with the given personality and return its info.
+    """
+    try:
+        agent = await agent_repo.hatch_agent(personality_name)
+    except file.PersonalityNotFoundError:
+        raise fa_exc.HTTPException(
+            status_code=404,
+            detail=f"No personality named {personality_name}.")
+    return agent.information
 
 
 @router.get("/{agent_id}/messages")

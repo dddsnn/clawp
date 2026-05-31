@@ -46,7 +46,7 @@ async def get_personality(
     """
     try:
         return await file.read_personality_with_file_contents(personality_name)
-    except FileNotFoundError:
+    except file.PersonalityNotFoundError:
         raise fa_exc.HTTPException(
             status_code=404,
             detail=f"No personality named {personality_name}.")

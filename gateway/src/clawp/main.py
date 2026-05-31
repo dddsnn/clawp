@@ -76,8 +76,6 @@ async def main():
         await stack.enter_async_context(openrouter_provider)
         await stack.enter_async_context(agent_repo)
         await stack.enter_async_context(clawp_api)
-        if not list(agent_repo.iter_agents()):
-            await agent_repo.hatch_agent("clawp_development_helper")
         await shutdown_event.wait()
 
 

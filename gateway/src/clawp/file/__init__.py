@@ -16,6 +16,7 @@
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 from .personality import (
+    PersonalityNotFoundError,
     list_personalities,
     read_personality,
     read_personality_with_file_contents,
@@ -32,6 +33,7 @@ from .template import (
 
 __all__ = [
     # personality
+    "PersonalityNotFoundError",
     "list_personalities",
     "read_personality",
     "read_personality_with_file_contents",

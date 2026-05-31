@@ -673,6 +673,8 @@ class AgentRepository:
             personality_with_contents = (
                 await
                 file.read_personality_with_file_contents(personality_name))
+        except file.PersonalityNotFoundError:
+            raise
         except Exception as e:
             raise ValueError(
                 f"can't use personality {personality_name}") from e
