@@ -66,7 +66,8 @@ class MatrixAccountConfig(BaseSettings, Account):
     homeserver: str
     username: str
     # Default this to None, it will be loaded from env by MatrixConfig.
-    password: str = pyd.Field(default=None, validate_default=False)
+    password: str = pyd.Field(
+        default=None, validate_default=False, exclude=True)
     device_id: str
 
     @property
