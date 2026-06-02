@@ -22,6 +22,7 @@ import fastapi
 import fastapi.requests
 
 from .. import agent as agt
+from .. import channel as chan
 
 
 def get_agent_repo(
@@ -31,8 +32,12 @@ def get_agent_repo(
         assert isinstance(agent_repo, agt.AgentRepository)
     except (AttributeError, AssertionError) as e:
         raise fastapi.HTTPException(
-            status_code=500, detail="Agent repo is not available") from e
+            status_code=500, detail="Agent repo is not available.") from e
     return agent_repo
+
+
+AgentRepository = t.Annotated[agt.AgentRepository,
+                              fastapi.Depends(get_agent_repo)]
 
 
 def get_agent(agent_id: uuid.UUID, agent_repo: AgentRepository) -> agt.Agent:
@@ -40,9 +45,21 @@ def get_agent(agent_id: uuid.UUID, agent_repo: AgentRepository) -> agt.Agent:
         return agent_repo.get_agent(agent_id)
     except KeyError:
         raise fastapi.HTTPException(
-            status_code=404, detail=f"No agent with ID {agent_id}")
+            status_code=404, detail=f"No agent with ID {agent_id}.")
 
 
-AgentRepository = t.Annotated[agt.AgentRepository,
-                              fastapi.Depends(get_agent_repo)]
 Agent = t.Annotated[agt.Agent, fastapi.Depends(get_agent)]
+
+
+def get_channel_pool(
+        conn: fastapi.requests.HTTPConnection) -> chan.ChannelPool:
+    try:
+        channel_pool = conn.app.state.channel_pool
+        assert isinstance(channel_pool, chan.ChannelPool)
+    except (AttributeError, AssertionError) as e:
+        raise fastapi.HTTPException(
+            status_code=500, detail="Channel pool is not available.") from e
+    return channel_pool
+
+
+ChannelPool = t.Annotated[chan.ChannelPool, fastapi.Depends(get_channel_pool)]

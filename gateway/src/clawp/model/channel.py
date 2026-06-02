@@ -16,10 +16,12 @@
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 import typing as t
+import uuid
 
 import pydantic as pyd
 
 from . import base
+from . import config as cfg
 
 ChannelType = t.Literal["matrix", "system", "web_ui"]
 
@@ -72,12 +74,38 @@ OutgoingChannelDescriptorTypeAdapter = pyd.TypeAdapter(
 
 ChannelDescriptor = IncomingChannelDescriptor | OutgoingChannelDescriptor
 
+ChannelConfig = t.Annotated[cfg.MatrixAccountConfig,
+                            pyd.Field(discriminator="type")]
 
-class ChannelStatus(base.BaseModel):
+
+class BaseChannelStatus(base.BaseModel):
     type: ChannelType
     available: bool
 
 
-class MatrixChannelStatus(ChannelStatus):
+class MatrixChannelStatus(BaseChannelStatus):
     type: t.Literal["matrix"] = "matrix"
     username: str
+
+
+ChannelStatus = t.Annotated[MatrixChannelStatus,
+                            pyd.Field(discriminator="type")]
+
+
+class ClaimedChannel(base.BaseModel):
+    type: ChannelType
+    id: str
+
+
+class ChannelInformation(base.BaseModel):
+    type: ChannelType
+    id: t.Optional[str]
+    config: ChannelConfig
+    status: ChannelStatus
+    assigned_to_agent: t.Optional[uuid.UUID]
+
+    @pyd.model_validator(mode="after")
+    def check_type_is_consistent(self) -> t.Self:
+        if self.type != self.status.type:
+            raise ValueError("type and status.type differ")
+        return self

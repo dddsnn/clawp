@@ -28,6 +28,8 @@ from . import base
 
 
 class Account(base.BaseModel, abc.ABC):
+    type: t.Literal["matrix"]
+
     @pyd.computed_field
     @property
     @abc.abstractmethod
@@ -60,6 +62,7 @@ class OpenRouterConfig(BaseSettings):
 
 
 class MatrixAccountConfig(BaseSettings, Account):
+    type: t.Literal["matrix"] = "matrix"
     homeserver: str
     username: str
     # Default this to None, it will be loaded from env by MatrixConfig.

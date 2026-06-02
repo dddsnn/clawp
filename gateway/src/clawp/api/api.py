@@ -24,13 +24,15 @@ import fastapi
 import uvicorn
 
 from .. import agent as agt
+from .. import channel as chan
 from .. import model as mdl
-from . import agent, personality
+from . import agent, channel, personality
 
 logger = logging.getLogger(__name__)
 
 router = fastapi.APIRouter(prefix="/api/v1")
 router.include_router(agent.router)
+router.include_router(channel.router)
 router.include_router(personality.router)
 
 
@@ -41,10 +43,11 @@ async def healthz() -> dict[str, str]:
 
 class Api:
     def __init__(
-            self, config: mdl.ApiConfig,
-            agent_repo: agt.AgentRepository) -> None:
+            self, config: mdl.ApiConfig, agent_repo: agt.AgentRepository,
+            channel_pool: chan.ChannelPool) -> None:
         app = fastapi.FastAPI()
         app.state.agent_repo = agent_repo
+        app.state.channel_pool = channel_pool
         app.include_router(router)
         config = uvicorn.Config(
             app=app, host=str(config.host), port=config.port,

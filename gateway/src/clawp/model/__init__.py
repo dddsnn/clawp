@@ -19,14 +19,15 @@ from .agent import (
     AgentInformation,
     AgentPersonality,
     AgentPersonalityWithFileContents,
-    ClaimedChannel,
 )
 from .base import BaseModel, Iso8601Millis
 from .channel import (
     BaseChannelDescriptor,
     ChannelDescriptor,
+    ChannelInformation,
     ChannelStatus,
     ChannelType,
+    ClaimedChannel,
     IncomingChannelDescriptor,
     IncomingChannelDescriptorTypeAdapter,
     MatrixChannelStatus,
@@ -86,15 +87,16 @@ __all__ = [
     "AgentInformation",
     "AgentPersonality",
     "AgentPersonalityWithFileContents",
-    "ClaimedChannel",
     # base
     "BaseModel",
     "Iso8601Millis",
     # channel
     "BaseChannelDescriptor",
     "ChannelDescriptor",
+    "ChannelInformation",
     "ChannelStatus",
     "ChannelType",
+    "ClaimedChannel",
     "IncomingChannelDescriptor",
     "IncomingChannelDescriptorTypeAdapter",
     "MatrixChannelStatus",
