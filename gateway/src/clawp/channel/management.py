@@ -170,6 +170,13 @@ class ChannelRouter(base.MessageSender):
         return self._publisher.subscribe()
 
 
+@dc.dataclass
+class PoolChannelStatus:
+    channel: base.Channel
+    config: mdl.Account
+    status: t.Literal["available", "acquired"] = "available"
+
+
 class ChannelPool:
     """
     A pool of all available channels.
@@ -177,11 +184,6 @@ class ChannelPool:
     Creates channels from the channels config, and makes them available. Each
     channel can only be acquired once at a time.
     """
-    @dc.dataclass
-    class ChannelStatus:
-        channel: base.Channel
-        status: t.Literal["available", "acquired"] = "available"
-
     def __init__(self, config: mdl.ChannelsConfig) -> None:
         self._channels = {"matrix": self._make_matrix_channels(config.matrix)}
 
@@ -189,11 +191,25 @@ class ChannelPool:
             self, config: mdl.MatrixConfig) -> dict[str, matrix.MatrixChannel]:
         channels = {}
         for account in config.accounts:
-            channel_status = self.ChannelStatus(
+            channel_status = PoolChannelStatus(
                 channel=matrix.MatrixChannel(
-                    store_dir=config.store_dir, config=account))
+                    store_dir=config.store_dir, config=account),
+                config=account)
             channels[account.id] = channel_status
         return channels
+
+    def __iter__(self) -> cl_abc.Generator[PoolChannelStatus]:
+        """
+        Iterate all channel stati.
+
+        Iterate over all channels managed by the pool for information purposes.
+        Note that, while it is possible to get a hold of any channel like this,
+        they are not acquired for the iteration in the sense of the pool. If
+        the status says "acquired", they have been acquired previously and are
+        in use. Actively using them will lead to concurrency issues.
+        """
+        for channels_of_type in self._channels.values():
+            yield from channels_of_type.values()
 
     def acquire(self, claimed_channel: mdl.ClaimedChannel) -> base.Channel:
         """

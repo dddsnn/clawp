@@ -26,6 +26,7 @@ from .management import (
     ChannelPool,
     ChannelRouter,
     ChannelUnavailableError,
+    PoolChannelStatus,
     SendError,
 )
 from .matrix import MatrixChannel
@@ -43,6 +44,7 @@ __all__ = [
     "ChannelPool",
     "ChannelRouter",
     "ChannelUnavailableError",
+    "PoolChannelStatus",
     "SendError",
     # matrix
     "MatrixChannel",]

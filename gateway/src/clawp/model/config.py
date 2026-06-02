@@ -24,8 +24,11 @@ import pydantic as pyd
 import pydantic_settings as pyd_set
 import whenever as we
 
+from . import base
 
-class Account(abc.ABC):
+
+class Account(base.BaseModel, abc.ABC):
+    @pyd.computed_field
     @property
     @abc.abstractmethod
     def id(self) -> str:

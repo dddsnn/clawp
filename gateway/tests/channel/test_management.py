@@ -19,7 +19,13 @@ import dataclasses as dc
 import pathlib
 
 import pytest
-from hamcrest import all_of, assert_that, has_properties, instance_of
+from hamcrest import (
+    all_of,
+    assert_that,
+    contains_inanyorder,
+    has_properties,
+    instance_of,
+)
 
 from clawp import channel as chan
 from clawp import model as mdl
@@ -112,3 +118,25 @@ class TestChannelPool:
         pool.release(channel)
         with pytest.raises(chan.ChannelUnavailableError):
             pool.release(channel)
+
+    async def test_iter(self):
+        channels_config = self.make_channels_config(["id1", "id2"])
+        pool = chan.ChannelPool(channels_config)
+        matrix_accounts = channels_config.matrix.accounts
+        expected_stati = [
+            has_properties(
+                channel=has_properties(id=a.id), config=a, status="available")
+            for a in matrix_accounts]
+        assert_that(list(pool), contains_inanyorder(*expected_stati))
+
+    async def test_iter_shows_channels_acquired(self):
+        channels_config = self.make_channels_config(["id1", "id2"])
+        pool = chan.ChannelPool(channels_config)
+        matrix_accounts = channels_config.matrix.accounts
+        pool.acquire(mdl.ClaimedChannel(type="matrix", id="id1"))
+        expected_stati = [
+            has_properties(
+                channel=has_properties(id=a.id), config=a,
+                status="acquired" if a.id == "id1" else "available")
+            for a in matrix_accounts]
+        assert_that(list(pool), contains_inanyorder(*expected_stati))
