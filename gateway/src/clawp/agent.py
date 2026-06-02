@@ -351,6 +351,15 @@ class Agent:
         return self._workspace_dir
 
     @property
+    def channels(self) -> dict[str, chan.Channel]:
+        """
+        Return this agent's channels.
+
+        The dictionary maps channel type to the channel.
+        """
+        return self._channel_router.channels
+
+    @property
     def web_ui_channel(self) -> chan.WebUiChannel:
         """The agent's web UI channel."""
         return self._channel_router.web_ui_channel
