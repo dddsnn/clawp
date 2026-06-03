@@ -23,9 +23,11 @@ from .base import (
 )
 from .builtin import SystemChannel, WebUiChannel
 from .management import (
+    ChannelError,
     ChannelPool,
     ChannelRouter,
-    ChannelUnavailableError,
+    ChannelStateError,
+    NoSuchChannelError,
     PoolChannelStatus,
     SendError,
 )
@@ -41,9 +43,11 @@ __all__ = [
     "SystemChannel",
     "WebUiChannel",
     # management
+    "ChannelError",
     "ChannelPool",
     "ChannelRouter",
-    "ChannelUnavailableError",
+    "ChannelStateError",
+    "NoSuchChannelError",
     "PoolChannelStatus",
     "SendError",
     # matrix

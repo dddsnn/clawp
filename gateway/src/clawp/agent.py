@@ -131,7 +131,7 @@ class Session:
                 try:
                     outgoing_channel = self._message_sender.response_channel(
                         incoming_message.metadata.channel)
-                except chan.ChannelUnavailableError:
+                except chan.ChannelError:
                     self._logger.exception(
                         "Unable to find a response channel for incoming "
                         f"message with content '{incoming_message.content}' "
@@ -623,7 +623,7 @@ class AgentRepository:
         for claimed_channel in agent_information.claimed_channels:
             try:
                 channels.append(self._channel_pool.acquire(claimed_channel))
-            except chan.ChannelUnavailableError as e:
+            except chan.ChannelError as e:
                 self._logger.warning(
                     f"Agent {agent_information.id} claims channel "
                     f"{claimed_channel}, but it's not available: {e}.")

@@ -27,8 +27,16 @@ from .. import util
 from . import base, builtin, matrix
 
 
-class ChannelUnavailableError(Exception):
-    """Raised when a channel is not available."""
+class ChannelError(Exception):
+    """Raised when a channel is not available for any reason."""
+
+
+class NoSuchChannelError(ChannelError):
+    """Raised when a requested channel doesn't exist."""
+
+
+class ChannelStateError(ChannelError):
+    """Raised when a channel has already been acquired."""
 
 
 class SendError(Exception):
@@ -139,7 +147,7 @@ class ChannelRouter(base.MessageSender):
         try:
             channel_status = self._stati[message.metadata.channel.type]
         except KeyError:
-            raise ChannelUnavailableError(
+            raise NoSuchChannelError(
                 f"no such channel {message.metadata.channel.type}")
         try:
             await channel_status.channel.send(message)
@@ -161,7 +169,7 @@ class ChannelRouter(base.MessageSender):
         try:
             channel_status = self._stati[incoming_descriptor.type]
         except KeyError:
-            raise ChannelUnavailableError(
+            raise NoSuchChannelError(
                 f"no such channel {incoming_descriptor.type}")
         return channel_status.channel.response_channel(incoming_descriptor)
 
@@ -215,15 +223,15 @@ class ChannelPool:
         """
         Acquire a specific channel.
 
-        If there is no such channel, or if it has already been acquired,
-        ChannelUnavailableError is raised.
+        Raises NoSuchChannelError if the channel doesn't exist, or
+        ChannelStateError if it has already been acquired.
         """
         try:
             status = self._channels[claimed_channel.type][claimed_channel.id]
         except KeyError:
-            raise ChannelUnavailableError("no such channel")
+            raise NoSuchChannelError(f"{claimed_channel} doesn't exist")
         if status.status != "available":
-            raise ChannelUnavailableError("channel not available")
+            raise ChannelStateError("channel has already been acquired")
         status.status = "acquired"
         return status.channel
 
@@ -231,13 +239,13 @@ class ChannelPool:
         """
         Release an acquired channel so it can be aquired again.
 
-        If the channel has not been acquired, ChannelUnavailableError is
-        raised.
+        Raises NoSuchChannelError if the channel doesn't exist, or
+        ChannelStateError if it has not been acquired.
         """
         try:
             status = self._channels[channel.type][channel.id]
         except KeyError:
-            raise ChannelUnavailableError("no such channel")
+            raise NoSuchChannelError(f"{channel} doesn't exist in the pool")
         if status.status != "acquired":
-            raise ChannelUnavailableError("channel has not been acquired")
+            raise ChannelStateError("channel has not been acquired")
         status.status = "available"

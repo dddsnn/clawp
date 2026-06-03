@@ -63,17 +63,17 @@ class TestChannelPool:
 
     async def test_acquire_raises_with_no_channels(self):
         pool = chan.ChannelPool(self.make_channels_config([]))
-        with pytest.raises(chan.ChannelUnavailableError):
+        with pytest.raises(chan.NoSuchChannelError):
             pool.acquire(mdl.ClaimedChannel(type="matrix", id="id1"))
 
     async def test_acquire_raises_with_no_matching_channel_id(self):
         pool = chan.ChannelPool(self.make_channels_config(["id1", "id3"]))
-        with pytest.raises(chan.ChannelUnavailableError):
+        with pytest.raises(chan.NoSuchChannelError):
             pool.acquire(mdl.ClaimedChannel(type="matrix", id="id2"))
 
     async def test_acquire_raises_with_no_matching_channel_type(self):
         pool = chan.ChannelPool(self.make_channels_config(["id1", "id3"]))
-        with pytest.raises(chan.ChannelUnavailableError):
+        with pytest.raises(chan.NoSuchChannelError):
             pool.acquire(
                 mdl.ClaimedChannel.model_construct(
                     type="not_matrix", id="id1"))
@@ -89,7 +89,7 @@ class TestChannelPool:
         config = self.make_channels_config(["id1"])
         pool = chan.ChannelPool(config)
         pool.acquire(mdl.ClaimedChannel(type="matrix", id="id1"))
-        with pytest.raises(chan.ChannelUnavailableError):
+        with pytest.raises(chan.ChannelStateError):
             pool.acquire(mdl.ClaimedChannel(type="matrix", id="id1"))
 
     async def test_acquire_release_acquire(self):
@@ -102,13 +102,13 @@ class TestChannelPool:
     async def test_release_raises_with_no_matching_channel_id(self):
         config = self.make_channels_config(["id1"])
         pool = chan.ChannelPool(config)
-        with pytest.raises(chan.ChannelUnavailableError):
+        with pytest.raises(chan.NoSuchChannelError):
             pool.release(MockChannel("matrix", "id2"))
 
     async def test_release_raises_with_no_matching_channel_type(self):
         config = self.make_channels_config(["id1"])
         pool = chan.ChannelPool(config)
-        with pytest.raises(chan.ChannelUnavailableError):
+        with pytest.raises(chan.NoSuchChannelError):
             pool.release(MockChannel("not_matrix", "id2"))
 
     async def test_release_raises_if_channel_had_not_been_acquired(self):
@@ -116,7 +116,7 @@ class TestChannelPool:
         pool = chan.ChannelPool(config)
         channel = pool.acquire(mdl.ClaimedChannel(type="matrix", id="id1"))
         pool.release(channel)
-        with pytest.raises(chan.ChannelUnavailableError):
+        with pytest.raises(chan.ChannelStateError):
             pool.release(channel)
 
     async def test_iter(self):
