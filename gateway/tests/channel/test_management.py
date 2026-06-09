@@ -33,13 +33,16 @@ from clawp import model as mdl
 
 def matrix_channel_matching_config(config: mdl.MatrixConfig, username: str):
     account = next(a for a in config.accounts if a.username == username)
-    return all_of(
+    expected_channel = all_of(
         instance_of(chan.MatrixChannel),
         has_properties(
             id=username, _config=account, _client=has_properties(
                 store_path=str(config.store_dir.resolve()),
                 homeserver=account.homeserver, user=username,
                 device_id=account.device_id)))
+    return all_of(
+        instance_of(chan.PoolChannelStatus),
+        has_properties(channel=expected_channel, config=account))
 
 
 @dc.dataclass
@@ -95,8 +98,9 @@ class TestChannelPool:
     async def test_acquire_release_acquire(self):
         config = self.make_channels_config(["id1"])
         pool = chan.ChannelPool(config)
-        channel = pool.acquire(mdl.ClaimedChannel(type="matrix", id="id1"))
-        pool.release(channel)
+        channel_status = pool.acquire(
+            mdl.ClaimedChannel(type="matrix", id="id1"))
+        pool.release(channel_status.channel)
         assert pool.acquire(mdl.ClaimedChannel(type="matrix", id="id1"))
 
     async def test_release_raises_with_no_matching_channel_id(self):
@@ -114,10 +118,11 @@ class TestChannelPool:
     async def test_release_raises_if_channel_had_not_been_acquired(self):
         config = self.make_channels_config(["id1"])
         pool = chan.ChannelPool(config)
-        channel = pool.acquire(mdl.ClaimedChannel(type="matrix", id="id1"))
-        pool.release(channel)
+        channel_status = pool.acquire(
+            mdl.ClaimedChannel(type="matrix", id="id1"))
+        pool.release(channel_status.channel)
         with pytest.raises(chan.ChannelStateError):
-            pool.release(channel)
+            pool.release(channel_status.channel)
 
     async def test_iter(self):
         channels_config = self.make_channels_config(["id1", "id2"])

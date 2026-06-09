@@ -622,7 +622,8 @@ class AgentRepository:
         channels = []
         for claimed_channel in agent_information.claimed_channels:
             try:
-                channels.append(self._channel_pool.acquire(claimed_channel))
+                channel_status = self._channel_pool.acquire(claimed_channel)
+                channels.append(channel_status.channel)
             except chan.ChannelError as e:
                 self._logger.warning(
                     f"Agent {agent_information.id} claims channel "
