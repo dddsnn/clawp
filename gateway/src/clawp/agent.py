@@ -441,9 +441,7 @@ class Agent:
                 "system_information/session_initialization.md"))
         # Tell the agent about available channels.
         for channel in self._channel_router.channels.values():
-            await self._channel_router.system_channel.add_incoming_message(
-                "system", await
-                file.render_channel_status(await channel.status))
+            await self._add_channel_status_message(channel)
         # Tell the agent about their workspace and personality files.
         await self._channel_router.system_channel.add_incoming_message(
             "system", await file.render_workspace_info(self))
@@ -474,6 +472,10 @@ class Agent:
             "system_workspace",]
         for topic in tutorial_topics:
             yield await file.render_tutorial(topic)
+
+    async def _add_channel_status_message(self, channel: chan.Channel):
+        await self._channel_router.system_channel.add_incoming_message(
+            "system", await file.render_channel_status(await channel.status))
 
     async def _read_incoming_messages(self) -> None:
         handle_task = None
@@ -536,6 +538,12 @@ class Agent:
         """
         message = await self._session.add_agent_message(channel, content)
         await self._channel_router.send(message)
+
+    async def add_channel(self, channel: chan.Channel) -> None:
+        await self._channel_router.add_channel(channel)
+        await self._add_channel_status_message(channel)
+        claimed_channel = mdl.ClaimedChannel(type=channel.type, id=channel.id)
+        self.information.claimed_channels.append(claimed_channel)
 
 
 class AgentRepository:

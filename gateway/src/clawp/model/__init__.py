@@ -20,6 +20,7 @@ from .agent import (
     AgentPersonality,
     AgentPersonalityWithFileContents,
 )
+from .api import ErrorResponse
 from .base import BaseModel, Iso8601Millis
 from .channel import (
     BaseChannelDescriptor,
@@ -87,6 +88,8 @@ __all__ = [
     "AgentInformation",
     "AgentPersonality",
     "AgentPersonalityWithFileContents",
+    # api
+    "ErrorResponse",
     # base
     "BaseModel",
     "Iso8601Millis",

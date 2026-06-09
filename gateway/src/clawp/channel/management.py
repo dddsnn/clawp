@@ -66,6 +66,7 @@ class ChannelRouter(base.MessageSender):
     def __init__(self, channels: list[base.Channel]) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._publisher = util.Publisher()
+        self._is_running = False
         self._stati = {}
         for channel in channels:
             if channel.type in self._stati:
@@ -82,12 +83,12 @@ class ChannelRouter(base.MessageSender):
             f"{sorted(self._stati)}.")
         await self._publisher.__aenter__()
         for status in self._stati.values():
-            await status.channel.__aenter__()
-            status.read_task = asyncio.create_task(
-                self._read_channel(status.channel))
+            await self._start_channel(status)
+        self._is_running = True
         return self
 
     async def __aexit__(self, *args) -> bool:
+        self._is_running = False
         await self._publisher.__aexit__(*args)
         for status in self._stati.values():
             status.read_task.cancel()
@@ -99,6 +100,12 @@ class ChannelRouter(base.MessageSender):
                 self._logger.exception(
                     f"Error waiting for shutdown of {status.channel.type}.")
         return False
+
+    async def _start_channel(self, status):
+        assert status.read_task is None
+        await status.channel.__aenter__()
+        status.read_task = asyncio.create_task(
+            self._read_channel(status.channel))
 
     async def _read_channel(self, channel: base.Channel):
         publish_task = None
@@ -116,6 +123,21 @@ class ChannelRouter(base.MessageSender):
             except Exception:
                 self._logger.exception("Error waiting for final publish.")
                 publish_task.cancel()
+
+    async def add_channel(self, channel: base.Channel) -> None:
+        """
+        Add a new channel and start reading from it.
+
+        Raises a ValueError if a channel of the type already exists. Raises a
+        RuntimeError if the router isn't running.
+        """
+        if channel.type in self._stati:
+            raise ValueError(f"channel {channel.type} already exists")
+        if not self._is_running:
+            raise RuntimeError("router isn't running, cant add channel")
+        self._stati[channel.type] = self.ChannelStatus(channel)
+        await self._start_channel(self._stati[channel.type])
+        self._logger.info(f"Added and started channel {channel.type}.")
 
     @property
     def channels(self) -> dict[str, base.Channel]:
