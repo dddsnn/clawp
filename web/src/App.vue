@@ -25,7 +25,7 @@ import ChatWindow from './components/chat/ChatWindow.vue';
 import { fetchAgents, ChatConnection } from './services/api';
 import { useAgentStore } from './stores/agentStore';
 import { useChatStore } from './stores/chatStore';
-import { Users, Loader2, AlertCircle } from 'lucide-vue-next';
+import { Bot, Loader2, AlertCircle } from 'lucide-vue-next';
 
 const agentStore = useAgentStore();
 const chatStore = useChatStore();
@@ -86,7 +86,7 @@ onUnmounted(() => {
       <!-- Left Navigation Pane -->
       <aside class="w-64 bg-white border-r border-slate-200 flex flex-col flex-shrink-0 z-10">
         <div class="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center space-x-2">
-          <Users class="w-5 h-5 text-slate-500" />
+          <Bot class="w-5 h-5 text-slate-500" />
           <h2 class="text-sm font-semibold text-slate-700 tracking-wide uppercase">Agents</h2>
         </div>
 
