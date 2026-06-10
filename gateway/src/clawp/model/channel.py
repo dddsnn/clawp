@@ -83,12 +83,21 @@ class BaseChannelStatus(base.BaseModel):
     available: bool
 
 
+class SystemChannelStatus(BaseChannelStatus):
+    type: t.Literal["system"] = "system"
+
+
+class WebUiChannelStatus(BaseChannelStatus):
+    type: t.Literal["web_ui"] = "web_ui"
+
+
 class MatrixChannelStatus(BaseChannelStatus):
     type: t.Literal["matrix"] = "matrix"
     username: str
 
 
-ChannelStatus = t.Annotated[MatrixChannelStatus,
+ChannelStatus = t.Annotated[SystemChannelStatus | WebUiChannelStatus
+                            | MatrixChannelStatus,
                             pyd.Field(discriminator="type")]
 
 

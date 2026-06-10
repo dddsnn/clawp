@@ -82,7 +82,7 @@ class MatrixChannel(base.Channel):
         return self._config.username
 
     @property
-    async def status(self) -> str:
+    async def status(self) -> mdl.MatrixChannelStatus:
         return mdl.MatrixChannelStatus(
             type=self.type, available=True, username=self._config.username)
 

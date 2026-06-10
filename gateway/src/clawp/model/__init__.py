@@ -36,7 +36,9 @@ from .channel import (
     OutgoingChannelDescriptor,
     OutgoingChannelDescriptorTypeAdapter,
     SystemChannelDescriptor,
+    SystemChannelStatus,
     WebUiChannelDescriptor,
+    WebUiChannelStatus,
 )
 from .config import (
     ApiConfig,
@@ -106,7 +108,9 @@ __all__ = [
     "OutgoingChannelDescriptor",
     "OutgoingChannelDescriptorTypeAdapter",
     "SystemChannelDescriptor",
+    "SystemChannelStatus",
     "WebUiChannelDescriptor",
+    "WebUiChannelStatus",
     # config
     "ApiConfig",
     "Config",

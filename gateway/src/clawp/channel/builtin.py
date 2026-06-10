@@ -41,8 +41,8 @@ class SystemChannel(base.Channel):
         return None
 
     @property
-    async def status(self) -> str:
-        return mdl.ChannelStatus(type=self.type, available=True)
+    async def status(self) -> mdl.SystemChannelStatus:
+        return mdl.SystemChannelStatus(available=True)
 
     async def send(self, message: msg.AgentMessage) -> None:
         self._logger.info(
@@ -85,8 +85,8 @@ class WebUiChannel(base.Channel):
         return None
 
     @property
-    async def status(self) -> str:
-        return mdl.ChannelStatus(type=self.type, available=True)
+    async def status(self) -> mdl.WebUiChannelStatus:
+        return mdl.WebUiChannelStatus(available=True)
 
     async def send(self, message: msg.AgentMessage) -> None:
         self._logger.debug(f"Sending {message}: {await message.content}")
