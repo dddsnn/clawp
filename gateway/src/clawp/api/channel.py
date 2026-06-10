@@ -81,6 +81,9 @@ def _channel_assignments(
 
 @router.post(
     "/{channel_type}/{channel_id}/assignment/{agent_id}", responses={
+        200: {
+            "model": mdl.ChannelInformation,
+            "description": "Channel assigned successfully"},
         404: {
             "model": mdl.ErrorResponse,
             "description": "The channel or agent doesn't exist"},
@@ -113,3 +116,37 @@ async def assign_channel(
         status=await channel_status.channel.status,
         assigned_to_agent=agent.information.id,
     )
+
+
+@router.delete(
+    "/{channel_type}/{channel_id}/assignment/{agent_id}", responses={
+        204: {"description": "Assignment deleted successfully"},
+        404: {
+            "model": mdl.ErrorResponse,
+            "description": "The channel or agent doesn't exist"},
+        409: {
+            "model": mdl.ErrorResponse,
+            "description": "The agent has no such channel assigned"},})
+async def unassign_channel(
+        channel_pool: dep.ChannelPool, agent: dep.Agent, channel_type: str,
+        channel_id: str) -> None:
+    """Remove an assignment of a channel from an agent."""
+    try:
+        channel = agent.channels[channel_type]
+    except KeyError:
+        raise fastapi.HTTPException(
+            status_code=409,
+            detail=f"The agent has no channel of type {channel_type}.")
+    if channel.id != channel_id:
+        raise fastapi.HTTPException(
+            status_code=409,
+            detail=f"The agent has channel of type {channel_type}, but with a "
+            f"different ID ({channel.id}).")
+    await agent.remove_channel(channel_type)
+    try:
+        channel_pool.release(channel)
+    except (chan.NoSuchChannelError, chan.ChannelStateError):
+        logger.exception(
+            f"Removed {channel} from {agent}, but the channel pool doesn't "
+            "know the channel or it wasn't assigned.")
+    return fastapi.Response(status_code=204)

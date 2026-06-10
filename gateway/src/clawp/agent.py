@@ -475,7 +475,8 @@ class Agent:
 
     async def _add_channel_status_message(self, channel: chan.Channel):
         await self._channel_router.system_channel.add_incoming_message(
-            "system", await file.render_channel_status(await channel.status))
+            "system", await file.render_channel_status(
+                channel, available=channel.type in self.channels))
 
     async def _read_incoming_messages(self) -> None:
         handle_task = None
@@ -550,8 +551,23 @@ class Agent:
             raise ValueError(
                 f"agent already has a channel of type {channel.type}")
         await self._channel_router.add_channel(channel)
-        await self._add_channel_status_message(channel)
         self.information.claimed_channels[channel.type] = channel.id
+        await self._add_channel_status_message(channel)
+
+    async def remove_channel(self, channel_type: mdl.ChannelType) -> None:
+        """
+        Remove a channel from this agent.
+
+        Raises a ValueError if the agent currently has no channel of this type.
+        """
+        try:
+            channel = self.channels[channel_type]
+            assert channel_type in self.information.claimed_channels
+        except (KeyError, AssertionError):
+            raise ValueError(f"agent has no channel of type {channel_type}")
+        await self._channel_router.remove_channel(channel_type)
+        del self.information.claimed_channels[channel_type]
+        await self._add_channel_status_message(channel)
 
 
 class AgentRepository:

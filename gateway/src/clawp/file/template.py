@@ -25,6 +25,7 @@ from . import base
 
 if t.TYPE_CHECKING:
     from .. import agent as agt
+    from .. import channel as chan
     from .. import message as msg
 
 
@@ -69,15 +70,22 @@ async def render_tutorial(topic: str) -> str:
     return await render_message_template(f"tutorial/{topic}.md")
 
 
-async def render_channel_status(channel_status: mdl.ChannelStatus) -> str:
-    """Render a channel status message."""
-    if channel_status.available:
-        template = "channel_status_available.md"
-    else:
-        template = "channel_status_unavailable.md"
+async def render_channel_status(
+        channel: "chan.Channel", available: bool) -> str:
+    """
+    Render a channel status message.
+
+    Depending on the available flag, renders either a message saying the
+    channel can be used (including channel details), or one saying it's
+    unavailable.
+    """
+    if available:
+        channel_status = await channel.status
+        return await render_message_template(
+            "channel_status_available.md", channel_type=channel.type,
+            status_json=channel_status.model_dump_json())
     return await render_message_template(
-        template, channel_type=channel_status.type,
-        status_json=channel_status.model_dump_json())
+        "channel_status_unavailable.md", channel_type=channel.type)
 
 
 async def render_file_content(

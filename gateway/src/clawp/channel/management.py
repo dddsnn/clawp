@@ -91,14 +91,7 @@ class ChannelRouter(base.MessageSender):
         self._is_running = False
         await self._publisher.__aexit__(*args)
         for status in self._stati.values():
-            status.read_task.cancel()
-            try:
-                async with asyncio.timeout(60):
-                    await status.read_task
-                    await status.channel.__aexit__(*args)
-            except Exception:
-                self._logger.exception(
-                    f"Error waiting for shutdown of {status.channel.type}.")
+            await self._stop_channel(status)
         return False
 
     async def _start_channel(self, status):
@@ -124,6 +117,17 @@ class ChannelRouter(base.MessageSender):
                 self._logger.exception("Error waiting for final publish.")
                 publish_task.cancel()
 
+    async def _stop_channel(self, status):
+        assert status.read_task is not None
+        status.read_task.cancel()
+        try:
+            async with asyncio.timeout(60):
+                await status.read_task
+                await status.channel.__aexit__(None, None, None)
+        except Exception:
+            self._logger.exception(
+                f"Error waiting for shutdown of {status.channel.type}.")
+
     async def add_channel(self, channel: base.Channel) -> None:
         """
         Add a new channel and start reading from it.
@@ -138,6 +142,20 @@ class ChannelRouter(base.MessageSender):
         self._stati[channel.type] = self.ChannelStatus(channel)
         await self._start_channel(self._stati[channel.type])
         self._logger.info(f"Added and started channel {channel.type}.")
+
+    async def remove_channel(self, channel_type: mdl.ChannelType) -> None:
+        """
+        Remove a channel.
+
+        Raises a ValueError if the channel doesn't exist in this router.
+        """
+        try:
+            status = self._stati[channel_type]
+        except KeyError:
+            raise ValueError(f"no channel of type {channel_type} exists")
+        await self._stop_channel(status)
+        del self._stati[channel_type]
+        self._logger.info(f"Stopped and removed channel {channel_type}.")
 
     @property
     def channels(self) -> dict[str, base.Channel]:
