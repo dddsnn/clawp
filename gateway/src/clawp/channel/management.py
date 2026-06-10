@@ -242,7 +242,8 @@ class ChannelPool:
             yield from channels_of_type.values()
 
     def acquire(
-            self, claimed_channel: mdl.ClaimedChannel) -> PoolChannelStatus:
+            self, channel_type: mdl.ChannelType,
+            channel_id: str) -> PoolChannelStatus:
         """
         Acquire a specific channel.
 
@@ -250,9 +251,10 @@ class ChannelPool:
         ChannelStateError if it has already been acquired.
         """
         try:
-            status = self._channels[claimed_channel.type][claimed_channel.id]
+            status = self._channels[channel_type][channel_id]
         except KeyError:
-            raise NoSuchChannelError(f"{claimed_channel} doesn't exist")
+            raise NoSuchChannelError(
+                f"channel {channel_type}:{channel_id} doesn't exist")
         if status.status != "available":
             raise ChannelStateError("channel has already been acquired")
         status.status = "acquired"

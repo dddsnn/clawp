@@ -67,41 +67,38 @@ class TestChannelPool:
     async def test_acquire_raises_with_no_channels(self):
         pool = chan.ChannelPool(self.make_channels_config([]))
         with pytest.raises(chan.NoSuchChannelError):
-            pool.acquire(mdl.ClaimedChannel(type="matrix", id="id1"))
+            pool.acquire("matrix", "id1")
 
     async def test_acquire_raises_with_no_matching_channel_id(self):
         pool = chan.ChannelPool(self.make_channels_config(["id1", "id3"]))
         with pytest.raises(chan.NoSuchChannelError):
-            pool.acquire(mdl.ClaimedChannel(type="matrix", id="id2"))
+            pool.acquire("matrix", "id2")
 
     async def test_acquire_raises_with_no_matching_channel_type(self):
         pool = chan.ChannelPool(self.make_channels_config(["id1", "id3"]))
         with pytest.raises(chan.NoSuchChannelError):
-            pool.acquire(
-                mdl.ClaimedChannel.model_construct(
-                    type="not_matrix", id="id1"))
+            pool.acquire("not_matrix", "id1")
 
     async def test_acquire_returns_available_channel(self):
         config = self.make_channels_config(["id1"])
         pool = chan.ChannelPool(config)
         assert_that(
-            pool.acquire(mdl.ClaimedChannel(type="matrix", id="id1")),
+            pool.acquire("matrix", "id1"),
             matrix_channel_matching_config(config.matrix, "id1"))
 
     async def test_acquire_raises_if_channel_has_been_acquired(self):
         config = self.make_channels_config(["id1"])
         pool = chan.ChannelPool(config)
-        pool.acquire(mdl.ClaimedChannel(type="matrix", id="id1"))
+        pool.acquire("matrix", "id1")
         with pytest.raises(chan.ChannelStateError):
-            pool.acquire(mdl.ClaimedChannel(type="matrix", id="id1"))
+            pool.acquire("matrix", "id1")
 
     async def test_acquire_release_acquire(self):
         config = self.make_channels_config(["id1"])
         pool = chan.ChannelPool(config)
-        channel_status = pool.acquire(
-            mdl.ClaimedChannel(type="matrix", id="id1"))
+        channel_status = pool.acquire("matrix", "id1")
         pool.release(channel_status.channel)
-        assert pool.acquire(mdl.ClaimedChannel(type="matrix", id="id1"))
+        assert pool.acquire("matrix", "id1")
 
     async def test_release_raises_with_no_matching_channel_id(self):
         config = self.make_channels_config(["id1"])
@@ -118,8 +115,7 @@ class TestChannelPool:
     async def test_release_raises_if_channel_had_not_been_acquired(self):
         config = self.make_channels_config(["id1"])
         pool = chan.ChannelPool(config)
-        channel_status = pool.acquire(
-            mdl.ClaimedChannel(type="matrix", id="id1"))
+        channel_status = pool.acquire("matrix", "id1")
         pool.release(channel_status.channel)
         with pytest.raises(chan.ChannelStateError):
             pool.release(channel_status.channel)
@@ -138,7 +134,7 @@ class TestChannelPool:
         channels_config = self.make_channels_config(["id1", "id2"])
         pool = chan.ChannelPool(channels_config)
         matrix_accounts = channels_config.matrix.accounts
-        pool.acquire(mdl.ClaimedChannel(type="matrix", id="id1"))
+        pool.acquire("matrix", "id1")
         expected_stati = [
             has_properties(
                 channel=has_properties(id=a.id), config=a,

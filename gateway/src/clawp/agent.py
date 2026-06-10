@@ -540,10 +540,18 @@ class Agent:
         await self._channel_router.send(message)
 
     async def add_channel(self, channel: chan.Channel) -> None:
+        """
+        Add a channel to this agent.
+
+        Raises a ValueError if a channel of this type already exists for the
+        agent.
+        """
+        if channel.type in self.information.claimed_channels:
+            raise ValueError(
+                f"agent already has a channel of type {channel.type}")
         await self._channel_router.add_channel(channel)
         await self._add_channel_status_message(channel)
-        claimed_channel = mdl.ClaimedChannel(type=channel.type, id=channel.id)
-        self.information.claimed_channels.append(claimed_channel)
+        self.information.claimed_channels[channel.type] = channel.id
 
 
 class AgentRepository:
@@ -628,14 +636,14 @@ class AgentRepository:
             raise ValueError(f"missing message store {message_store_dir}")
         message_store = store.MessageStore(message_store_dir)
         channels = []
-        for claimed_channel in agent_information.claimed_channels:
+        for ch_type, ch_id in agent_information.claimed_channels.items():
             try:
-                channel_status = self._channel_pool.acquire(claimed_channel)
+                channel_status = self._channel_pool.acquire(ch_type, ch_id)
                 channels.append(channel_status.channel)
             except chan.ChannelError as e:
                 self._logger.warning(
                     f"Agent {agent_information.id} claims channel "
-                    f"{claimed_channel}, but it's not available: {e}.")
+                    f"{ch_type}:{ch_id}, but it's not available: {e}.")
         return Agent(
             agent_information, model_config=self._model_config,
             workspace_dir=workspace_dir, message_store=message_store,

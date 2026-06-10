@@ -92,11 +92,6 @@ ChannelStatus = t.Annotated[MatrixChannelStatus,
                             pyd.Field(discriminator="type")]
 
 
-class ClaimedChannel(base.BaseModel):
-    type: ChannelType
-    id: str
-
-
 class ChannelInformation(base.BaseModel):
     type: ChannelType
     id: t.Optional[str]

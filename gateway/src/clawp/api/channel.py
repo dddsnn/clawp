@@ -96,13 +96,12 @@ async def assign_channel(
     Channels associated with accounts need to be assigned to an agent so they
     can use it. A channel can only be assigned to one agent at a time.
     """
-    claimed_channel = mdl.ClaimedChannel(type=channel_type, id=channel_id)
     try:
-        channel_status = channel_pool.acquire(claimed_channel)
+        channel_status = channel_pool.acquire(channel_type, channel_id)
     except chan.NoSuchChannelError:
         raise fastapi.HTTPException(
             status_code=404,
-            detail=f"Channel {claimed_channel} doesn't exist.")
+            detail=f"Channel {channel_type}:{channel_id} doesn't exist.")
     except chan.ChannelStateError:
         raise fastapi.HTTPException(
             status_code=409, detail="Channel has already been assigned.")

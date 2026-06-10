@@ -58,5 +58,10 @@ class AgentPersonalityWithFileContents(AgentPersonality):
 class AgentInformation(base.BaseModel):
     id: uuid.UUID
     personality: AgentPersonality
-    claimed_channels: list[chan.ClaimedChannel] = pyd.Field(
-        default_factory=list)
+    claimed_channels: dict[chan.ChannelType, str] = (
+        pyd.Field(default_factory=dict))
+    """
+    Channels claimed by the agent.
+
+    A mapping of channel type to channel ID.
+    """
