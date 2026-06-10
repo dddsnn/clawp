@@ -98,7 +98,13 @@ async def assign_channel(
 
     Channels associated with accounts need to be assigned to an agent so they
     can use it. A channel can only be assigned to one agent at a time.
+
+    The built-in channels system and web_ui can't be assigned.
     """
+    if channel_type in ["system", "web_ui"]:
+        raise fastapi.HTTPException(
+            status_code=409,
+            detail="Assignment of built-in channels can't be changed.")
     try:
         channel_status = channel_pool.acquire(channel_type, channel_id)
     except chan.NoSuchChannelError:
@@ -130,7 +136,15 @@ async def assign_channel(
 async def unassign_channel(
         channel_pool: dep.ChannelPool, agent: dep.Agent, channel_type: str,
         channel_id: str) -> None:
-    """Remove an assignment of a channel from an agent."""
+    """
+    Remove an assignment of a channel from an agent.
+
+    The built-in channels system and web_ui can't be deleted.
+    """
+    if channel_type in ["system", "web_ui"]:
+        raise fastapi.HTTPException(
+            status_code=409,
+            detail="Assignment of built-in channels can't be changed.")
     try:
         channel = agent.channels[channel_type]
     except KeyError:
