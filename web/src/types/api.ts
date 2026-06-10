@@ -216,6 +216,23 @@ export const AgentInformationSchema = z.object({
 
 export type AgentInformation = z.infer<typeof AgentInformationSchema>;
 
+export const AgentPersonalityFileSchema = z.object({
+  path: z.string(),
+  description: z.string(),
+});
+
+export const AgentPersonalitySchema = z.object({
+  name: z.string(),
+  personality_files: z.array(AgentPersonalityFileSchema),
+});
+
+export const AgentPersonalityWithFileContentsSchema = AgentPersonalitySchema.extend({
+  personality_file_contents: z.record(z.string(), z.string().nullable()),
+});
+
+export type AgentPersonality = z.infer<typeof AgentPersonalitySchema>;
+export type AgentPersonalityWithFileContents = z.infer<typeof AgentPersonalityWithFileContentsSchema>;
+
 // --- Exported Types ---
 
 export type Message = z.infer<typeof MessageSchema>;

@@ -17,11 +17,24 @@
 
 import { z } from 'zod';
 import { useChatStore } from '../stores/chatStore';
-import { MessageSchema, WebsocketChunkSchema, AgentInformationSchema } from '../types/api';
-import type { WebsocketChunk, UserInputMessage, AgentInformation } from '../types/api';
+import {
+  MessageSchema,
+  WebsocketChunkSchema,
+  AgentInformationSchema,
+  AgentPersonalitySchema,
+  AgentPersonalityWithFileContentsSchema,
+} from '../types/api';
+import type {
+  WebsocketChunk,
+  UserInputMessage,
+  AgentInformation,
+  AgentPersonality,
+  AgentPersonalityWithFileContents,
+} from '../types/api';
 
 const MessagesResponseSchema = z.array(MessageSchema);
 const AgentsResponseSchema = z.array(AgentInformationSchema);
+const PersonalitiesResponseSchema = z.array(AgentPersonalitySchema);
 
 export async function fetchAgents(): Promise<AgentInformation[]> {
   const response = await fetch('/api/v1/agents');
@@ -39,6 +52,24 @@ export async function fetchHistory(agentId: string) {
   }
   const rawData = await response.json();
   return MessagesResponseSchema.parse(rawData);
+}
+
+export async function fetchPersonalities(): Promise<AgentPersonality[]> {
+  const response = await fetch('/api/v1/personalities');
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  const rawData = await response.json();
+  return PersonalitiesResponseSchema.parse(rawData);
+}
+
+export async function fetchPersonality(personalityName: string): Promise<AgentPersonalityWithFileContents> {
+  const response = await fetch(`/api/v1/personalities/${encodeURIComponent(personalityName)}`);
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  const rawData = await response.json();
+  return AgentPersonalityWithFileContentsSchema.parse(rawData);
 }
 
 export class ChatConnection {
