@@ -30,7 +30,9 @@ export const useAgentStore = defineStore('agent', () => {
     try {
       agentsLoading.value = true;
       agentsError.value = null;
-      agents.value = await fetchAgentsApi();
+      for (const agent of await fetchAgentsApi()) {
+        addAgent(agent);
+      }
     } catch (error) {
       console.error('Failed to load agents:', error);
       agentsError.value = error instanceof Error ? error.message : String(error);
@@ -40,21 +42,17 @@ export const useAgentStore = defineStore('agent', () => {
     }
   }
 
-  function setAgents(newAgents: AgentInformation[]) {
-    agents.value = newAgents;
+  function addAgent(agent: AgentInformation) {
+    const exists = agents.value.some(existingAgent => existingAgent.id === agent.id);
+    if (exists) {
+      console.warn(`Not adding agent with ID ${agent.id} which already exists.`)
+      return;
+    }
+    agents.value = [...agents.value, agent];
   }
 
   function setSelectedAgentId(id: string | null) {
     selectedAgentId.value = id;
-  }
-
-  function addAgent(agent: AgentInformation) {
-    const exists = agents.value.some(existingAgent => existingAgent.id === agent.id);
-    if (exists) {
-      return;
-    }
-
-    agents.value = [...agents.value, agent];
   }
 
   return {
@@ -63,7 +61,6 @@ export const useAgentStore = defineStore('agent', () => {
     agentsLoading,
     agentsError,
     fetchAgents,
-    setAgents,
     setSelectedAgentId,
     addAgent,
   };
