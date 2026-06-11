@@ -23,6 +23,7 @@ import {
   AgentInformationSchema,
   AgentPersonalitySchema,
   AgentPersonalityWithFileContentsSchema,
+  ChannelInformationSchema,
 } from '../types/api';
 import type {
   WebsocketChunk,
@@ -30,11 +31,13 @@ import type {
   AgentInformation,
   AgentPersonality,
   AgentPersonalityWithFileContents,
+  ChannelInformation,
 } from '../types/api';
 
 const MessagesResponseSchema = z.array(MessageSchema);
 const AgentsResponseSchema = z.array(AgentInformationSchema);
 const PersonalitiesResponseSchema = z.array(AgentPersonalitySchema);
+const ChannelsResponseSchema = z.array(ChannelInformationSchema);
 
 export async function fetchAgents(): Promise<AgentInformation[]> {
   const response = await fetch('/api/v1/agents');
@@ -79,6 +82,15 @@ export async function fetchPersonality(personalityName: string): Promise<AgentPe
   }
   const rawData = await response.json();
   return AgentPersonalityWithFileContentsSchema.parse(rawData);
+}
+
+export async function fetchChannels(): Promise<ChannelInformation[]> {
+  const response = await fetch('/api/v1/channels');
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  const rawData = await response.json();
+  return ChannelsResponseSchema.parse(rawData);
 }
 
 export class ChatConnection {

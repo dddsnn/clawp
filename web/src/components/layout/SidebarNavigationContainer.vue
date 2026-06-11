@@ -24,15 +24,18 @@ import { X } from 'lucide-vue-next';
 import SidebarNavigation from './SidebarNavigation.vue';
 import { useAgentStore } from '../../stores/agentStore';
 import { usePersonalityStore } from '../../stores/personalityStore';
+import { useChannelStore } from '../../stores/channelStore';
 import { hatchAgent } from '../../services/api';
 
 const emit = defineEmits<{
   selectAgent: [id: string];
   selectPersonality: [name: string];
+  selectChannel: [key: string];
 }>();
 
 const agentStore = useAgentStore();
 const personalityStore = usePersonalityStore();
+const channelStore = useChannelStore();
 
 const {
   agents,
@@ -48,18 +51,29 @@ const {
   personalitiesError,
 } = storeToRefs(personalityStore);
 
+const {
+  channels,
+  selectedChannelKey,
+  channelsLoading,
+  channelsError,
+} = storeToRefs(channelStore);
+
 const isHatchModalOpen = ref(false);
 const hatchPersonalityName = ref<string>('');
 const hatchError = ref<string | null>(null);
 const isHatching = ref(false);
 
-const activeSelectionType = computed<'agent' | 'personality' | null>(() => {
+const activeSelectionType = computed<'agent' | 'personality' | 'channel' | null>(() => {
   if (selectedAgentId.value) {
     return 'agent';
   }
 
   if (selectedPersonalityName.value) {
     return 'personality';
+  }
+
+  if (selectedChannelKey.value) {
+    return 'channel';
   }
 
   return null;
@@ -75,6 +89,10 @@ const handleSelectAgent = (agentId: string) => {
 
 const handleSelectPersonality = (personalityName: string) => {
   emit('selectPersonality', personalityName);
+};
+
+const handleSelectChannel = (channelKey: string) => {
+  emit('selectChannel', channelKey);
 };
 
 const openHatchModal = () => {
@@ -126,6 +144,7 @@ onMounted(async () => {
   await Promise.allSettled([
     agentStore.fetchAgents(),
     personalityStore.fetchPersonalities(),
+    channelStore.fetchChannels(),
   ]);
 });
 
@@ -152,11 +171,16 @@ watch(
     :selected-personality-name="selectedPersonalityName"
     :personalities-loading="personalitiesLoading"
     :personalities-error="personalitiesError"
+    :channels="channels"
+    :selected-channel-key="selectedChannelKey"
+    :channels-loading="channelsLoading"
+    :channels-error="channelsError"
     :active-selection-type="activeSelectionType"
     :can-hatch="canHatch"
     :is-hatching="isHatching"
     @select-agent="handleSelectAgent"
     @select-personality="handleSelectPersonality"
+    @select-channel="handleSelectChannel"
     @open-hatch-modal="openHatchModal"
   />
 

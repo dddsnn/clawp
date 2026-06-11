@@ -23,22 +23,34 @@ import TopBar from './components/layout/TopBar.vue';
 import SidebarNavigationContainer from './components/layout/SidebarNavigationContainer.vue';
 import AgentChatContainer from './components/chat/AgentChatContainer.vue';
 import PersonalityDetailsContainer from './components/personality/PersonalityDetailsContainer.vue';
+import ChannelDetailsContainer from './components/channel/ChannelDetailsContainer.vue';
 import { useAgentStore } from './stores/agentStore';
 import { usePersonalityStore } from './stores/personalityStore';
+import { useChannelStore } from './stores/channelStore';
 
 const agentStore = useAgentStore();
 const personalityStore = usePersonalityStore();
+const channelStore = useChannelStore();
 const { selectedAgentId } = storeToRefs(agentStore);
 const { selectedPersonalityName } = storeToRefs(personalityStore);
+const { selectedChannelKey } = storeToRefs(channelStore);
 
 const handleSelectAgent = (agentId: string) => {
   personalityStore.setSelectedPersonalityName(null);
+  channelStore.setSelectedChannelKey(null);
   agentStore.setSelectedAgentId(agentId);
 };
 
 const handleSelectPersonality = (personalityName: string) => {
+  channelStore.setSelectedChannelKey(null);
   personalityStore.setSelectedPersonalityName(personalityName);
   agentStore.setSelectedAgentId(null);
+};
+
+const handleSelectChannel = (channelKey: string) => {
+  personalityStore.setSelectedPersonalityName(null);
+  agentStore.setSelectedAgentId(null);
+  channelStore.setSelectedChannelKey(channelKey);
 };
 </script>
 
@@ -50,6 +62,7 @@ const handleSelectPersonality = (personalityName: string) => {
       <SidebarNavigationContainer
         @select-agent="handleSelectAgent"
         @select-personality="handleSelectPersonality"
+        @select-channel="handleSelectChannel"
       />
 
         <!-- Main Content -->
@@ -60,9 +73,12 @@ const handleSelectPersonality = (personalityName: string) => {
           <template v-else-if="selectedPersonalityName">
             <PersonalityDetailsContainer :personality-name="selectedPersonalityName" />
           </template>
+          <template v-else-if="selectedChannelKey">
+            <ChannelDetailsContainer :channel-key="selectedChannelKey" />
+          </template>
           <template v-else>
             <div class="flex-1 flex items-center justify-center bg-slate-50 text-slate-400">
-            Select an agent or personality.
+            Select something to view.
           </div>
         </template>
       </div>

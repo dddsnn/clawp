@@ -233,6 +233,52 @@ export const AgentPersonalityWithFileContentsSchema = AgentPersonalitySchema.ext
 export type AgentPersonality = z.infer<typeof AgentPersonalitySchema>;
 export type AgentPersonalityWithFileContents = z.infer<typeof AgentPersonalityWithFileContentsSchema>;
 
+export const MatrixAccountConfigSchema = z.object({
+  type: z.literal('matrix').default('matrix'),
+  homeserver: z.string(),
+  username: z.string(),
+  device_id: z.string(),
+  id: z.string(),
+});
+
+export const MatrixChannelStatusSchema = z.object({
+  type: z.literal('matrix').default('matrix'),
+  available: z.boolean(),
+  username: z.string(),
+});
+
+export const SystemChannelStatusSchema = z.object({
+  type: z.literal('system').default('system'),
+  available: z.boolean(),
+});
+
+export const WebUiChannelStatusSchema = z.object({
+  type: z.literal('web_ui').default('web_ui'),
+  available: z.boolean(),
+});
+
+export const ChannelStatusSchema = z.discriminatedUnion('type', [
+  MatrixChannelStatusSchema,
+  SystemChannelStatusSchema,
+  WebUiChannelStatusSchema,
+]);
+
+export const ChannelConfigSchema = z.union([
+  MatrixAccountConfigSchema,
+  z.object({ type: z.literal('system') }).passthrough(),
+  z.object({ type: z.literal('web_ui') }).passthrough(),
+]);
+
+export const ChannelInformationSchema = z.object({
+  type: z.enum(['matrix', 'system', 'web_ui']),
+  id: z.string().nullable(),
+  config: ChannelConfigSchema,
+  status: ChannelStatusSchema,
+  assigned_to_agent: z.string().uuid().nullable(),
+});
+
+export type ChannelInformation = z.infer<typeof ChannelInformationSchema>;
+
 // --- Exported Types ---
 
 export type Message = z.infer<typeof MessageSchema>;

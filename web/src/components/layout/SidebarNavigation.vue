@@ -18,8 +18,9 @@ with clawp. If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <script setup lang="ts">
-import { AlertCircle, Bot, Loader2, Plus, User } from 'lucide-vue-next';
-import type { AgentInformation, AgentPersonality } from '../../types/api';
+import { AlertCircle, Bot, Loader2, Plus, User, Radio } from 'lucide-vue-next';
+import type { AgentInformation, AgentPersonality, ChannelInformation } from '../../types/api';
+import { getChannelKey } from '../../stores/channelStore';
 
 defineProps<{
   agents: AgentInformation[];
@@ -30,7 +31,11 @@ defineProps<{
   selectedPersonalityName: string | null;
   personalitiesLoading: boolean;
   personalitiesError: string | null;
-  activeSelectionType: 'agent' | 'personality' | null;
+  channels: ChannelInformation[];
+  selectedChannelKey: string | null;
+  channelsLoading: boolean;
+  channelsError: string | null;
+  activeSelectionType: 'agent' | 'personality' | 'channel' | null;
   canHatch: boolean;
   isHatching: boolean;
 }>();
@@ -38,6 +43,7 @@ defineProps<{
 const emit = defineEmits<{
   selectAgent: [id: string];
   selectPersonality: [name: string];
+  selectChannel: [key: string];
   openHatchModal: [];
 }>();
 
@@ -47,6 +53,10 @@ const handleSelectAgent = (agentId: string) => {
 
 const handleSelectPersonality = (personalityName: string) => {
   emit('selectPersonality', personalityName);
+};
+
+const handleSelectChannel = (channel: ChannelInformation) => {
+  emit('selectChannel', getChannelKey(channel));
 };
 
 const handleOpenHatchModal = () => {
@@ -145,6 +155,46 @@ const handleOpenHatchModal = () => {
               :title="personality.name"
             >
               {{ personality.name }}
+            </button>
+          </template>
+        </div>
+      </section>
+
+      <section class="pt-4 border-t border-slate-100">
+        <div class="px-2 py-2 flex items-center space-x-2">
+          <Radio class="w-4 h-4 text-slate-500" />
+          <h2 class="text-xs font-semibold text-slate-700 tracking-wide uppercase">Channels</h2>
+        </div>
+
+        <div class="space-y-1">
+          <div v-if="channelsLoading" class="flex flex-col items-center justify-center p-4 space-y-2 text-slate-400">
+            <Loader2 class="w-6 h-6 animate-spin" />
+            <span class="text-xs">Loading channels...</span>
+          </div>
+
+          <div v-else-if="channelsError" class="flex flex-col items-center justify-center p-4 space-y-2 text-red-400">
+            <AlertCircle class="w-6 h-6 text-red-400" />
+            <span class="text-xs text-center text-red-500">Failed to load channels<br><span class="opacity-80">{{ channelsError }}</span></span>
+          </div>
+
+          <div v-else-if="channels.length === 0" class="text-sm text-slate-400 p-4 text-center">
+            No channels configured.
+          </div>
+
+          <template v-else>
+            <button
+              v-for="channel in channels"
+              :key="getChannelKey(channel)"
+              @click="handleSelectChannel(channel)"
+              class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition-all duration-200 truncate"
+              :class="[
+                activeSelectionType === 'channel' && selectedChannelKey === getChannelKey(channel)
+                  ? 'bg-emerald-50 text-emerald-700 font-medium shadow-sm ring-1 ring-emerald-500/20'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              ]"
+              :title="`${channel.type}:${channel.id ?? '(none)'}`"
+            >
+              {{ channel.type }}:{{ channel.id ?? '(none)' }}
             </button>
           </template>
         </div>
