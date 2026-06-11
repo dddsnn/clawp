@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia';
-import { Eye, EyeOff } from 'lucide-vue-next';
+import { Eye, EyeOff, Loader2, WifiOff } from 'lucide-vue-next';
 import { useChatStore } from '../../stores/chatStore';
 import MessageList from './MessageList.vue';
 import ChatInput from './ChatInput.vue';
