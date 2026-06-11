@@ -18,15 +18,11 @@ with clawp. If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <script setup lang="ts">
-import { onMounted, watch } from 'vue';
+import { computed, onMounted, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import SidebarNavigation from './SidebarNavigation.vue';
 import { useAgentStore } from '../../stores/agentStore';
 import { usePersonalityStore } from '../../stores/personalityStore';
-
-const props = defineProps<{
-  activeSelectionType: 'agent' | 'personality' | null;
-}>();
 
 const emit = defineEmits<{
   selectAgent: [id: string];
@@ -50,6 +46,18 @@ const {
   personalitiesError,
 } = storeToRefs(personalityStore);
 
+const activeSelectionType = computed<'agent' | 'personality' | null>(() => {
+  if (selectedAgentId.value) {
+    return 'agent';
+  }
+
+  if (selectedPersonalityName.value) {
+    return 'personality';
+  }
+
+  return null;
+});
+
 const handleSelectAgent = (agentId: string) => {
   emit('selectAgent', agentId);
 };
@@ -66,7 +74,7 @@ onMounted(async () => {
 });
 
 watch(
-  [agents, agentsLoading, agentsError, () => props.activeSelectionType],
+  [agents, agentsLoading, agentsError, activeSelectionType],
   ([loadedAgents, loadingAgents, loadingError, activeType]) => {
     if (activeType !== null || loadingAgents || loadingError || loadedAgents.length === 0) {
       return;

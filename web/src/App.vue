@@ -18,7 +18,6 @@ with clawp. If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <script setup lang="ts">
-import { ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import TopBar from './components/layout/TopBar.vue';
 import SidebarNavigationContainer from './components/layout/SidebarNavigationContainer.vue';
@@ -32,21 +31,13 @@ const personalityStore = usePersonalityStore();
 const { selectedAgentId } = storeToRefs(agentStore);
 const { selectedPersonalityName } = storeToRefs(personalityStore);
 
-const activeSelection = ref<
-  { type: 'agent'; id: string } |
-  { type: 'personality'; name: string } |
-  null
->(null);
-
 const handleSelectAgent = (agentId: string) => {
   personalityStore.setSelectedPersonalityName(null);
-  activeSelection.value = { type: 'agent', id: agentId };
   agentStore.setSelectedAgentId(agentId);
 };
 
 const handleSelectPersonality = (personalityName: string) => {
   personalityStore.setSelectedPersonalityName(personalityName);
-  activeSelection.value = { type: 'personality', name: personalityName };
   agentStore.setSelectedAgentId(null);
 };
 </script>
@@ -57,17 +48,16 @@ const handleSelectPersonality = (personalityName: string) => {
 
     <div class="flex flex-1 overflow-hidden">
       <SidebarNavigationContainer
-        :active-selection-type="activeSelection?.type ?? null"
         @select-agent="handleSelectAgent"
         @select-personality="handleSelectPersonality"
       />
 
         <!-- Main Content -->
         <div class="flex-1 flex flex-col relative min-w-0">
-          <template v-if="activeSelection?.type === 'agent' && selectedAgentId">
+          <template v-if="selectedAgentId">
             <AgentChatContainer :agent-id="selectedAgentId" />
           </template>
-          <template v-else-if="activeSelection?.type === 'personality' && selectedPersonalityName">
+          <template v-else-if="selectedPersonalityName">
             <PersonalityDetailsContainer :personality-name="selectedPersonalityName" />
           </template>
           <template v-else>
