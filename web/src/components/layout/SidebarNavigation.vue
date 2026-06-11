@@ -18,7 +18,7 @@ with clawp. If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <script setup lang="ts">
-import { AlertCircle, Bot, Loader2, Plus, User, Radio } from 'lucide-vue-next';
+import { AlertCircle, Bot, BotOff, Loader2, Plus, User, Radio } from 'lucide-vue-next';
 import type { AgentInformation, AgentPersonality, ChannelInformation } from '../../types/api';
 import { getChannelKey } from '../../stores/channelStore';
 
@@ -182,20 +182,37 @@ const handleOpenHatchModal = () => {
           </div>
 
           <template v-else>
-            <button
+            <div
               v-for="channel in channels"
               :key="getChannelKey(channel)"
-              @click="handleSelectChannel(channel)"
-              class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition-all duration-200 truncate"
-              :class="[
-                activeSelectionType === 'channel' && selectedChannelKey === getChannelKey(channel)
-                  ? 'bg-emerald-50 text-emerald-700 font-medium shadow-sm ring-1 ring-emerald-500/20'
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-              ]"
-              :title="`${channel.type}:${channel.id ?? '(none)'}`"
+              class="flex items-center gap-1"
             >
-              {{ channel.type }}:{{ channel.id ?? '(none)' }}
-            </button>
+              <button
+                @click="handleSelectChannel(channel)"
+                class="flex-1 text-left px-3 py-2.5 rounded-lg text-sm transition-all duration-200 truncate"
+                :class="[
+                  activeSelectionType === 'channel' && selectedChannelKey === getChannelKey(channel)
+                    ? 'bg-emerald-50 text-emerald-700 font-medium shadow-sm ring-1 ring-emerald-500/20'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                ]"
+                :title="`${channel.type}:${channel.id ?? '(none)'}`"
+              >
+                {{ channel.type }}:{{ channel.id ?? '(none)' }}
+              </button>
+
+              <Bot
+                v-if="channel.assigned_to_agent"
+                class="w-4 h-4 shrink-0 text-slate-500"
+              >
+                <title>This channel is assigned to {{ channel.assigned_to_agent }}</title>
+              </Bot>
+              <BotOff
+                v-else
+                class="w-4 h-4 shrink-0 text-slate-500"
+              >
+                <title>This channel is not assigned to an agent</title>
+              </BotOff>
+            </div>
           </template>
         </div>
       </section>
