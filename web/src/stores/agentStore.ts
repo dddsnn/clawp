@@ -48,6 +48,15 @@ export const useAgentStore = defineStore('agent', () => {
     selectedAgentId.value = id;
   }
 
+  function addAgent(agent: AgentInformation) {
+    const exists = agents.value.some(existingAgent => existingAgent.id === agent.id);
+    if (exists) {
+      return;
+    }
+
+    agents.value = [...agents.value, agent];
+  }
+
   return {
     agents,
     selectedAgentId,
@@ -56,5 +65,6 @@ export const useAgentStore = defineStore('agent', () => {
     fetchAgents,
     setAgents,
     setSelectedAgentId,
+    addAgent,
   };
 });
