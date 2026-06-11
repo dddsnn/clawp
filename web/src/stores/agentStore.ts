@@ -17,11 +17,28 @@
 
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
+import { fetchAgents as fetchAgentsApi } from '../services/api';
 import type { AgentInformation } from '../types/api';
 
 export const useAgentStore = defineStore('agent', () => {
   const agents = ref<AgentInformation[]>([]);
   const selectedAgentId = ref<string | null>(null);
+  const agentsLoading = ref(false);
+  const agentsError = ref<string | null>(null);
+
+  async function fetchAgents() {
+    try {
+      agentsLoading.value = true;
+      agentsError.value = null;
+      agents.value = await fetchAgentsApi();
+    } catch (error) {
+      console.error('Failed to load agents:', error);
+      agentsError.value = error instanceof Error ? error.message : String(error);
+      agents.value = [];
+    } finally {
+      agentsLoading.value = false;
+    }
+  }
 
   function setAgents(newAgents: AgentInformation[]) {
     agents.value = newAgents;
@@ -34,6 +51,9 @@ export const useAgentStore = defineStore('agent', () => {
   return {
     agents,
     selectedAgentId,
+    agentsLoading,
+    agentsError,
+    fetchAgents,
     setAgents,
     setSelectedAgentId,
   };
