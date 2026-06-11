@@ -48,6 +48,37 @@ export const useChannelStore = defineStore('channel', () => {
     selectedChannelKey.value = key;
   }
 
+  function upsertChannel(updatedChannel: ChannelInformation) {
+    const key = getChannelKey(updatedChannel);
+    const existingIndex = channels.value.findIndex((channel) => getChannelKey(channel) === key);
+
+    if (existingIndex === -1) {
+      channels.value = [...channels.value, updatedChannel];
+      return;
+    }
+
+    channels.value = channels.value.map((channel) => {
+      if (getChannelKey(channel) !== key) {
+        return channel;
+      }
+
+      return updatedChannel;
+    });
+  }
+
+  function setAssignedAgent(channelKey: string, agentId: string | null) {
+    channels.value = channels.value.map((channel) => {
+      if (getChannelKey(channel) !== channelKey) {
+        return channel;
+      }
+
+      return {
+        ...channel,
+        assigned_to_agent: agentId,
+      };
+    });
+  }
+
   return {
     channels,
     channelsLoading,
@@ -55,5 +86,7 @@ export const useChannelStore = defineStore('channel', () => {
     selectedChannelKey,
     fetchChannels,
     setSelectedChannelKey,
+    upsertChannel,
+    setAssignedAgent,
   };
 });

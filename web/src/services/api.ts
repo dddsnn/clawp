@@ -93,6 +93,35 @@ export async function fetchChannels(): Promise<ChannelInformation[]> {
   return ChannelsResponseSchema.parse(rawData);
 }
 
+export async function assignChannel(channelType: string, channelId: string, agentId: string): Promise<ChannelInformation> {
+  const encodedChannelType = encodeURIComponent(channelType);
+  const encodedChannelId = encodeURIComponent(channelId);
+  const encodedAgentId = encodeURIComponent(agentId);
+  const response = await fetch(`/api/v1/channels/${encodedChannelType}/${encodedChannelId}/assignment/${encodedAgentId}`, {
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+
+  const rawData = await response.json();
+  return ChannelInformationSchema.parse(rawData);
+}
+
+export async function unassignChannel(channelType: string, channelId: string, agentId: string): Promise<void> {
+  const encodedChannelType = encodeURIComponent(channelType);
+  const encodedChannelId = encodeURIComponent(channelId);
+  const encodedAgentId = encodeURIComponent(agentId);
+  const response = await fetch(`/api/v1/channels/${encodedChannelType}/${encodedChannelId}/assignment/${encodedAgentId}`, {
+    method: 'DELETE',
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+}
+
 export class ChatConnection {
   private ws: WebSocket | null = null;
   private isDestroyed = false;

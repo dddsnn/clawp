@@ -19,11 +19,35 @@ with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 <script setup lang="ts">
 import { AlertCircle, Link } from 'lucide-vue-next';
-import type { ChannelInformation } from '../../types/api';
+import type { AgentInformation, ChannelInformation } from '../../types/api';
 
-defineProps<{
+const props = defineProps<{
   channel: ChannelInformation | null;
+  agents: AgentInformation[];
+  selectedAgentId: string;
+  isAssigning: boolean;
+  isUnassigning: boolean;
+  assignmentError: string | null;
 }>();
+
+const emit = defineEmits<{
+  assign: [];
+  unassign: [];
+  'update:selectedAgentId': [value: string];
+}>();
+
+const handleAssign = () => {
+  emit('assign');
+};
+
+const handleUnassign = () => {
+  emit('unassign');
+};
+
+const handleSelectedAgentChange = (event: Event) => {
+  const target = event.target as HTMLSelectElement;
+  emit('update:selectedAgentId', target.value);
+};
 </script>
 
 <template>
@@ -55,6 +79,63 @@ defineProps<{
             <p class="font-mono text-slate-800">{{ channel.assigned_to_agent ?? 'unassigned' }}</p>
           </div>
         </div>
+      </section>
+
+      <section class="bg-white border border-slate-200 rounded-xl shadow-sm p-4 space-y-4">
+        <h3 class="text-sm font-semibold text-slate-700 uppercase tracking-wide">Assignment</h3>
+
+        <p v-if="channel.id === null" class="text-sm text-slate-500">
+          This channel cannot be assigned to an agent.
+        </p>
+
+        <template v-else-if="channel.assigned_to_agent">
+          <p class="text-sm text-slate-600">
+            This channel is currently assigned to agent
+            <span class="font-mono text-slate-800">{{ channel.assigned_to_agent }}</span>.
+          </p>
+
+          <button
+            class="inline-flex items-center rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
+            :disabled="isUnassigning"
+            @click="handleUnassign"
+          >
+            <span v-if="isUnassigning">Unassigning...</span>
+            <span v-else>Unassign channel</span>
+          </button>
+        </template>
+
+        <template v-else>
+          <div class="space-y-2">
+            <label class="block text-sm font-medium text-slate-700" for="assign-agent">Assign to agent</label>
+            <select
+              id="assign-agent"
+              class="w-full max-w-lg rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:bg-slate-50"
+              :disabled="agents.length === 0 || isAssigning"
+              :value="selectedAgentId"
+              @change="handleSelectedAgentChange"
+            >
+              <option value="" disabled>Select an agent</option>
+              <option v-for="agent in agents" :key="agent.id" :value="agent.id">
+                {{ agent.id }}
+              </option>
+            </select>
+          </div>
+
+          <p v-if="agents.length === 0" class="text-sm text-slate-500">
+            No agents available for assignment.
+          </p>
+
+          <button
+            class="inline-flex items-center rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
+            :disabled="!props.selectedAgentId || isAssigning || agents.length === 0"
+            @click="handleAssign"
+          >
+            <span v-if="isAssigning">Assigning...</span>
+            <span v-else>Assign channel</span>
+          </button>
+        </template>
+
+        <p v-if="assignmentError" class="text-sm text-red-600">{{ assignmentError }}</p>
       </section>
 
       <section class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
