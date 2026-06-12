@@ -96,8 +96,8 @@ const formattedTime = computed(() => {
       isCrossChannelConversation ? 'saturate-50 opacity-85' : '',
     ]"
   >
-    <details v-if="isHintMode" class="group/hint">
-      <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none">
+    <component :is="isHintMode ? 'details' : 'div'" :class="isHintMode ? 'group/hint' : ''">
+      <summary v-if="isHintMode" class="list-none [&::-webkit-details-marker]:hidden cursor-pointer select-none">
         <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-2 min-w-0">
             <component :is="roleConfig.icon" class="w-4 h-4 shrink-0" />
@@ -111,70 +111,7 @@ const formattedTime = computed(() => {
         </div>
       </summary>
 
-      <div class="mt-3 pt-3 border-t border-black/10">
-        <div class="flex items-center justify-between mb-2 font-medium">
-          <div class="flex items-center space-x-2">
-            <component :is="roleConfig.icon" class="w-5 h-5" />
-            <span class="capitalize tracking-wide">{{ message.role }}</span>
-            <span v-if="channelTypeLabel" class="text-xs rounded-md px-1.5 py-0.5 bg-black/10 text-current uppercase tracking-wide">
-              {{ channelTypeLabel }}
-            </span>
-          </div>
-
-          <details class="relative" v-if="message.metadata">
-            <summary class="list-none [&::-webkit-details-marker]:hidden cursor-pointer p-1.5 rounded-md hover:bg-black/5 text-slate-400 hover:text-slate-600 transition-colors" title="View Metadata">
-              <Braces class="w-4 h-4" />
-            </summary>
-            <div class="absolute right-0 top-full mt-1 z-10 w-80 bg-white border border-slate-200 rounded-lg shadow-lg p-3 text-xs text-slate-600 font-mono overflow-auto max-h-96">
-              <pre class="whitespace-pre-wrap">{{ JSON.stringify(message.metadata, null, 2) }}</pre>
-            </div>
-          </details>
-        </div>
-
-        <div v-if="hasErrors" class="mb-4 bg-[var(--color-role-error-bg)] border-[var(--color-role-error-border)] rounded-lg overflow-hidden shadow-sm">
-          <div class="flex items-center space-x-2 p-3 bg-[var(--color-role-error-bg-dark)] border-b border-[var(--color-role-error-border)] text-sm font-medium text-[var(--color-role-error-text)]">
-            <AlertCircle class="w-4 h-4" />
-            <span>Errors ({{ (message as any).errors.length }})</span>
-          </div>
-          <div class="px-4 py-3 text-sm text-[var(--color-role-error-text)] font-mono whitespace-pre-wrap divide-y divide-[var(--color-role-error-bg-dark)]">
-            <div v-for="(err, idx) in (message as any).errors" :key="idx" class="py-1 first:pt-0 last:pb-0">
-              {{ err }}
-            </div>
-          </div>
-        </div>
-
-        <details
-          v-if="shouldRenderReasoning"
-          :open="shouldExpandReasoning"
-          class="mb-3 bg-white/50 border border-slate-300 rounded-lg overflow-hidden transition-all duration-300 group/reasoning"
-        >
-          <summary class="flex items-center space-x-2 p-3 cursor-pointer hover:bg-white/80 select-none text-sm font-medium text-slate-600">
-            <ChevronDown class="w-4 h-4 transition-transform duration-300 group-open/reasoning:rotate-180" />
-            <span>Reasoning</span>
-          </summary>
-          <div class="px-4 pb-4 pt-1 text-sm text-slate-700 font-mono whitespace-pre-wrap">
-            {{ (message as any).reasoning }}
-          </div>
-        </details>
-
-        <div class="text-base leading-relaxed whitespace-pre-wrap relative">
-          {{ message.content }}
-        </div>
-
-        <details v-if="hasToolCalls" class="mt-4 bg-white/50 border border-slate-300 rounded-lg overflow-hidden group/tools">
-          <summary class="flex items-center space-x-2 p-3 cursor-pointer hover:bg-white/80 select-none text-sm font-medium text-slate-600">
-            <Wrench class="w-4 h-4" />
-            <span>Tool Calls ({{ (message as any).tool_calls.length }})</span>
-            <ChevronDown class="w-4 h-4 transition-transform duration-300 group-open/tools:rotate-180 ml-auto" />
-          </summary>
-          <div class="px-4 pb-4 pt-1 text-xs text-slate-700 font-mono bg-slate-50/50">
-            <pre class="overflow-x-auto">{{ JSON.stringify((message as any).tool_calls, null, 2) }}</pre>
-          </div>
-        </details>
-      </div>
-    </details>
-
-    <template v-else>
+      <div :class="isHintMode ? 'mt-3 pt-3 border-t border-black/10' : ''">
       <div class="flex items-center justify-between mb-2 font-medium">
         <div class="flex items-center space-x-2">
           <component :is="roleConfig.icon" class="w-5 h-5" />
@@ -234,7 +171,8 @@ const formattedTime = computed(() => {
           <pre class="overflow-x-auto">{{ JSON.stringify((message as any).tool_calls, null, 2) }}</pre>
         </div>
       </details>
-    </template>
+      </div>
+    </component>
 
     <span class="absolute bottom-2 right-4 text-[10px] text-slate-400 font-medium select-none flex items-center">
       <template v-if="formattedTime">
