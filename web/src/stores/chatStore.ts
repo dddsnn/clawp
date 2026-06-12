@@ -28,6 +28,11 @@ import type {
 
 type ActivePartType = StreamingMessageMarkerPartStart['part_type'];
 
+export type MessageVisibilityMode = 'show' | 'hint' | 'hide';
+export type ReasoningVisibilityMode = 'hide' | 'collapsed' | 'expanded';
+
+type MessageVisibilityKey = 'systemDeveloper' | 'tool' | 'crossChannelConversation';
+
 export type ConnectionState =
   | { status: 'uninitialized' }
   | { status: 'connected' }
@@ -42,9 +47,10 @@ export type HistoryState =
 export const useChatStore = defineStore('chat', () => {
   const messages = ref<Message[]>([]);
   const visibility = ref({
-    system: true,
-    tool: true,
-    developer: true,
+    systemDeveloper: 'show' as MessageVisibilityMode,
+    tool: 'show' as MessageVisibilityMode,
+    crossChannelConversation: 'show' as MessageVisibilityMode,
+    reasoning: 'collapsed' as ReasoningVisibilityMode,
   });
 
   const connectionState = ref<ConnectionState>({ status: 'uninitialized' });
@@ -155,8 +161,20 @@ export const useChatStore = defineStore('chat', () => {
     activeStreamingMessage.value.tool_calls.push(toolCall);
   }
 
-  function toggleVisibility(role: 'system' | 'tool' | 'developer') {
-    visibility.value[role] = !visibility.value[role];
+  function cycleMessageVisibility(key: MessageVisibilityKey) {
+    const modes: MessageVisibilityMode[] = ['show', 'hint', 'hide'];
+    const currentMode = visibility.value[key];
+    const currentIndex = modes.indexOf(currentMode);
+    const nextIndex = (currentIndex + 1) % modes.length;
+    visibility.value[key] = modes[nextIndex];
+  }
+
+  function cycleReasoningVisibility() {
+    const modes: ReasoningVisibilityMode[] = ['hide', 'collapsed', 'expanded'];
+    const currentMode = visibility.value.reasoning;
+    const currentIndex = modes.indexOf(currentMode);
+    const nextIndex = (currentIndex + 1) % modes.length;
+    visibility.value.reasoning = modes[nextIndex];
   }
 
   return {
@@ -177,6 +195,7 @@ export const useChatStore = defineStore('chat', () => {
     clearActivePartType,
     appendStreamFragmentText,
     appendStreamFragmentToolCall,
-    toggleVisibility,
+    cycleMessageVisibility,
+    cycleReasoningVisibility,
   };
 });

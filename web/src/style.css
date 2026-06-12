@@ -20,9 +20,9 @@ with clawp. If not, see <https://www.gnu.org/licenses/>.
 @import "tailwindcss";
 
 @theme {
-  --color-role-user-bg: #e2e8f0;
-  --color-role-user-border: #cbd5e1;
-  --color-role-user-text: #0f172a;
+  --color-role-user-bg: #dcfce7;
+  --color-role-user-border: #86efac;
+  --color-role-user-text: #14532d;
   
   --color-role-agent-bg: #f1f5f9;
   --color-role-agent-border: #e2e8f0;

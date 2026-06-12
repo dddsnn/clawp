@@ -21,6 +21,7 @@ with clawp. If not, see <https://www.gnu.org/licenses/>.
 import { computed, ref, onMounted } from 'vue';
 import { useScroll } from '@vueuse/core';
 import { useChatStore } from '../../stores/chatStore';
+import type { Message, StreamingAssistantMessage } from '../../types/api';
 import MessageBubble from './MessageBubble.vue';
 import { Bot, Loader2, AlertCircle } from 'lucide-vue-next';
 
@@ -38,14 +39,51 @@ const handleScroll = () => {
   isNearBottom.value = scrollHeight - scrollTop - clientHeight < 100;
 };
 
-// Use the new displayedMessages array
-const filteredMessages = computed(() => {
-  return store.displayedMessages.filter(msg => {
-    if (msg.role === 'system') return store.visibility.system;
-    if (msg.role === 'tool') return store.visibility.tool;
-    if (msg.role === 'developer') return store.visibility.developer;
-    return true; // Always show user and agent messages
-  });
+type BubbleDisplayMode = 'full' | 'hint';
+
+const isCrossChannelConversationMessage = (message: Message | StreamingAssistantMessage): boolean => {
+  if (message.role !== 'user' && message.role !== 'agent') {
+    return false;
+  }
+
+  return message.metadata.channel.type !== 'web_ui';
+};
+
+const resolveDisplayMode = (message: Message | StreamingAssistantMessage): BubbleDisplayMode | 'hidden' => {
+  if (message.role === 'system' || message.role === 'developer') {
+    const mode = store.visibility.systemDeveloper;
+    if (mode === 'hide') return 'hidden';
+    if (mode === 'hint') return 'hint';
+    return 'full';
+  }
+
+  if (message.role === 'tool') {
+    const mode = store.visibility.tool;
+    if (mode === 'hide') return 'hidden';
+    if (mode === 'hint') return 'hint';
+    return 'full';
+  }
+
+  if (isCrossChannelConversationMessage(message)) {
+    const mode = store.visibility.crossChannelConversation;
+    if (mode === 'hide') return 'hidden';
+    if (mode === 'hint') return 'hint';
+    return 'full';
+  }
+
+  return 'full';
+};
+
+const presentedMessages = computed(() => {
+  return store.displayedMessages
+    .map((message) => ({
+      message,
+      displayMode: resolveDisplayMode(message),
+    }))
+    .filter((entry) => entry.displayMode !== 'hidden') as Array<{
+      message: Message | StreamingAssistantMessage;
+      displayMode: BubbleDisplayMode;
+    }>;
 });
 
 // Auto-scroll when new messages arrive if we were already near the bottom
@@ -75,7 +113,7 @@ onMounted(() => {
     <div class="max-w-4xl mx-auto space-y-6">
 
       <!-- Empty / Loading / Error States -->
-      <div v-if="filteredMessages.length === 0" class="flex flex-col items-center justify-center h-64 space-y-4">
+      <div v-if="presentedMessages.length === 0" class="flex flex-col items-center justify-center h-64 space-y-4">
 
         <template v-if="store.historyState.status === 'loading'">
           <Loader2 class="w-12 h-12 text-slate-300 animate-spin" />
@@ -96,9 +134,11 @@ onMounted(() => {
 
       <!-- Message List -->
       <MessageBubble
-        v-for="msg in filteredMessages"
-        :key="msg.metadata.seq_in_session"
-        :message="msg"
+        v-for="entry in presentedMessages"
+        :key="entry.message.metadata.seq_in_session"
+        :message="entry.message"
+        :display-mode="entry.displayMode"
+        :reasoning-visibility-mode="store.visibility.reasoning"
       />
     </div>
   </div>
