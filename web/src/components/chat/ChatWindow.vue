@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia';
-import { Eye, EyeOff, Loader2, Minimize2, WifiOff } from 'lucide-vue-next';
+import { EyeOff, Loader2, Maximize2, Minimize2, WifiOff } from 'lucide-vue-next';
 import { useChatStore, type MessageVisibilityMode, type ReasoningVisibilityMode } from '../../stores/chatStore';
 import MessageList from './MessageList.vue';
 import ChatInput from './ChatInput.vue';
@@ -15,31 +15,43 @@ const { connectionState, visibility } = storeToRefs(chatStore);
 const messageFilters: Array<{ key: 'systemDeveloper' | 'tool' | 'crossChannelConversation'; label: string }> = [
   { key: 'systemDeveloper', label: 'System / Developer' },
   { key: 'tool', label: 'Tool' },
-  { key: 'crossChannelConversation', label: 'Other-channel user/agent' },
+  { key: 'crossChannelConversation', label: 'Other channels' },
 ];
 
-const modeToLabel: Record<MessageVisibilityMode, string> = {
-  show: 'Show',
-  hint: 'Hint',
-  hide: 'Hide',
+const modeToExplanation: Record<MessageVisibilityMode, string> = {
+  show: 'show',
+  hint: 'show as expandable summary',
+  hide: 'hide',
 };
 
 const modeToIcon = {
-  show: Eye,
+  show: Maximize2,
   hint: Minimize2,
   hide: EyeOff,
 };
 
 const modeToClass: Record<MessageVisibilityMode, string> = {
   show: 'bg-white text-slate-800 border-slate-300',
-  hint: 'bg-amber-50 text-amber-800 border-amber-200',
+  hint: 'bg-indigo-50 text-indigo-800 border-indigo-200',
   hide: 'bg-slate-100 text-slate-400 hover:text-slate-600 border-slate-200',
 };
 
+const reasoningModeToExplanation: Record<ReasoningVisibilityMode, string> = {
+  hide: 'hide',
+  collapsed: 'show collapsed dropdown',
+  expanded: 'show expanded',
+};
+
+const reasoningModeToIcon = {
+  hide: EyeOff,
+  collapsed: Minimize2,
+  expanded: Maximize2,
+};
+
 const reasoningModeToClass: Record<ReasoningVisibilityMode, string> = {
-  hide: 'bg-slate-100 text-slate-500 border-slate-200',
+  hide: 'bg-slate-100 text-slate-400 hover:text-slate-600 border-slate-200',
   collapsed: 'bg-indigo-50 text-indigo-800 border-indigo-200',
-  expanded: 'bg-indigo-100 text-indigo-900 border-indigo-300',
+  expanded: 'bg-white text-slate-800 border-slate-300',
 };
 
 const handleSend = (text: string) => {
@@ -90,11 +102,10 @@ const handleCycleReasoningVisibility = () => {
           class="px-4 py-2.5 rounded-xl transition-all shadow-sm flex items-center justify-start border space-x-2 w-full"
           :class="modeToClass[visibility[filter.key]]"
           :aria-label="`Cycle ${filter.label} visibility mode`"
-          :title="`${filter.label}: ${modeToLabel[visibility[filter.key]]} (click to cycle)`"
+          :title="`${filter.label} messages: ${modeToExplanation[visibility[filter.key]]}`"
         >
           <component :is="modeToIcon[visibility[filter.key]]" class="w-5 h-5 shrink-0" />
           <span class="font-medium text-sm">{{ filter.label }}</span>
-          <span class="ml-auto text-xs font-semibold uppercase tracking-wide">{{ modeToLabel[visibility[filter.key]] }}</span>
         </button>
       </div>
 
@@ -104,10 +115,10 @@ const handleCycleReasoningVisibility = () => {
           class="px-4 py-2.5 rounded-xl transition-all shadow-sm flex items-center justify-start border space-x-2 w-full"
           :class="reasoningModeToClass[visibility.reasoning]"
           :aria-label="'Cycle reasoning visibility mode'"
-          :title="`Reasoning: ${visibility.reasoning} (click to cycle)`"
+          :title="`Reasoning: ${reasoningModeToExplanation[visibility.reasoning]}`"
         >
+          <component :is="reasoningModeToIcon[visibility.reasoning]" class="w-5 h-5 shrink-0" />
           <span class="font-medium text-sm">Reasoning</span>
-          <span class="ml-auto text-xs font-semibold uppercase tracking-wide">{{ visibility.reasoning }}</span>
         </button>
       </div>
     </aside>
