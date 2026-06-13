@@ -325,7 +325,7 @@ class Agent:
     def __init__(
             self, agent_information: mdl.AgentInformation, *,
             model_config: mdl.ModelConfig, workspace_dir: pathlib.Path,
-            message_store: store.MessageStore,
+            message_store: store.MessageStore, memory_store: store.MemoryStore,
             channel_router: chan.ChannelRouter,
             provider: "prov.Provider") -> None:
         self._logger = logging.getLogger(type(self).__name__)
@@ -334,6 +334,7 @@ class Agent:
         self._agent_information = agent_information
         self._workspace_dir = workspace_dir
         self._message_store = message_store
+        self.memory_store = memory_store
         self._mcp_client = tool.Client(self)
         self._channel_router = channel_router
         self._session_factory = ft.partial(
@@ -651,6 +652,10 @@ class AgentRepository:
         if not message_store_dir.is_dir():
             raise ValueError(f"missing message store {message_store_dir}")
         message_store = store.MessageStore(message_store_dir)
+        memory_store_dir = self._memory_store_dir(dir)
+        if not memory_store_dir.is_dir():
+            raise ValueError(f"missing memory store {memory_store_dir}")
+        memory_store = store.JsonlMemoryStore(memory_store_dir)
         channels = []
         for ch_type, ch_id in agent_information.claimed_channels.items():
             try:
@@ -663,6 +668,7 @@ class AgentRepository:
         return Agent(
             agent_information, model_config=self._model_config,
             workspace_dir=workspace_dir, message_store=message_store,
+            memory_store=memory_store,
             channel_router=chan.ChannelRouter(channels),
             provider=self._provider)
 
@@ -693,6 +699,9 @@ class AgentRepository:
 
     def _message_store_dir(self, agent_base_dir: pathlib.Path) -> pathlib.Path:
         return agent_base_dir / "message_store"
+
+    def _memory_store_dir(self, agent_base_dir: pathlib.Path) -> pathlib.Path:
+        return agent_base_dir / "memory_store"
 
     async def hatch_agent(self, personality_name: str) -> Agent:
         """Hatch a new agent."""
@@ -731,6 +740,8 @@ class AgentRepository:
         self._logger.info(
             f"Created new agent information {agent_information}.")
         self._message_store_dir(agent_base_dir).mkdir(
+            parents=True, exist_ok=True)
+        self._memory_store_dir(agent_base_dir).mkdir(
             parents=True, exist_ok=True)
         workspace_dir = self._workspace_dir(agent_base_dir)
         workspace_dir.mkdir(parents=True, exist_ok=True)
