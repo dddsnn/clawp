@@ -27,12 +27,19 @@ import fastmcp.server
 import fastmcp.server.providers.proxy
 import fastmcp.tools
 import mcp.types
+import pydantic as pyd
+import whenever as we
 
 from . import file
 from . import model as mdl
 
 if t.TYPE_CHECKING:
     from . import agent as agt
+
+Iso8601Instant = t.Annotated[we.Instant,
+                             pyd.Field(
+                                 description="An ISO 8601 timestamp",
+                                 examples=["2026-06-14T17:53:00Z"])]
 
 
 class ClawpMcpServer(fastmcp.FastMCP):
@@ -43,6 +50,8 @@ class ClawpMcpServer(fastmcp.FastMCP):
         self.add_tool(self.list_tutorial_topics)
         self.add_tool(self.read_tutorial)
         self.add_tool(self.send_message)
+        self.add_tool(self.log_memory)
+        self.add_tool(self.search_memory)
 
     async def list_tutorial_topics(self) -> list[str]:
         """List all tutorial topics."""
@@ -67,6 +76,38 @@ class ClawpMcpServer(fastmcp.FastMCP):
         can use this tool.
         """
         await self._agent.add_and_send_agent_message(channel, content)
+
+    async def log_memory(self, content: str) -> None:
+        """
+        Log a memory.
+
+        The memory is persisted with the current time and can later be found
+        via clawp_search_memory.
+        """
+        await self._agent.memory_store.log_memory(content)
+
+    async def search_memory(
+            self, start_time: t.Optional[Iso8601Instant] = None,
+            end_time: t.Optional[Iso8601Instant] = None,
+            search_term: t.Optional[str] = None) -> list[mdl.Memory]:
+        """
+        Search memories.
+
+        Lists all memories matching the search criteria, in ascending order of
+        time.
+
+        start_time and end_time filter for memories in the
+        time range they bound. If one or both are omitted, memories are not
+        filtered by the respective bound.
+
+        If search_term is given, a simple case-insensitive substring match is
+        made to filter results.
+
+        If no filters are specified, all memories are returned.
+        """
+        memory_iter = self._agent.memory_store.search_memory(
+            start_time=start_time, end_time=end_time, search_term=search_term)
+        return [memory async for memory in memory_iter]
 
 
 def _make_filesystem_proxy(
