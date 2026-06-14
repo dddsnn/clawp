@@ -470,7 +470,7 @@ class Agent:
             "channel_web_ui",
             "channel_system",
             "channel_matrix",
-            "system_workspace",]
+            "system_workspace_memory",]
         for topic in tutorial_topics:
             yield await file.render_tutorial(topic)
 
