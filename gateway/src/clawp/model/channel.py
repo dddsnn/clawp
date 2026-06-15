@@ -38,6 +38,16 @@ class WebUiChannelDescriptor(BaseChannelDescriptor):
     type: t.Literal["web_ui"] = "web_ui"
 
 
+class AgentIncomingChannelDescriptor(BaseChannelDescriptor):
+    type: t.Literal["agent"] = "agent"
+    sender_id: uuid.UUID
+
+
+class AgentOutgoingChannelDescriptor(BaseChannelDescriptor):
+    type: t.Literal["agent"] = "agent"
+    recipient_id: uuid.UUID
+
+
 class MatrixOutgoingChannelDescriptor(BaseChannelDescriptor):
     type: t.Literal["matrix"] = "matrix"
     room_id: str
@@ -51,6 +61,7 @@ class MatrixIncomingChannelDescriptor(MatrixOutgoingChannelDescriptor):
 
 IncomingChannelDescriptor = t.Annotated[SystemChannelDescriptor
                                         | WebUiChannelDescriptor
+                                        | AgentIncomingChannelDescriptor
                                         | MatrixIncomingChannelDescriptor,
                                         pyd.Field(discriminator="type")]
 """
@@ -62,6 +73,7 @@ IncomingChannelDescriptorTypeAdapter = pyd.TypeAdapter(
     IncomingChannelDescriptor)
 OutgoingChannelDescriptor = t.Annotated[SystemChannelDescriptor
                                         | WebUiChannelDescriptor
+                                        | AgentOutgoingChannelDescriptor
                                         | MatrixOutgoingChannelDescriptor,
                                         pyd.Field(discriminator="type")]
 """
@@ -91,13 +103,17 @@ class WebUiChannelStatus(BaseChannelStatus):
     type: t.Literal["web_ui"] = "web_ui"
 
 
+class AgentChannelStatus(BaseChannelStatus):
+    type: t.Literal["agent"] = "agent"
+
+
 class MatrixChannelStatus(BaseChannelStatus):
     type: t.Literal["matrix"] = "matrix"
     username: str
 
 
 ChannelStatus = t.Annotated[SystemChannelStatus | WebUiChannelStatus
-                            | MatrixChannelStatus,
+                            | AgentChannelStatus | MatrixChannelStatus,
                             pyd.Field(discriminator="type")]
 
 

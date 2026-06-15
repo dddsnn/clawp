@@ -21,7 +21,7 @@ from .base import (
     MessageReceiver,
     MessageSender,
 )
-from .builtin import SystemChannel, WebUiChannel
+from .builtin import AgentChannel, SystemChannel, WebUiChannel
 from .management import (
     ChannelError,
     ChannelPool,
@@ -40,6 +40,7 @@ __all__ = [
     "MessageReceiver",
     "MessageSender",
     # builtin
+    "AgentChannel",
     "SystemChannel",
     "WebUiChannel",
     # management

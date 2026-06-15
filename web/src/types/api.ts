@@ -23,6 +23,17 @@ export const BaseChannelDescriptorSchema = z.object({
   type: z.enum(['matrix', 'system', 'web_ui']),
 });
 
+export const AgentIncomingChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
+  type: z.literal('agent'),
+  sender_id: z.string().uuid(),
+});
+
+export const AgentOutgoingChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
+  type: z.literal('agent'),
+  recipient_id: z.string().uuid(),
+});
+
+
 export const MatrixOutgoingChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
   type: z.literal('matrix'),
   room_id: z.string(),
@@ -43,6 +54,8 @@ export const WebUiChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
 });
 
 export type ChannelDescriptor =
+  | z.infer<typeof AgentOutgoingChannelDescriptorSchema>
+  | z.infer<typeof AgentIncomingChannelDescriptorSchema>
   | z.infer<typeof MatrixOutgoingChannelDescriptorSchema>
   | z.infer<typeof MatrixIncomingChannelDescriptorSchema>
   | z.infer<typeof SystemChannelDescriptorSchema>
@@ -50,6 +63,8 @@ export type ChannelDescriptor =
 
 
 export const ChannelDescriptorSchema: z.ZodType<ChannelDescriptor> = z.lazy(() => z.union([
+  AgentOutgoingChannelDescriptorSchema,
+  AgentIncomingChannelDescriptorSchema,
   MatrixOutgoingChannelDescriptorSchema,
   MatrixIncomingChannelDescriptorSchema,
   SystemChannelDescriptorSchema,

@@ -23,6 +23,9 @@ from .agent import (
 from .api import ErrorResponse
 from .base import BaseModel, Iso8601Millis
 from .channel import (
+    AgentChannelStatus,
+    AgentIncomingChannelDescriptor,
+    AgentOutgoingChannelDescriptor,
     BaseChannelDescriptor,
     ChannelDescriptor,
     ChannelInformation,
@@ -95,6 +98,9 @@ __all__ = [
     "BaseModel",
     "Iso8601Millis",
     # channel
+    "AgentChannelStatus",
+    "AgentIncomingChannelDescriptor",
+    "AgentOutgoingChannelDescriptor",
     "BaseChannelDescriptor",
     "ChannelDescriptor",
     "ChannelInformation",

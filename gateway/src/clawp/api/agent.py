@@ -173,7 +173,7 @@ async def _send_websocket(
                 # see the first chunk of the content once the entire content
                 # has been received).
                 send_task = asyncio.create_task(
-                    websocket.send_json(chunk.model_dump()))
+                    websocket.send_text(chunk.model_dump_json()))
                 await send_task
     except asyncio.CancelledError:
         return

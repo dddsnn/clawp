@@ -469,6 +469,7 @@ class Agent:
             "system_channels",
             "channel_web_ui",
             "channel_system",
+            "channel_agent",
             "channel_matrix",
             "system_workspace_memory",]
         for topic in tutorial_topics:
@@ -670,6 +671,8 @@ class AgentRepository:
                 self._logger.warning(
                     f"Agent {agent_information.id} claims channel "
                     f"{ch_type}:{ch_id}, but it's not available: {e}.")
+        # Add the agent channel, which doesn't need to be exlicitly claimed.
+        channels.append(chan.AgentChannel(agent_information.id, self))
         return Agent(
             agent_information, model_config=self._model_config,
             workspace_dir=workspace_dir, message_store=message_store,

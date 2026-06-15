@@ -16,6 +16,7 @@
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 import typing as t
+import uuid
 
 import whenever as we
 
@@ -23,6 +24,9 @@ from .. import message as msg
 from .. import model as mdl
 from .. import util
 from . import base
+
+if t.TYPE_CHECKING:
+    from .. import agent as agt
 
 
 class SystemChannel(base.Channel):
@@ -109,5 +113,76 @@ class WebUiChannel(base.Channel):
             channel=mdl.WebUiChannelDescriptor())
         message = base.IncomingMessage(
             role="user", metadata=metadata, content=content,
+            request_response=True)
+        await self._publisher.append(message)
+
+
+class AgentChannel(base.Channel):
+    """
+    Agent channel.
+
+    This channel can be used by Clawp agents to directly communicate with other
+    agents within the system.
+    """
+    def __init__(
+            self, agent_id: uuid.UUID,
+            agent_repo: "agt.AgentRepository") -> None:
+        super().__init__("agent")
+        self._agent_id = agent_id
+        self._agent_repo = agent_repo
+
+    @property
+    def id(self) -> str:
+        return str(self._agent_id)
+
+    @property
+    async def status(self) -> mdl.AgentChannelStatus:
+        return mdl.AgentChannelStatus(available=True)
+
+    async def send(self, message: msg.AgentMessage) -> None:
+        channel = message.metadata.channel
+        if not isinstance(channel, mdl.AgentOutgoingChannelDescriptor):
+            raise ValueError(
+                "cannot send to another agent without agent channel "
+                f"descriptor (got {channel})")
+        if channel.recipient_id == self._agent_id:
+            raise ValueError("sender and recipient IDs are equal")
+        try:
+            recipient = self._agent_repo.get_agent(
+                message.metadata.channel.recipient_id)
+        except KeyError:
+            raise ValueError(
+                f"no agent with ID {message.metadata.channel.recipient_id} "
+                "exists")
+        try:
+            recipient_channel = recipient.channels["agent"]
+        except KeyError:
+            raise ValueError(
+                "recipient doesn't have an agent channel to send to")
+        assert isinstance(recipient_channel, AgentChannel)
+        await recipient_channel.add_incoming_agent_message(
+            message, self._agent_id)
+
+    def response_channel(
+        self, incoming_descriptor: mdl.AgentIncomingChannelDescriptor
+    ) -> mdl.AgentOutgoingChannelDescriptor:
+        return mdl.AgentOutgoingChannelDescriptor(
+            recipient_id=incoming_descriptor.sender_id)
+
+    async def add_incoming_agent_message(
+            self, message: msg.AgentMessage, sender_id: uuid.UUID) -> None:
+        """
+        Add an incoming agent message.
+
+        A user message will be constructed with the content of the given agent
+        message. That message will appear has having arrived on the channel and
+        will be delivered to the agent. The agent needs to examine the metadata
+        to see that the message comes from another agent.
+        """
+        metadata = msg.IncomingMessageMetadata(
+            time=message.metadata.time,
+            channel=mdl.AgentIncomingChannelDescriptor(sender_id=sender_id))
+        message = base.IncomingMessage(
+            role="user", metadata=metadata, content=await message.content,
             request_response=True)
         await self._publisher.append(message)
