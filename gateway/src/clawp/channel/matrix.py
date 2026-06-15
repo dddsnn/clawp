@@ -84,7 +84,7 @@ class MatrixChannel(base.Channel):
     @property
     async def status(self) -> mdl.MatrixChannelStatus:
         return mdl.MatrixChannelStatus(
-            type=self.type, available=True, username=self._config.username)
+            available=True, username=self._config.username)
 
     async def send(self, message: msg.AgentMessage) -> None:
         channel = message.metadata.channel.value
