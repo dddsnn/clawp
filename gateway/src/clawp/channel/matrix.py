@@ -87,7 +87,7 @@ class MatrixChannel(base.Channel):
             available=True, username=self._config.username)
 
     async def send(self, message: msg.AgentMessage) -> None:
-        channel = message.metadata.channel.value
+        channel = message.metadata.channel
         if not isinstance(channel, mdl.MatrixOutgoingChannelDescriptor):
             raise ValueError(
                 "cannot send to Matrix without Matrix channel descriptor (got "
