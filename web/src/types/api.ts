@@ -20,7 +20,7 @@ import { z } from 'zod';
 export const Iso8601Schema = z.string().transform((str) => new Date(str));
 
 export const BaseChannelDescriptorSchema = z.object({
-  type: z.enum(['malformed', 'matrix', 'missing', 'system', 'unknown', 'web_ui']),
+  type: z.enum(['matrix', 'system', 'web_ui']),
 });
 
 export const MatrixOutgoingChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
@@ -46,8 +46,7 @@ export type ChannelDescriptor =
   | z.infer<typeof MatrixOutgoingChannelDescriptorSchema>
   | z.infer<typeof MatrixIncomingChannelDescriptorSchema>
   | z.infer<typeof SystemChannelDescriptorSchema>
-  | z.infer<typeof WebUiChannelDescriptorSchema>
-  | { type: 'missing'; fallback_channel: ChannelDescriptor };
+  | z.infer<typeof WebUiChannelDescriptorSchema>;
 
 
 export const ChannelDescriptorSchema: z.ZodType<ChannelDescriptor> = z.lazy(() => z.union([
