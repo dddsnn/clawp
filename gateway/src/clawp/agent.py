@@ -588,6 +588,11 @@ class AgentRepository:
         yield from self._agents.values()
 
     def get_agent(self, agent_id: uuid.UUID) -> Agent:
+        """
+        Get agent by ID.
+
+        Raises a KeyError if no agent with the given ID exists.
+        """
         return self._agents[agent_id]
 
     async def __aenter__(self) -> t.Self:
