@@ -273,12 +273,6 @@ class AgentMessageReasoningPart(AgentMessageTextPart):
 
 
 class AgentMessageContentPart(AgentMessageTextPart):
-    """
-    Content part of an agent message.
-
-    In contrast to the raw text part, overrides stream_fragments() to strip off
-    the channel header.
-    """
     def __init__(self, fragments: list[str] | None = None):
         super().__init__("content", fragments)
 

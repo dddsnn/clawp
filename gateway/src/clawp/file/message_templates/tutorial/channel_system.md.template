@@ -12,10 +12,10 @@ The channel descriptor has these keys:
 
 - `type`: Always the literal `system`.
 
-Example channel header:
+Example channel descriptor:
 
 ```
-channel:{{"type":"system"}}
+{{"type":"system"}}
 ```
 
 The channel descriptor for incoming and outgoing messages is the same and contains only the `type` key.
