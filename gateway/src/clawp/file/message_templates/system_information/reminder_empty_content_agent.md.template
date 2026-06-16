@@ -1,6 +1,0 @@
-# System information
-
-Reminder: You are talking to another agent. Your options:
-
-1. Produce a response with content: it will be sent to the agent and the agent prompted to respond just like you are now.
-2. Produce an empty content: no message will be sent to the other agent. You may still produce reasoning and tool calls (as long as the content in your message after the last tool result is empty). You will not be promted again, if you need to take further action, make tool calls (e.g. `clawp_send_message`).

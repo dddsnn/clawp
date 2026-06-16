@@ -154,6 +154,11 @@ class Session:
             user_message.metadata, seq_in_session)
         message_content = await file.render_message_template(
             "message_metadata.md", metadata_json=metadata.model_dump_json())
+        if user_message.metadata.channel.type == "agent":
+            # This message comes from another agent, remind the agent on how to
+            # end the conversation.
+            message_content += await file.render_message_template(
+                "fragments/agent_to_agent_comm_reminder.md")
         await self._append_message_now(
             msg.SystemMessage, content=message_content)
 

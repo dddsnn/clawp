@@ -196,15 +196,5 @@ class AgentChannel(base.Channel):
             channel=mdl.AgentIncomingChannelDescriptor(sender_id=sender_id))
         message = base.IncomingMessage(
             role="user", metadata=metadata, content=await message.content,
-            request_response=False)
-        outgoing_channel = self.response_channel(message.metadata.channel)
-        reminder_metadata = msg.IncomingMessageMetadata(
-            time=message.metadata.time, channel=mdl.SystemChannelDescriptor(
-                override_outgoing_channel=outgoing_channel))
-        reminder_content = await file.render_message_template(
-            "system_information/reminder_empty_content_agent.md")
-        reminder_message = base.IncomingMessage(
-            role="user", metadata=reminder_metadata, content=reminder_content,
             request_response=True)
         await self._publisher.append(message)
-        await self._publisher.append(reminder_message)
