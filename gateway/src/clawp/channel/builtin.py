@@ -20,9 +20,9 @@ import uuid
 
 import whenever as we
 
+from .. import file, util
 from .. import message as msg
 from .. import model as mdl
-from .. import util
 from . import base
 
 if t.TYPE_CHECKING:
@@ -54,7 +54,9 @@ class SystemChannel(base.Channel):
 
     def response_channel(
         self, incoming_descriptor: mdl.SystemChannelDescriptor
-    ) -> mdl.SystemChannelDescriptor:
+    ) -> mdl.OutgoingChannelDescriptor:
+        if incoming_descriptor.override_outgoing_channel:
+            return incoming_descriptor.override_outgoing_channel
         return incoming_descriptor
 
     async def add_incoming_message(

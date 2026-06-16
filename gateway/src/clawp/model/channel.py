@@ -32,6 +32,13 @@ class BaseChannelDescriptor(base.BaseModel):
 
 class SystemChannelDescriptor(BaseChannelDescriptor):
     type: t.Literal["system"] = "system"
+    override_outgoing_channel: t.Optional[OutgoingChannelDescriptor] = None
+    """
+    An override for the outgoing channel for the response.
+
+    If this is set, the agent response should be sent to that outgoing channel
+    instead of the system channel.
+    """
 
 
 class WebUiChannelDescriptor(BaseChannelDescriptor):
