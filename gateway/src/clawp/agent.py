@@ -140,15 +140,7 @@ class Session:
                     return
             else:
                 outgoing_channel = None
-            message_content = incoming_message.content
-            if (message_class is msg.SystemMessage
-                    and incoming_message.request_response):
-                # This is a system message prompting an agent response. Add a
-                # reminder for the agent that its output will go on the system
-                # channel.
-                message_content += await file.render_message_template(
-                    "fragments/channel_reminder.md")
-            message = message_class(metadata, content=message_content)
+            message = message_class(metadata, content=incoming_message.content)
             await self._append_message(message)
             if outgoing_channel:
                 await self._request_responses(outgoing_channel)

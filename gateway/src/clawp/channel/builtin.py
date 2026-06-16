@@ -71,6 +71,12 @@ class SystemChannel(base.Channel):
         metadata = msg.IncomingMessageMetadata(
             time=util.ImmediateValue(we.Instant.now()),
             channel=mdl.SystemChannelDescriptor())
+        if role in ["developer", "system"] and request_response:
+            # This is a system message prompting an agent response. Add a
+            # reminder for the agent that its output will go on the system
+            # channel.
+            content += await file.render_message_template(
+                "fragments/channel_reminder.md")
         message = base.IncomingMessage(
             role=role, metadata=metadata, content=content,
             request_response=request_response)
