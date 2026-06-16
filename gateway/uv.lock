@@ -269,7 +269,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.136.1" },
     { name = "fastmcp", specifier = ">=3.2.4,<4" },
     { name = "matrix-nio", extras = ["e2e"], specifier = ">=0.25.2" },
-    { name = "openrouter", specifier = ">=0.9.1,<0.10.0" },
+    { name = "openrouter", specifier = "==0.9.2" },
     { name = "pydantic", specifier = ">=2.13.3,<3" },
     { name = "pyhamcrest", marker = "extra == 'test'", specifier = ">=2.1.0" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0.3" },
@@ -911,7 +911,7 @@ wheels = [
 
 [[package]]
 name = "openrouter"
-version = "0.9.1"
+version = "0.9.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpcore" },
@@ -919,9 +919,9 @@ dependencies = [
     { name = "jsonpath-python" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e4/f5/e19b11ea336129b3a801c4d92cf2a4f38ef8b44a2e9600afb4a5e0984c97/openrouter-0.9.1.tar.gz", hash = "sha256:0fe00c3640c2b956a244b75b46feb02c2526cda9187f5d5edfbedca87cc18fab", size = 181894, upload-time = "2026-04-14T16:50:15.937Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/16/04/de22459bbbf43b7f024f0fb925f1a8900d147167f09b5713fe14230dc9ad/openrouter-0.9.2.tar.gz", hash = "sha256:a3d2d6e2a1f14dcfbe5cc0590fe82fb3073a8834c0a3987e391fc51f222acdcd", size = 297155, upload-time = "2026-06-11T16:12:46.268Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/08/12/ec58ea55f463f4455ef4676b1fc487a895a647c5975f5f13529f02727f1e/openrouter-0.9.1-py3-none-any.whl", hash = "sha256:2f1dcaa956778781855f473bad28400cf310ad5626df8747ec888997fbdb6223", size = 396449, upload-time = "2026-04-14T16:50:14.486Z" },
+    { url = "https://files.pythonhosted.org/packages/d2/8d/a02fca14370bffe7faa2de3cc634548841cbe1aabd743bb1dfab3d9d0f21/openrouter-0.9.2-py3-none-any.whl", hash = "sha256:c79f9df71bd96572090e26b65514088f989a27ca45b520d50740c0cfd0fd9f06", size = 660505, upload-time = "2026-06-11T16:12:47.649Z" },
 ]
 
 [[package]]
