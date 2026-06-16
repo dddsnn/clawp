@@ -65,8 +65,7 @@ class ClawpMcpServer(fastmcp.FastMCP):
             raise ValueError(f"topic {topic} doesn't exist") from e
 
     async def send_message(
-            self, channel: mdl.OutgoingChannelDescriptor,
-            content: str) -> None:
+            self, channel: mdl.OutgoingChannelDescriptor, content: str) -> str:
         """
         Send a message to a specific channel.
 
@@ -76,6 +75,10 @@ class ClawpMcpServer(fastmcp.FastMCP):
         can use this tool.
         """
         await self._agent.add_and_send_agent_message(channel, content)
+        return (
+            "Message delivered. Respond with empty content to acknowledge "
+            "(otherwise that content will be delivered on the previous "
+            "channel).")
 
     async def log_memory(self, content: str) -> None:
         """
