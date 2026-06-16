@@ -217,13 +217,18 @@ class Session:
             self, outgoing_channel: mdl.OutgoingChannelDescriptor):
         message, stream_task = await self._request_agent_message(
             outgoing_channel)
-        send_task = asyncio.create_task(self._message_sender.send(message))
-        # Wait for the message to completely arrive before handling tool calls.
+        # Wait for the message to completely arrive before handling tool calls
+        # or sending.
         try:
             await stream_task
         except Exception:
             self._logger.exception(f"Error streaming {message}.")
         await message.wait_finalized()
+        if await message.content:
+            send_task = asyncio.create_task(self._message_sender.send(message))
+        else:
+            self._logger.debug("Not sending message without content.")
+            send_task = asyncio.create_task(asyncio.sleep(0))
         need_another_request = await self._handle_tool_calls(message)
         try:
             async with asyncio.timeout(
