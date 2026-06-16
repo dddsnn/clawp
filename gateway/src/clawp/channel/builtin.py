@@ -180,11 +180,25 @@ class AgentChannel(base.Channel):
         message. That message will appear has having arrived on the channel and
         will be delivered to the agent. The agent needs to examine the metadata
         to see that the message comes from another agent.
+
+        Following that message, a system message is added reminding the agent
+        that they have the option to not respond by leaving their message
+        content empty.
         """
         metadata = msg.IncomingMessageMetadata(
             time=message.metadata.time,
             channel=mdl.AgentIncomingChannelDescriptor(sender_id=sender_id))
         message = base.IncomingMessage(
             role="user", metadata=metadata, content=await message.content,
+            request_response=False)
+        outgoing_channel = self.response_channel(message.metadata.channel)
+        reminder_metadata = msg.IncomingMessageMetadata(
+            time=message.metadata.time, channel=mdl.SystemChannelDescriptor(
+                override_outgoing_channel=outgoing_channel))
+        reminder_content = await file.render_message_template(
+            "system_information/reminder_empty_content_agent.md")
+        reminder_message = base.IncomingMessage(
+            role="user", metadata=reminder_metadata, content=reminder_content,
             request_response=True)
         await self._publisher.append(message)
+        await self._publisher.append(reminder_message)
