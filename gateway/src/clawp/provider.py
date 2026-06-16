@@ -18,6 +18,7 @@
 import abc
 import asyncio
 import collections.abc as cl_abc
+import logging
 
 import fastmcp.tools
 import openrouter
@@ -144,6 +145,7 @@ class OpenrouterStreamReader:
     def __init__(
             self, message_parts: util.StreamableList,
             stream: or_stream.EventStreamAsync):
+        self._logger = logging.getLogger(type(self).__name__)
         self._message_parts = message_parts
         self._stream = stream
 
@@ -192,7 +194,10 @@ class OpenrouterStreamReader:
     def _parse_chunk(self, chunk, tool_calls_kwargs: dict[int, dict]):
         if not isinstance(chunk, or_comp.ChatStreamChunk):
             raise ValueError(f"unexpected chunk type {type(chunk)} in stream")
-        if len(chunk.choices) != 1:
+        if len(chunk.choices) == 0:
+            self._logger.debug("Received chunk with 0 choices.")
+            return None, None
+        elif len(chunk.choices) != 1:
             raise ValueError(
                 f"unexpected number of choices ({len(chunk.choices)}) in "
                 "chunk")
