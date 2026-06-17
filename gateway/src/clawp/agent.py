@@ -221,6 +221,8 @@ class Session:
         except Exception:
             self._logger.exception(f"Error streaming {message}.")
         await message.wait_finalized()
+        for error in await message.errors:
+            self._logger.error("Message had error.", exc_info=error)
         if await message.content:
             send_task = asyncio.create_task(self._message_sender.send(message))
         else:
