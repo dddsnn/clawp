@@ -38,13 +38,6 @@ class MessageStreamError(ProviderError):
     """Raised when there is an error streaming a message."""
 
 
-class ChunkError(MessageStreamError):
-    """Raised when there is an error in a message chunk."""
-    def __init__(self, message: str, error_code: int) -> None:
-        super().__init__(f"error {error_code}: {message}")
-        self.error_code = error_code
-
-
 class AgentRefusalError(ProviderError):
     """Error signalling that the provider refused a request."""
 
@@ -88,6 +81,13 @@ OpenRouterMessage = (
     or_comp.ChatAssistantMessage | or_comp.ChatDeveloperMessage
     | or_comp.ChatSystemMessage
     | or_comp.ChatToolMessage | or_comp.ChatUserMessage)
+
+
+class OpenrouterChunkError(MessageStreamError):
+    """Raised when there is an error in an Openrouter message chunk."""
+    def __init__(self, message: str, error_code: int) -> None:
+        super().__init__(f"error {error_code}: {message}")
+        self.error_code = error_code
 
 
 class OpenrouterProvider(Provider):
@@ -166,6 +166,11 @@ class OpenrouterProvider(Provider):
 
 
 class OpenrouterStreamReader:
+    """
+    Reader for an Openrouter stream.
+
+    This class handles one stream. It is stateful and can't be reused.
+    """
     TIMEOUT = 120
 
     def __init__(
@@ -174,84 +179,43 @@ class OpenrouterStreamReader:
         self._logger = logging.getLogger(type(self).__name__)
         self._message_parts = message_parts
         self._stream = stream
+        self._tool_calls_kwargs: dict[int, dict] = {}
         self._saw_assistant_role = False
 
     def read_message(self) -> asyncio.Task[None]:
+        """
+        Read the message from the stream.
+
+        The reader's stream is consumed and message parts appended to the
+        reader's list. Returns the task that does the streaming so it can be
+        awaited.
+
+        Only raises exceptions that happen with reading the stream itself or
+        TimeoutError if the operation takes too long. All errors with the
+        response itself like unexpected format are appended as error parts.
+        """
         return asyncio.create_task(
             asyncio.wait_for(self._read_stream(), timeout=self.TIMEOUT))
 
     async def _read_stream(self) -> None:
         try:
-            tool_calls_kwargs = {}
-            saw_response_payload = False
-            saw_error_payload = False
-            finish_reasons = []
-            async for chunk in self._stream:
-                part_type, text, finish_reason = self._parse_chunk(
-                    chunk, tool_calls_kwargs)
-                if finish_reason:
-                    finish_reasons.append(finish_reason)
-                if not part_type:
-                    continue
-                saw_response_payload = True
-                if part_type == "reasoning":
-                    current_part = await self._ensure_current_part(
-                        msg.AgentMessageReasoningPart)
-                else:
-                    assert part_type == "content"
-                    current_part = await self._ensure_current_part(
-                        msg.AgentMessageContentPart)
-                await current_part.append(text)
-            if tool_calls_kwargs:
-                tool_part = await self._ensure_current_part(
-                    msg.AgentMessageToolPart)
-                for _, tool_call_kwargs in sorted(tool_calls_kwargs.items()):
-                    function = msg.ToolCallFunction(
-                        name=tool_call_kwargs["name"],
-                        arguments=tool_call_kwargs["arguments"])
-                    await tool_part.append(
-                        msg.ToolCall(
-                            id=tool_call_kwargs["id"], function=function))
-            for finish_reason in finish_reasons:
-                if finish_reason == "stop":
-                    continue
-                if finish_reason == "tool_calls":
-                    if tool_calls_kwargs:
-                        continue
-                    saw_error_payload = True
-                    error_part = await self._ensure_current_part(
-                        msg.AgentMessageErrorPart)
-                    await error_part.append(
-                        FinishReasonError(
-                            "finish_reason=tool_calls but no tool calls were "
-                            "received in stream", finish_reason))
-                    continue
-                if finish_reason in {"length", "content_filter", "error"}:
-                    saw_error_payload = True
-                    error_part = await self._ensure_current_part(
-                        msg.AgentMessageErrorPart)
-                    await error_part.append(
-                        FinishReasonError(
-                            f"provider returned finish_reason={finish_reason}",
-                            finish_reason))
-                    continue
+            finish_reasons = await self._read_stream_chunks()
+            await self._check_finish_reasons(finish_reasons)
+            await self._append_tool_calls()
+            if not self._message_parts:
                 self._logger.warning(
-                    "Received unknown finish_reason from API: %s",
-                    finish_reason)
-            # TODO: Empty responses should likely be surfaced more explicitly,
-            # but changing that cleanly probably requires downstream message /
-            # UI handling changes (e.g. dedicated error/empty marker).
-            if (not saw_response_payload and not tool_calls_kwargs
-                    and not saw_error_payload):
-                self._logger.warning(
-                    "OpenRouter stream ended without content, reasoning, or "
-                    "tool calls.")
-            if saw_response_payload and not self._saw_assistant_role:
-                raise ValueError("assistant role missing in all stream chunks")
+                    "Openrouter stream ended without any payload or error.")
+            has_payload = any(
+                isinstance(
+                    part, (msg.AgentMessageTextPart, msg.AgentMessageToolPart))
+                for part in self._message_parts)
+            if has_payload and not self._saw_assistant_role:
+                await self._append_to_part(
+                    msg.AgentMessageErrorPart,
+                    MessageStreamError(
+                        "assistant role missing in all stream chunks"))
         except (Exception, asyncio.CancelledError) as e:
-            error_part = await self._ensure_current_part(
-                msg.AgentMessageErrorPart)
-            await error_part.append(e)
+            await self._append_to_part(msg.AgentMessageErrorPart, e)
             raise e
         finally:
             try:
@@ -261,38 +225,71 @@ class OpenrouterStreamReader:
                 pass
             await self._message_parts.finalize()
 
-    def _parse_chunk(self, chunk, tool_calls_kwargs: dict[int, dict]):
+    async def _read_stream_chunks(self):
+        finish_reasons = set()
+        async for chunk in self._stream:
+            for part_type, payload in self._parse_chunk(chunk):
+                if part_type == "reasoning":
+                    await self._append_to_part(
+                        msg.AgentMessageReasoningPart, payload)
+                elif part_type == "content":
+                    await self._append_to_part(
+                        msg.AgentMessageContentPart, payload)
+                elif part_type == "error":
+                    await self._append_to_part(
+                        msg.AgentMessageErrorPart, payload)
+                else:
+                    assert part_type == "finish_reason"
+                    finish_reasons.add(payload)
+        return finish_reasons
+
+    def _parse_chunk(self, chunk):
         if not isinstance(chunk, or_comp.ChatStreamChunk):
-            raise ValueError(f"unexpected chunk type {type(chunk)} in stream")
+            yield "error", MessageStreamError(
+                f"unexpected chunk type {type(chunk)} in stream")
+            return
         if chunk.error:
-            raise ChunkError(chunk.error.message, chunk.error.code)
+            yield "error", OpenrouterChunkError(
+                chunk.error.message, chunk.error.code)
         if len(chunk.choices) == 0:
             self._logger.debug("Received stream chunk with 0 choices.")
-            return None, None, None
+            return
         elif len(chunk.choices) != 1:
-            raise ValueError(
+            yield "error", MessageStreamError(
                 f"unexpected number of choices ({len(chunk.choices)}) in "
                 "chunk")
-        choice = chunk.choices[0]
+            return
+        yield from self._parse_chunk_choice(chunk.choices[0])
+
+    def _parse_chunk_choice(self, choice):
         delta = choice.delta
         if delta.role == "assistant":
             self._saw_assistant_role = True
         elif delta.role is not None:
-            raise ValueError(
+            yield "error", MessageStreamError(
                 f"unexpected role {delta.role} in assistant message")
-        else:
+        elif not self._saw_assistant_role:
             self._logger.debug(
                 "Received stream chunk without role before an assistant role "
                 "has been observed. Waiting for later chunks.")
+        self._parse_chunk_tool_calls(delta)
         if delta.content and delta.reasoning:
-            raise ValueError(
+            yield "error", MessageStreamError(
                 "assistant message contains both content "
                 f"('{delta.content}') and reasoning ('{delta.reasoning}')")
         if delta.refusal:
-            raise AgentRefusalError(
+            yield "error", AgentRefusalError(
                 f"provider refused request: {delta.refusal}")
+        if delta.content:
+            yield "content", delta.content
+        elif delta.reasoning:
+            yield "reasoning", delta.reasoning
+        if choice.finish_reason is not None:
+            yield "finish_reason", choice.finish_reason
+
+    def _parse_chunk_tool_calls(self, delta):
         for tool_call in delta.tool_calls or []:
-            tool_call_kwargs = tool_calls_kwargs.setdefault(
+            tool_call_kwargs = self._tool_calls_kwargs.setdefault(
                 tool_call.index, {})
             tool_call_kwargs.setdefault("id", "")
             tool_call_kwargs.setdefault("name", "")
@@ -306,17 +303,47 @@ class OpenrouterStreamReader:
                 tool_call_kwargs["name"] += tool_call.function.name or ""
                 tool_call_kwargs["arguments"] += (
                     tool_call.function.arguments or "")
-        if not delta.content and not delta.reasoning:
-            return None, None, choice.finish_reason
-        part_type = "content" if delta.content else "reasoning"
-        text = delta.content or delta.reasoning
-        return part_type, text, choice.finish_reason
 
-    async def _ensure_current_part(self, part_type):
+    async def _append_tool_calls(self):
+        for _, tool_call_kwargs in sorted(self._tool_calls_kwargs.items()):
+            function = msg.ToolCallFunction(
+                name=tool_call_kwargs["name"],
+                arguments=tool_call_kwargs["arguments"])
+            await self._append_to_part(
+                msg.AgentMessageToolPart,
+                msg.ToolCall(id=tool_call_kwargs["id"], function=function))
+
+    async def _check_finish_reasons(self, finish_reasons: set[str]):
+        if len(finish_reasons) > 1:
+            self._logger.warning(
+                f"Received more than one finish_reason: {finish_reasons}.")
+        for finish_reason in finish_reasons:
+            if finish_reason == "stop":
+                continue
+            if finish_reason == "tool_calls":
+                if self._tool_calls_kwargs:
+                    continue
+                await self._append_to_part(
+                    msg.AgentMessageErrorPart,
+                    FinishReasonError(
+                        "finish_reason=tool_calls but no tool calls were "
+                        "received in stream", finish_reason))
+                continue
+            if finish_reason in {"length", "content_filter", "error"}:
+                await self._append_to_part(
+                    msg.AgentMessageErrorPart,
+                    FinishReasonError(
+                        f"provider returned finish_reason {finish_reason}",
+                        finish_reason))
+                continue
+            self._logger.warning(
+                f"Received unknown finish_reason {finish_reason}.")
+
+    async def _append_to_part(self, part_type, payload):
         try:
             if not isinstance(self._message_parts[-1], part_type):
                 await self._message_parts[-1].finalize()
                 await self._message_parts.append(part_type())
         except IndexError:
             await self._message_parts.append(part_type())
-        return self._message_parts[-1]
+        await self._message_parts[-1].append(payload)
