@@ -110,6 +110,7 @@ class TestOpenrouterStreamReader:
         assert_that(
             message_parts,
             contains_exactly(
+                has_entries(type="content", fragments=["hello"]),
                 has_entries(
                     type="error",
                     fragments=contains_exactly(instance_of(ValueError)),
@@ -167,6 +168,21 @@ class TestOpenrouterStreamReader:
                 delta=or_comp.ChatStreamDelta(role="assistant",
                                               content="hel")),
             self.make_chunk(delta=or_comp.ChatStreamDelta(content="lo")),])
+
+        assert error is None
+        assert_that(
+            message_parts,
+            contains_exactly(
+                has_entries(type="content", fragments=["hello"]),),
+        )
+
+    async def test_read_message_streams_content_when_assistant_role_appears_only_in_second_chunk(
+            self):
+        message_parts, error = await self.run_reader([
+            self.make_chunk(delta=or_comp.ChatStreamDelta(content="hel")),
+            self.make_chunk(
+                delta=or_comp.ChatStreamDelta(role="assistant", content="lo")),
+        ])
 
         assert error is None
         assert_that(

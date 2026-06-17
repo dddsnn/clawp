@@ -188,6 +188,8 @@ class OpenrouterStreamReader:
                 self._logger.warning(
                     "OpenRouter stream ended without content, reasoning, or "
                     "tool calls.")
+            if saw_response_payload and not self._saw_assistant_role:
+                raise ValueError("assistant role missing in all stream chunks")
         except (Exception, asyncio.CancelledError) as e:
             error_part = await self._ensure_current_part(
                 msg.AgentMessageErrorPart)
@@ -228,13 +230,15 @@ class OpenrouterStreamReader:
                     f"Received finish_reason={choice.finish_reason} but this "
                     "is not yet represented in downstream message objects.")
         delta = choice.delta
-        if delta.role is None and not self._saw_assistant_role:
-            raise ValueError("missing role in assistant message chunk")
-        if delta.role and delta.role != "assistant":
-            raise ValueError(
-                f"unexpected role {delta.role} in assistant message")
         if delta.role == "assistant":
             self._saw_assistant_role = True
+        elif delta.role is not None:
+            raise ValueError(
+                f"unexpected role {delta.role} in assistant message")
+        else:
+            self._logger.debug(
+                "Received stream chunk without role before an assistant role "
+                "has been observed. Waiting for later chunks.")
         if delta.content and delta.reasoning:
             raise ValueError(
                 "assistant message contains both content "
