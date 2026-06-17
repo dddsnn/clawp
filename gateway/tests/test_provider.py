@@ -18,7 +18,6 @@
 import typing as t
 
 import openrouter.components as or_comp
-import pytest
 from hamcrest import (
     all_of,
     assert_that,
@@ -669,8 +668,6 @@ class TestOpenrouterStreamReader:
                             has_properties(finish_reason="error"))),
                 )))
 
-    @pytest.mark.skip(
-        reason="Provider currently rejects content+reasoning in one delta")
     async def test_read_message_handles_content_and_reasoning_in_same_delta(
             self):
         message_parts, error = await self.run_reader([

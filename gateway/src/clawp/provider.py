@@ -275,17 +275,13 @@ class OpenrouterStreamReader:
                 "Received stream chunk without role before an assistant role "
                 "has been observed. Waiting for later chunks.")
         self._parse_chunk_tool_calls(delta)
-        if delta.content and delta.reasoning:
-            yield "error", MessageStreamError(
-                "assistant message contains both content "
-                f"('{delta.content}') and reasoning ('{delta.reasoning}')")
         if delta.refusal:
             yield "error", AgentRefusalError(
                 f"provider refused request: {delta.refusal}")
+        if delta.reasoning:
+            yield "reasoning", delta.reasoning
         if delta.content:
             yield "content", delta.content
-        elif delta.reasoning:
-            yield "reasoning", delta.reasoning
         if choice.finish_reason is not None:
             yield "finish_reason", choice.finish_reason
 
