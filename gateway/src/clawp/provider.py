@@ -30,6 +30,32 @@ from . import model as mdl
 from . import util
 
 
+class ProviderError(Exception):
+    """Base exception for errors with the provider."""
+
+
+class MessageStreamError(ProviderError):
+    """Raised when there is an error streaming a message."""
+
+
+class ChunkError(MessageStreamError):
+    """Raised when there is an error in a message chunk."""
+    def __init__(self, message: str, error_code: int) -> None:
+        super().__init__(f"error {error_code}: {message}")
+        self.error_code = error_code
+
+
+class AgentRefusalError(ProviderError):
+    """Error signalling that the provider refused a request."""
+
+
+class FinishReasonError(MessageStreamError):
+    """Error signalling a finish_reason indicating non-successful output."""
+    def __init__(self, message: str, finish_reason: str) -> None:
+        super().__init__(message)
+        self.finish_reason = finish_reason
+
+
 class Provider(abc.ABC):
     """
     Provider of LLM chat completions.
@@ -158,8 +184,13 @@ class OpenrouterStreamReader:
         try:
             tool_calls_kwargs = {}
             saw_response_payload = False
+            saw_error_payload = False
+            finish_reasons = []
             async for chunk in self._stream:
-                part_type, text = self._parse_chunk(chunk, tool_calls_kwargs)
+                part_type, text, finish_reason = self._parse_chunk(
+                    chunk, tool_calls_kwargs)
+                if finish_reason:
+                    finish_reasons.append(finish_reason)
                 if not part_type:
                     continue
                 saw_response_payload = True
@@ -181,10 +212,37 @@ class OpenrouterStreamReader:
                     await tool_part.append(
                         msg.ToolCall(
                             id=tool_call_kwargs["id"], function=function))
+            for finish_reason in finish_reasons:
+                if finish_reason == "stop":
+                    continue
+                if finish_reason == "tool_calls":
+                    if tool_calls_kwargs:
+                        continue
+                    saw_error_payload = True
+                    error_part = await self._ensure_current_part(
+                        msg.AgentMessageErrorPart)
+                    await error_part.append(
+                        FinishReasonError(
+                            "finish_reason=tool_calls but no tool calls were "
+                            "received in stream", finish_reason))
+                    continue
+                if finish_reason in {"length", "content_filter", "error"}:
+                    saw_error_payload = True
+                    error_part = await self._ensure_current_part(
+                        msg.AgentMessageErrorPart)
+                    await error_part.append(
+                        FinishReasonError(
+                            f"provider returned finish_reason={finish_reason}",
+                            finish_reason))
+                    continue
+                self._logger.warning(
+                    "Received unknown finish_reason from API: %s",
+                    finish_reason)
             # TODO: Empty responses should likely be surfaced more explicitly,
             # but changing that cleanly probably requires downstream message /
             # UI handling changes (e.g. dedicated error/empty marker).
-            if not saw_response_payload and not tool_calls_kwargs:
+            if (not saw_response_payload and not tool_calls_kwargs
+                    and not saw_error_payload):
                 self._logger.warning(
                     "OpenRouter stream ended without content, reasoning, or "
                     "tool calls.")
@@ -207,28 +265,15 @@ class OpenrouterStreamReader:
         if not isinstance(chunk, or_comp.ChatStreamChunk):
             raise ValueError(f"unexpected chunk type {type(chunk)} in stream")
         if chunk.error:
-            self._logger.warning(
-                "Received stream chunk with error payload: "
-                f"code={chunk.error.code} message={chunk.error.message}")
+            raise ChunkError(chunk.error.message, chunk.error.code)
         if len(chunk.choices) == 0:
             self._logger.debug("Received stream chunk with 0 choices.")
-            return None, None
+            return None, None, None
         elif len(chunk.choices) != 1:
             raise ValueError(
                 f"unexpected number of choices ({len(chunk.choices)}) in "
                 "chunk")
         choice = chunk.choices[0]
-        if choice.finish_reason:
-            self._logger.debug(
-                f"Received finish_reason in stream chunk: "
-                f"{choice.finish_reason}")
-            if choice.finish_reason in {"length", "content_filter", "error"}:
-                # TODO: Surface finish-reason semantics (especially truncation
-                # / filtering / provider errors) in the AgentMessage model. For
-                # now we only log this explicitly.
-                self._logger.warning(
-                    f"Received finish_reason={choice.finish_reason} but this "
-                    "is not yet represented in downstream message objects.")
         delta = choice.delta
         if delta.role == "assistant":
             self._saw_assistant_role = True
@@ -244,13 +289,8 @@ class OpenrouterStreamReader:
                 "assistant message contains both content "
                 f"('{delta.content}') and reasoning ('{delta.reasoning}')")
         if delta.refusal:
-            # TODO: Decide how refusal should flow through message objects.
-            # Current message model has no explicit refusal field, and mapping
-            # to content could be misleading. Keep this explicit in logs.
-            self._logger.warning(
-                "Received refusal delta from API, but refusal is currently "
-                f"not represented in downstream message objects: "
-                f"{delta.refusal}")
+            raise AgentRefusalError(
+                f"provider refused request: {delta.refusal}")
         for tool_call in delta.tool_calls or []:
             tool_call_kwargs = tool_calls_kwargs.setdefault(
                 tool_call.index, {})
@@ -267,10 +307,10 @@ class OpenrouterStreamReader:
                 tool_call_kwargs["arguments"] += (
                     tool_call.function.arguments or "")
         if not delta.content and not delta.reasoning:
-            return None, None
+            return None, None, choice.finish_reason
         part_type = "content" if delta.content else "reasoning"
         text = delta.content or delta.reasoning
-        return part_type, text
+        return part_type, text, choice.finish_reason
 
     async def _ensure_current_part(self, part_type):
         try:

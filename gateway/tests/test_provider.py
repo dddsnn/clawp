@@ -20,6 +20,7 @@ import typing as t
 import openrouter.components as or_comp
 import pytest
 from hamcrest import (
+    all_of,
     assert_that,
     contains_exactly,
     has_entries,
@@ -114,7 +115,8 @@ class TestOpenrouterStreamReader:
                 has_entries(
                     type="error",
                     fragments=contains_exactly(instance_of(ValueError)),
-                ),),
+                ),
+            ),
         )
 
     async def test_read_message_adds_error_part_on_non_assistant_role(self):
@@ -516,6 +518,31 @@ class TestOpenrouterStreamReader:
                 ),),
         )
 
+    async def test_read_message_adds_error_part_when_chunk_contains_error_payload(
+            self):
+        message_parts, error = await self.run_reader([
+            or_comp.ChatStreamChunk(
+                choices=[],
+                created=0,
+                id="chunk-id",
+                model="test-model",
+                object="chat.completion.chunk",
+                error=or_comp.Error(code=503, message="provider overloaded"),
+            )])
+
+        assert_that(error, instance_of(prov.ChunkError))
+        assert_that(
+            message_parts,
+            contains_exactly(
+                has_entries(
+                    type="error",
+                    fragments=contains_exactly(
+                        all_of(
+                            instance_of(prov.ChunkError),
+                            has_properties(error_code=503))),
+                ),),
+        )
+
     async def test_read_message_adds_error_part_when_chunk_object_is_invalid(
             self):
         message_parts, error = await self.run_reader(["not a chunk"])
@@ -608,8 +635,6 @@ class TestOpenrouterStreamReader:
                 ),),
         )
 
-    @pytest.mark.skip(
-        reason="Provider does not validate terminal finish reasons yet")
     async def test_read_message_reports_error_on_tool_calls_finish_reason_without_tool_call(
             self):
         message_parts, error = await self.run_reader([
@@ -618,18 +643,19 @@ class TestOpenrouterStreamReader:
                 finish_reason="tool_calls",
             ),])
 
-        assert_that(error, instance_of(Exception))
+        assert error is None
         assert_that(
             message_parts,
             contains_exactly(
                 has_entries(
                     type="error",
-                    fragments=contains_exactly(instance_of(Exception)),
+                    fragments=contains_exactly(
+                        all_of(
+                            instance_of(prov.FinishReasonError),
+                            has_properties(finish_reason="tool_calls"))),
                 )),
         )
 
-    @pytest.mark.skip(
-        reason="Provider does not surface length finish reason yet")
     async def test_read_message_reports_error_on_length_finish_reason(self):
         message_parts, error = await self.run_reader([
             self.make_chunk(
@@ -638,20 +664,21 @@ class TestOpenrouterStreamReader:
                 finish_reason="length",
             ),])
 
-        assert_that(error, instance_of(Exception))
+        assert error is None
         assert_that(
             message_parts,
             contains_exactly(
                 has_entries(type="content", fragments=["partial"]),
                 has_entries(
                     type="error",
-                    fragments=contains_exactly(instance_of(Exception)),
+                    fragments=contains_exactly(
+                        all_of(
+                            instance_of(prov.FinishReasonError),
+                            has_properties(finish_reason="length"))),
                 ),
             ),
         )
 
-    @pytest.mark.skip(
-        reason="Provider does not surface content_filter finish reason yet")
     async def test_read_message_reports_error_on_content_filter_finish_reason(
             self):
         message_parts, error = await self.run_reader([
@@ -660,18 +687,19 @@ class TestOpenrouterStreamReader:
                 finish_reason="content_filter",
             ),])
 
-        assert_that(error, instance_of(Exception))
+        assert error is None
         assert_that(
             message_parts,
             contains_exactly(
                 has_entries(
                     type="error",
-                    fragments=contains_exactly(instance_of(Exception)),
+                    fragments=contains_exactly(
+                        all_of(
+                            instance_of(prov.FinishReasonError),
+                            has_properties(finish_reason="content_filter"))),
                 )),
         )
 
-    @pytest.mark.skip(
-        reason="Provider does not surface error finish reason yet")
     async def test_read_message_reports_error_on_error_finish_reason(self):
         message_parts, error = await self.run_reader([
             self.make_chunk(
@@ -679,13 +707,16 @@ class TestOpenrouterStreamReader:
                 finish_reason="error",
             ),])
 
-        assert_that(error, instance_of(Exception))
+        assert error is None
         assert_that(
             message_parts,
             contains_exactly(
                 has_entries(
                     type="error",
-                    fragments=contains_exactly(instance_of(Exception)),
+                    fragments=contains_exactly(
+                        all_of(
+                            instance_of(prov.FinishReasonError),
+                            has_properties(finish_reason="error"))),
                 )),
         )
 
@@ -708,22 +739,23 @@ class TestOpenrouterStreamReader:
             ),
         )
 
-    @pytest.mark.skip(reason="Provider currently ignores refusal-only deltas")
     async def test_read_message_surfaces_refusal_only_delta(self):
         message_parts, error = await self.run_reader([
             self.make_chunk(
                 delta=or_comp.ChatStreamDelta(
                     role="assistant", refusal="I cannot do that.")),])
 
-        assert error is None
+        assert_that(error, instance_of(prov.AgentRefusalError))
         assert_that(
             message_parts,
             contains_exactly(
-                has_entries(type="content", fragments=["I cannot do that."]),),
+                has_entries(
+                    type="error",
+                    fragments=contains_exactly(
+                        instance_of(prov.AgentRefusalError)),
+                ),),
         )
 
-    @pytest.mark.skip(
-        reason="Provider currently ignores content+refusal outputs")
     async def test_read_message_surfaces_refusal_together_with_content(self):
         message_parts, error = await self.run_reader([
             self.make_chunk(
@@ -732,9 +764,15 @@ class TestOpenrouterStreamReader:
                 delta=or_comp.ChatStreamDelta(
                     role="assistant", refusal="blocked")),])
 
-        assert error is None
+        assert_that(error, instance_of(prov.AgentRefusalError))
         assert_that(
             message_parts,
             contains_exactly(
-                has_entries(type="content", fragments=["a", "blocked"]),),
+                has_entries(type="content", fragments=["a"]),
+                has_entries(
+                    type="error",
+                    fragments=contains_exactly(
+                        instance_of(prov.AgentRefusalError)),
+                ),
+            ),
         )
