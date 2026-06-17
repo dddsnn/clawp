@@ -148,6 +148,7 @@ class OpenrouterStreamReader:
         self._logger = logging.getLogger(type(self).__name__)
         self._message_parts = message_parts
         self._stream = stream
+        self._saw_assistant_role = False
 
     def read_message(self) -> asyncio.Task[None]:
         return asyncio.create_task(
@@ -156,10 +157,12 @@ class OpenrouterStreamReader:
     async def _read_stream(self) -> None:
         try:
             tool_calls_kwargs = {}
+            saw_response_payload = False
             async for chunk in self._stream:
                 part_type, text = self._parse_chunk(chunk, tool_calls_kwargs)
                 if not part_type:
                     continue
+                saw_response_payload = True
                 if part_type == "reasoning":
                     current_part = await self._ensure_current_part(
                         msg.AgentMessageReasoningPart)
@@ -178,6 +181,13 @@ class OpenrouterStreamReader:
                     await tool_part.append(
                         msg.ToolCall(
                             id=tool_call_kwargs["id"], function=function))
+            # TODO: Empty responses should likely be surfaced more explicitly,
+            # but changing that cleanly probably requires downstream message /
+            # UI handling changes (e.g. dedicated error/empty marker).
+            if not saw_response_payload and not tool_calls_kwargs:
+                self._logger.warning(
+                    "OpenRouter stream ended without content, reasoning, or "
+                    "tool calls.")
         except (Exception, asyncio.CancelledError) as e:
             error_part = await self._ensure_current_part(
                 msg.AgentMessageErrorPart)
@@ -194,21 +204,49 @@ class OpenrouterStreamReader:
     def _parse_chunk(self, chunk, tool_calls_kwargs: dict[int, dict]):
         if not isinstance(chunk, or_comp.ChatStreamChunk):
             raise ValueError(f"unexpected chunk type {type(chunk)} in stream")
+        if chunk.error:
+            self._logger.warning(
+                "Received stream chunk with error payload: "
+                f"code={chunk.error.code} message={chunk.error.message}")
         if len(chunk.choices) == 0:
-            self._logger.debug("Received chunk with 0 choices.")
+            self._logger.debug("Received stream chunk with 0 choices.")
             return None, None
         elif len(chunk.choices) != 1:
             raise ValueError(
                 f"unexpected number of choices ({len(chunk.choices)}) in "
                 "chunk")
-        delta = chunk.choices[0].delta
-        if delta.role != "assistant":
+        choice = chunk.choices[0]
+        if choice.finish_reason:
+            self._logger.debug(
+                f"Received finish_reason in stream chunk: "
+                f"{choice.finish_reason}")
+            if choice.finish_reason in {"length", "content_filter", "error"}:
+                # TODO: Surface finish-reason semantics (especially truncation
+                # / filtering / provider errors) in the AgentMessage model. For
+                # now we only log this explicitly.
+                self._logger.warning(
+                    f"Received finish_reason={choice.finish_reason} but this "
+                    "is not yet represented in downstream message objects.")
+        delta = choice.delta
+        if delta.role is None and not self._saw_assistant_role:
+            raise ValueError("missing role in assistant message chunk")
+        if delta.role and delta.role != "assistant":
             raise ValueError(
                 f"unexpected role {delta.role} in assistant message")
+        if delta.role == "assistant":
+            self._saw_assistant_role = True
         if delta.content and delta.reasoning:
             raise ValueError(
                 "assistant message contains both content "
                 f"('{delta.content}') and reasoning ('{delta.reasoning}')")
+        if delta.refusal:
+            # TODO: Decide how refusal should flow through message objects.
+            # Current message model has no explicit refusal field, and mapping
+            # to content could be misleading. Keep this explicit in logs.
+            self._logger.warning(
+                "Received refusal delta from API, but refusal is currently "
+                f"not represented in downstream message objects: "
+                f"{delta.refusal}")
         for tool_call in delta.tool_calls or []:
             tool_call_kwargs = tool_calls_kwargs.setdefault(
                 tool_call.index, {})
@@ -216,9 +254,14 @@ class OpenrouterStreamReader:
             tool_call_kwargs.setdefault("name", "")
             tool_call_kwargs.setdefault("arguments", "")
             tool_call_kwargs["id"] += tool_call.id or ""
-            tool_call_kwargs["name"] += tool_call.function.name or ""
-            tool_call_kwargs["arguments"] += (
-                tool_call.function.arguments or "")
+            if tool_call.function is None:
+                self._logger.debug(
+                    "Received tool-call chunk without function payload at "
+                    f"index {tool_call.index}, waiting for subsequent chunks.")
+            else:
+                tool_call_kwargs["name"] += tool_call.function.name or ""
+                tool_call_kwargs["arguments"] += (
+                    tool_call.function.arguments or "")
         if not delta.content and not delta.reasoning:
             return None, None
         part_type = "content" if delta.content else "reasoning"
