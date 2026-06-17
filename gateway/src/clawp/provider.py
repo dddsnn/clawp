@@ -203,8 +203,10 @@ class OpenrouterStreamReader:
             await self._check_finish_reasons(finish_reasons)
             await self._append_tool_calls()
             if not self._message_parts:
-                self._logger.warning(
-                    "Openrouter stream ended without any payload or error.")
+                await self._append_to_part(
+                    msg.AgentMessageErrorPart,
+                    MessageStreamError(
+                        "stream ended without any payload or error"))
             has_payload = any(
                 isinstance(
                     part, (msg.AgentMessageTextPart, msg.AgentMessageToolPart))

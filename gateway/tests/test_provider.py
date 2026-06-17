@@ -91,8 +91,6 @@ class TestOpenrouterStreamReader:
             message_parts.append({"type": part.type, "fragments": fragments})
         return message_parts, stream_error
 
-    @pytest.mark.skip(
-        reason="Provider empty-stream policy not implemented yet")
     async def test_read_message_handles_empty_stream(self):
         message_parts, error = await self.run_reader([])
         assert error is None
@@ -101,7 +99,8 @@ class TestOpenrouterStreamReader:
             contains_exactly(
                 has_entries(
                     type="error",
-                    fragments=contains_exactly(instance_of(Exception)),
+                    fragments=contains_exactly(
+                        instance_of(prov.MessageStreamError)),
                 )))
 
     async def test_read_message_adds_error_part_on_missing_role(self):
