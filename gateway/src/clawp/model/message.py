@@ -88,12 +88,19 @@ class ToolCall(base.BaseModel):
     function: ToolCallFunction
 
 
+class AgentMessageError(base.BaseModel):
+    """An error in an agent message."""
+    type: str
+    message: str
+    kwargs: dict = pyd.Field(default_factory=dict)
+
+
 class AgentMessage(BaseMessage):
     """Message sent by the agent."""
     role: t.Literal["agent"] = "agent"
     reasoning: str
     tool_calls: list[ToolCall]
-    errors: list[str]
+    errors: list[AgentMessageError]
 
 
 NonStreamableMessage = t.Annotated[DeveloperMessage | SystemMessage
@@ -141,7 +148,7 @@ StreamingMessageMarker = (
 
 class BaseStreamingMessageFragment(base.BaseModel):
     """A fragment of a message part."""
-    fragment_type: t.Literal["text", "tool_call"]
+    fragment_type: t.Literal["text", "tool_call", "error"]
     fragment: str | ToolCall
 
 
@@ -157,8 +164,15 @@ class StreamingMessageFragmentToolCall(BaseStreamingMessageFragment):
     fragment: ToolCall
 
 
+class StreamingMessageFragmentError(BaseStreamingMessageFragment):
+    """A fragment of a message part containing an error."""
+    fragment_type: t.Literal["error"] = "error"
+    fragment: AgentMessageError
+
+
 StreamingMessageFragment = (
-    StreamingMessageFragmentText | StreamingMessageFragmentToolCall)
+    StreamingMessageFragmentText | StreamingMessageFragmentToolCall
+    | StreamingMessageFragmentError)
 
 
 class BaseWebsocketChunk(base.BaseModel):

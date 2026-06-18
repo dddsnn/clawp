@@ -230,9 +230,10 @@ async def _generate_text_fragments(
 
 async def _generate_error_fragments(
     message_part: msg.AgentMessageErrorPart
-) -> cl_abc.AsyncGenerator[mdl.StreamingMessageFragmentText]:
+) -> cl_abc.AsyncGenerator[mdl.StreamingMessageFragmentError]:
     async for exc in message_part.stream_fragments():
-        yield mdl.StreamingMessageFragmentText(fragment=f"Error: {exc}")
+        yield mdl.StreamingMessageFragmentError(
+            fragment=msg.AgentMessage.error_model(exc))
 
 
 async def _generate_tool_call_fragments(

@@ -56,6 +56,7 @@ from .config import (
 from .memory import Memory
 from .message import (
     AgentMessage,
+    AgentMessageError,
     BaseMessage,
     BaseStreamingMessageFragment,
     BaseStreamingMessageMarker,
@@ -68,6 +69,7 @@ from .message import (
     NonStreamableMessage,
     StartMessageMetadata,
     StreamingMessageFragment,
+    StreamingMessageFragmentError,
     StreamingMessageFragmentText,
     StreamingMessageFragmentToolCall,
     StreamingMessageMarker,
@@ -130,6 +132,7 @@ __all__ = [
     "Memory",
     # message
     "AgentMessage",
+    "AgentMessageError",
     "BaseMessage",
     "BaseStreamingMessageFragment",
     "BaseStreamingMessageMarker",
@@ -142,6 +145,7 @@ __all__ = [
     "NonStreamableMessage",
     "StartMessageMetadata",
     "StreamingMessageFragment",
+    "StreamingMessageFragmentError",
     "StreamingMessageFragmentText",
     "StreamingMessageFragmentToolCall",
     "StreamingMessageMarker",

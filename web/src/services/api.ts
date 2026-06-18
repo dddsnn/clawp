@@ -263,6 +263,8 @@ export class ChatConnection {
         this.store.appendStreamFragmentText(frag.fragment);
       } else if (frag.fragment_type === 'tool_call') {
         this.store.appendStreamFragmentToolCall(frag.fragment);
+      } else if (frag.fragment_type === 'error') {
+        this.store.appendStreamFragmentError(frag.fragment);
       }
     }
   }

@@ -19,6 +19,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type {
   AssistantMessage,
+  AssistantMessageError,
   ChannelDescriptor,
   Message,
   ToolCall,
@@ -150,15 +151,17 @@ export const useChatStore = defineStore('chat', () => {
       activeStreamingMessage.value.content += text;
     } else if (activeStreamPartType.value === 'reasoning') {
       activeStreamingMessage.value.reasoning += text;
-    } else if (activeStreamPartType.value === 'error') {
-      activeStreamingMessage.value.errors.push(text);
     }
   }
 
   function appendStreamFragmentToolCall(toolCall: ToolCall) {
     if (!activeStreamingMessage.value || activeStreamPartType.value !== 'tool') return;
-    
     activeStreamingMessage.value.tool_calls.push(toolCall);
+  }
+
+  function appendStreamFragmentError(error: AssistantMessageError) {
+    if (!activeStreamingMessage.value || activeStreamPartType.value !== 'error') return;
+    activeStreamingMessage.value.errors.push(error);
   }
 
   function cycleMessageVisibility(key: MessageVisibilityKey) {
@@ -195,6 +198,7 @@ export const useChatStore = defineStore('chat', () => {
     clearActivePartType,
     appendStreamFragmentText,
     appendStreamFragmentToolCall,
+    appendStreamFragmentError,
     cycleMessageVisibility,
     cycleReasoningVisibility,
   };

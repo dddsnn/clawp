@@ -25,6 +25,7 @@ import typing as t
 import whenever as we
 
 from . import model as mdl
+from . import provider as prov
 from . import util
 
 MessageRole = t.Literal["agent", "developer", "system", "tool", "user"]
@@ -421,11 +422,22 @@ class AgentMessage(Message):
     @property
     async def model(self) -> mdl.AgentMessage:
         tool_calls = [tool_call.model for tool_call in await self.tool_calls]
-        errors = [f"Error: {exc}" for exc in await self.errors]
+        error_models = [self.error_model(error) for error in await self.errors]
         return mdl.AgentMessage(
             metadata=await self._metadata_model, content=await self.content,
             reasoning=await self.reasoning, tool_calls=tool_calls,
-            errors=errors)
+            errors=error_models)
+
+    @staticmethod
+    def error_model(error: Exception) -> mdl.AgentMessageError:
+        """Encode an exception into an error model."""
+        kwargs = {}
+        if isinstance(error, prov.FinishReasonError):
+            kwargs["finish_reason"] = error.finish_reason
+        if isinstance(error, prov.OpenrouterChunkError):
+            kwargs["error_code"] = error.error_code
+        return mdl.AgentMessageError(
+            type=type(error).__name__, message=str(error), kwargs=kwargs)
 
     @classmethod
     def from_model(cls, model: mdl.AgentMessage) -> t.Self:
@@ -440,7 +452,26 @@ class AgentMessage(Message):
             tool_calls.append(ToolCall(tool_call.id, function))
         if tool_calls:
             parts.append(AgentMessageToolPart(tool_calls))
-        if model.errors:
-            parts.append(
-                AgentMessageErrorPart([Exception(e) for e in model.errors]))
+        for error in cls._parse_error_models(model.errors):
+            parts.append(AgentMessageErrorPart([error]))
         return cls(cls._metadata_from_model(model), util.StreamableList(parts))
+
+    @classmethod
+    def _parse_error_models(
+            cls, error_models: list[mdl.AgentMessageError]) -> list[Exception]:
+        errors = []
+        for error_model in error_models:
+            try:
+                if error_model.type == prov.FinishReasonError.__name__:
+                    error = prov.FinishReasonError(
+                        error_model.message,
+                        error_model.kwargs["finish_reason"])
+                if error_model.type == prov.OpenrouterChunkError.__name__:
+                    error = prov.OpenrouterChunkError(
+                        error_model.message, error_model.kwargs["error_code"])
+                else:
+                    error = Exception(error_model.message)
+            except Exception:
+                error = Exception(error_model.message)
+            errors.append(error)
+        return errors

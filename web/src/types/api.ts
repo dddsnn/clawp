@@ -114,11 +114,17 @@ export const ToolCallSchema = z.object({
   function: ToolCallFunctionSchema,
 });
 
+export const AssistantMessageErrorSchema = z.object({
+  type: z.string(),
+  message: z.string(),
+  kwargs: z.object(),
+});
+
 export const AssistantMessageSchema = BaseMessageSchema.extend({
   role: z.literal('agent'),
   reasoning: z.string(),
   tool_calls: z.array(ToolCallSchema),
-  errors: z.array(z.string()).default([]),
+  errors: z.array(AssistantMessageErrorSchema),
 });
 
 export const NonStreamableMessageSchema = z.discriminatedUnion('role', [
@@ -184,9 +190,15 @@ export const StreamingMessageFragmentToolCallSchema = BaseStreamingMessageFragme
   fragment: ToolCallSchema,
 });
 
+export const StreamingMessageFragmentErrorSchema = BaseStreamingMessageFragmentSchema.extend({
+  fragment_type: z.literal('error'),
+  fragment: AssistantMessageErrorSchema,
+});
+
 export const StreamingMessageFragmentSchema = z.discriminatedUnion('fragment_type', [
   StreamingMessageFragmentTextSchema,
   StreamingMessageFragmentToolCallSchema,
+  StreamingMessageFragmentErrorSchema,
 ]);
 
 // --- Websocket Chunks ---
@@ -296,6 +308,7 @@ export type ChannelInformation = z.infer<typeof ChannelInformationSchema>;
 // --- Exported Types ---
 
 export type Message = z.infer<typeof MessageSchema>;
+export type AssistantMessageError = z.infer<typeof AssistantMessageErrorSchema>;
 export type AssistantMessage = z.infer<typeof AssistantMessageSchema>;
 export type NonStreamableMessage = z.infer<typeof NonStreamableMessageSchema>;
 export type ToolCall = z.infer<typeof ToolCallSchema>;
@@ -308,7 +321,7 @@ export interface StreamingAssistantMessage {
   content: string;
   reasoning: string;
   tool_calls: ToolCall[];
-  errors: string[];
+  errors: AssistantMessageError[];
   metadata: {
     seq_in_session: number;
     channel: ChannelDescriptor;

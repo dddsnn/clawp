@@ -138,7 +138,7 @@ const formattedTime = computed(() => {
         </div>
         <div class="px-4 py-3 text-sm text-[var(--color-role-error-text)] font-mono whitespace-pre-wrap divide-y divide-[var(--color-role-error-bg-dark)]">
           <div v-for="(err, idx) in (message as any).errors" :key="idx" class="py-1 first:pt-0 last:pb-0">
-            {{ err }}
+            {{ err.message }}
           </div>
         </div>
       </div>
