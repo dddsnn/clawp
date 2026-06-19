@@ -328,7 +328,7 @@ class Agent:
     """
     def __init__(
             self, agent_information: mdl.AgentInformation, *,
-            model_config: mdl.ModelConfig, workspace_dir: pathlib.Path,
+            config: mdl.GatewayConfig, workspace_dir: pathlib.Path,
             message_store: store.MessageStore, memory_store: store.MemoryStore,
             channel_router: chan.ChannelRouter,
             provider: "prov.Provider") -> None:
@@ -339,11 +339,12 @@ class Agent:
         self._workspace_dir = workspace_dir
         self._message_store = message_store
         self.memory_store = memory_store
-        self._mcp_client = tool.Client(self)
+        self._mcp_client = tool.Client(config=config.tools, agent=self)
         self._channel_router = channel_router
         self._session_factory = ft.partial(
-            Session, model_config=model_config, message_sender=channel_router,
-            provider=provider, mcp_client=self._mcp_client)
+            Session, model_config=config.openrouter.model,
+            message_sender=channel_router, provider=provider,
+            mcp_client=self._mcp_client)
         self._session = None
         self._lock = asyncio.Lock()
 
@@ -580,12 +581,12 @@ class AgentRepository:
     """A repository of agents."""
     def __init__(
             self, *, base_dir: pathlib.Path, channel_pool: chan.ChannelPool,
-            provider: "prov.Provider", model_config: mdl.ModelConfig) -> None:
+            provider: "prov.Provider", config: mdl.GatewayConfig) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._base_dir = base_dir
         self._channel_pool = channel_pool
         self._provider = provider
-        self._model_config = model_config
+        self._config = config
         self._agents = {}
         self._running = False
 
@@ -678,7 +679,7 @@ class AgentRepository:
         # Add the agent channel, which doesn't need to be exlicitly claimed.
         channels.append(chan.AgentChannel(agent_information.id, self))
         return Agent(
-            agent_information, model_config=self._model_config,
+            agent_information, config=self._config,
             workspace_dir=workspace_dir, message_store=message_store,
             memory_store=memory_store,
             channel_router=chan.ChannelRouter(channels),

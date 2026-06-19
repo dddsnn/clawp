@@ -46,14 +46,15 @@ Iso8601Instant = t.Annotated[we.Instant,
 
 class ShellMcpServer(fastmcp.FastMCP):
     """MCP server providing a shell tool."""
-    def __init__(self, home: pathlib.Path):
+    def __init__(self, config: mdl.ShellConfig, home: pathlib.Path):
         super().__init__("Shell MCP server")
+        self._config = config
         self._home = home.absolute()
         self.add_tool(self.shell)
         self._conn = fabric.Connection(
-            host="shell-sandbox", port=22, user="root", connect_kwargs={
-                "key_filename": "/app/clawp_files/shell_sandbox/id_shell_sandbox"
-            })
+            host=config.ssh.host, port=config.ssh.port,
+            user=config.ssh.username, connect_kwargs={
+                "key_filename": str(config.ssh.key_filename.absolute())})
 
     async def __aenter__(self) -> t.Self:
         await asyncio.to_thread(self._conn.open)
@@ -87,9 +88,7 @@ class ShellMcpServer(fastmcp.FastMCP):
         env = env or {}
         if "PATH" in env or "HOME" in env:
             raise ValueError("PATH and HOME can't be changed")
-        env = env | {
-            "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-            "HOME": str(self._home)}
+        env = env | {"PATH": self._config.path, "HOME": str(self._home)}
         if cwd:
             cwd_path = pathlib.Path(cwd)
         else:
@@ -101,7 +100,8 @@ class ShellMcpServer(fastmcp.FastMCP):
     def _run_sync(self, command, cwd, env):
         with self._conn.cd(str(cwd)):
             result = self._conn.run(
-                command, shell="/bin/bash", env=env, replace_env=True)
+                command, shell=self._config.shell_binary, env=env,
+                replace_env=True)
         return mdl.ShellResult(
             stdout=result.stdout, stderr=result.stderr,
             exit_code=result.exited, shell=result.shell)
@@ -199,10 +199,10 @@ def _make_filesystem_proxy(
 
 class Client:
     """A client providing tools via MCP servers."""
-    def __init__(self, agent: "agt.Agent"):
+    def __init__(self, config: mdl.ToolConfig, agent: "agt.Agent"):
         self._logger = logging.getLogger(type(self).__name__)
         server = fastmcp.FastMCP(name="Clawp MCP server")
-        self._shell_server = ShellMcpServer(agent.workspace_dir)
+        self._shell_server = ShellMcpServer(config.shell, agent.workspace_dir)
         server.mount(_make_filesystem_proxy(agent.workspace_dir))
         server.mount(ClawpMcpServer(agent), namespace="clawp")
         server.mount(self._shell_server)

@@ -136,6 +136,24 @@ class ApiConfig(BaseSettings):
                          "trace"]
 
 
+class ShellSshConfig(BaseSettings):
+    host: str
+    port: int
+    username: str
+    key_filename: pathlib.Path
+
+
+class ShellConfig(BaseSettings):
+    ssh: ShellSshConfig
+    shell_binary: str
+    # Value of the PATH variable in the shell.
+    path: str
+
+
+class ToolConfig(BaseSettings):
+    shell: ShellConfig
+
+
 class GatewayConfig(BaseSettings):
     files_base_dir: pathlib.Path
     """
@@ -146,6 +164,7 @@ class GatewayConfig(BaseSettings):
     openrouter: OpenRouterConfig
     api: ApiConfig
     channels: ChannelsConfig
+    tools: ToolConfig
 
     @pyd.computed_field
     @property

@@ -52,6 +52,8 @@ from .config import (
     MatrixConfig,
     ModelConfig,
     OpenRouterConfig,
+    ShellConfig,
+    ToolConfig,
 )
 from .memory import Memory
 from .message import (
@@ -129,6 +131,8 @@ __all__ = [
     "MatrixConfig",
     "ModelConfig",
     "OpenRouterConfig",
+    "ShellConfig",
+    "ToolConfig",
     # memory
     "Memory",
     # message
