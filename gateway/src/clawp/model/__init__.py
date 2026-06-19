@@ -88,6 +88,7 @@ from .message import (
     WebsocketChunkAgentMessageMarker,
     WebsocketChunkFullMessage,
 )
+from .tool import ShellResult
 
 __all__ = [
     # agent
@@ -162,4 +163,6 @@ __all__ = [
     "WebsocketChunk",
     "WebsocketChunkAgentMessageFragment",
     "WebsocketChunkAgentMessageMarker",
-    "WebsocketChunkFullMessage",]
+    "WebsocketChunkFullMessage",
+    # tool
+    "ShellResult",]
