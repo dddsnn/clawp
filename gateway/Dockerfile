@@ -29,6 +29,10 @@ CMD ["uv", "run", "pytest"]
 
 FROM python:3.14-alpine AS app
 WORKDIR /app
+# We want to use user/group 1000:1000. Add them properly so they don't cause
+# problems.
+RUN addgroup -g 1000 clawp
+RUN adduser -h /app/clawp_files -G clawp -D -H -u 1000 clawp
 COPY --from=build-rust-mcp-filesystem /dist/rust-mcp-filesystem /usr/local/bin/
 RUN apk add --no-cache olm
 # Copy the .venv and add it to PATH.

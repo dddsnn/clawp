@@ -1,4 +1,30 @@
 services:
+  # Init container that generates SSH keys to be used in the shell sandbox.
+  shell-sandbox-init:
+    image: "linuxserver/openssh-server:latest"
+    entrypoint: ["sh", "-c"]
+    command: "sh /scripts/generate_keys.sh"
+    volumes:
+      - "./shell_sandbox/generate_keys.sh:/scripts/generate_keys.sh:ro"
+      - "sandbox-ssh-keys:/shared_ssh"
+
+  # Ubuntu container acting as a sandbox for agent shell execution.
+  shell-sandbox:
+    build:
+      context: "shell_sandbox"
+    volumes:
+      - "./clawp_files/:/app/clawp_files/"
+      - type: "volume"
+        source: "sandbox-ssh-keys"
+        volume:
+          subpath: "authorized_keys"
+        target: "/root/.ssh/authorized_keys"
+        read_only: true
+    depends_on:
+      shell-sandbox-init:
+        condition: "service_completed_successfully"
+
+  # The backend gateway.
   gateway:
     build:
       context: "gateway"
@@ -7,8 +33,23 @@ services:
     volumes:
       - "./config.yaml:/app/config.yaml"
       - "./clawp_files/:/app/clawp_files/"
+      - type: "volume"
+        source: "sandbox-ssh-keys"
+        volume:
+          subpath: "id_shell_sandbox"
+        target: "/app/clawp_files/shell_sandbox/id_shell_sandbox"
+        read_only: true
     environment:
       - "CLAWP_OPENROUTER_API_KEY"
       - "CLAWP_MATRIX_PASSWORD_0"
     ports:
       - "8000:8000"
+    depends_on:
+      shell-sandbox-init:
+        condition: "service_completed_successfully"
+      shell-sandbox:
+        condition: "service_started"
+
+volumes:
+  # Volume to write the sandbox SSH key into.
+  sandbox-ssh-keys:
