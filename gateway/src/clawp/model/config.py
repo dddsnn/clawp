@@ -161,6 +161,13 @@ class GatewayConfig(BaseSettings):
 
     All persistent files the gateway needs will be stored below this path.
     """
+    umask: int
+    """
+    The umask to set for the gateway process.
+
+    This can be used as part of a permission strategy to prevent agents having
+    access to gateway-internal files using their shell tool.
+    """
     openrouter: OpenRouterConfig
     api: ApiConfig
     channels: ChannelsConfig

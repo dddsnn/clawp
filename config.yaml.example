@@ -1,6 +1,8 @@
 config_version: 0
 gateway:
   files_base_dir: "/tmp/clawp"
+  # The umask that is used for the gateway process.
+  umask: 0o0007
   openrouter:
     # The api_key can be provided via the CLAWP_OPENROUTER_API_KEY environment
     # variable.

@@ -83,7 +83,7 @@ def run():
     config = cfg.load_config(args.config_file)
     # Set the umask to configure which ermissions are set by default when
     # creating new files/directories.
-    os.umask(0o0007)
+    os.umask(config.gateway.umask)
     asyncio.run(main(config.gateway))
 
 
