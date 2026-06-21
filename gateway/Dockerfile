@@ -28,14 +28,18 @@ COPY tests tests
 CMD ["uv", "run", "pytest"]
 
 FROM python:3.14-alpine AS app
+ARG CLAWP_ROOT=/app/clawp_files
+ARG UID=2000
+ARG GID=2000
 WORKDIR /app
-# We want to use user/group 1000:1000. Add them properly so they don't cause
+# We want to use a non-root user/group. Add them properly so they don't cause
 # problems.
-RUN addgroup -g 1000 clawp
-RUN adduser -h /app/clawp_files -G clawp -D -H -u 1000 clawp
+RUN addgroup -g ${GID} clawp
+RUN adduser -h ${CLAWP_ROOT} -G clawp -D -H -u ${UID} clawp
+
 COPY --from=build-rust-mcp-filesystem /dist/rust-mcp-filesystem /usr/local/bin/
 RUN apk add --no-cache olm
 # Copy the .venv and add it to PATH.
 COPY --from=build /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
-USER 1000:1000
+USER clawp:clawp

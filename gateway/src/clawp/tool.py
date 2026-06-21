@@ -19,6 +19,7 @@ import asyncio
 import functools as ft
 import logging
 import pathlib
+import shlex
 import typing as t
 
 import fabric
@@ -45,16 +46,35 @@ Iso8601Instant = t.Annotated[we.Instant,
 
 
 class ShellMcpServer(fastmcp.FastMCP):
-    """MCP server providing a shell tool."""
-    def __init__(self, config: mdl.ShellConfig, home: pathlib.Path):
+    """
+    MCP server providing a shell tool running in a sandbox.
+
+    Shell commands are executed in a sandbox, which the server connects to via
+    SSH. On the host, there must be a script in PATH that acts as a wrapper
+    around the command to set up permission boundaries. This script is called
+    with these arguments:
+
+    - clawp_base_dir: The base directory where the system stores its files.
+      This must be accessible in the sandbox at the same path as in the
+      gateway.
+    - agent_id: The agent's ID.
+    - shell: The shell which the command should be executed with.
+    - cwd: The directory to change to before executing the command.
+    - cmd: The command as a single string, escaped for the shell.
+    """
+    def __init__(self, config: mdl.GatewayConfig, agent: "agt.Agent"):
         super().__init__("Shell MCP server")
         self._config = config
-        self._home = home.absolute()
-        self.add_tool(self.shell)
+        self._agent = agent
         self._conn = fabric.Connection(
-            host=config.ssh.host, port=config.ssh.port,
-            user=config.ssh.username, connect_kwargs={
-                "key_filename": str(config.ssh.key_filename.absolute())})
+            host=config.tools.shell.ssh.host,
+            port=config.tools.shell.ssh.port,
+            user=config.tools.shell.ssh.username,
+            connect_kwargs={
+                "key_filename": str(
+                    config.tools.shell.ssh.key_filename.absolute())},
+        )
+        self.add_tool(self.shell)
 
     async def __aenter__(self) -> t.Self:
         await asyncio.to_thread(self._conn.open)
@@ -83,25 +103,36 @@ class ShellMcpServer(fastmcp.FastMCP):
         this tool spawns a new shell, so working directory and environment
         don't persist across calls. You may specify environment variables to
         set first. PATH and HOME are set automatically and can't be changed.
-        HOME is set to your workspace directory.
+
+        HOME is set to your workspace directory, so you can use ~ for paths
+        relative to it (e.g. ~/file_in_my_workspace).
         """
         env = env or {}
         if "PATH" in env or "HOME" in env:
             raise ValueError("PATH and HOME can't be changed")
-        env = env | {"PATH": self._config.path, "HOME": str(self._home)}
+        env = env | {
+            "PATH": self._config.tools.shell.path,
+            "HOME": str(self._agent.workspace_dir.absolute()),}
         if cwd:
             cwd_path = pathlib.Path(cwd)
         else:
-            cwd_path = self._home
+            cwd_path = self._agent.workspace_dir.absolute()
         if not cwd_path.is_absolute():
             raise ValueError("cwd must be an absolute path")
-        return await asyncio.to_thread(self._run_sync, command, cwd_path, env)
+        return await asyncio.to_thread(
+            self._sync_run_wrapped_command, command, cwd_path, env)
 
-    def _run_sync(self, command, cwd, env):
-        with self._conn.cd(str(cwd)):
-            result = self._conn.run(
-                command, shell=self._config.shell_binary, env=env,
-                replace_env=True)
+    def _sync_run_wrapped_command(self, command, cwd, env):
+        # Escape the command so we can pass it to the wrapper script as a
+        # single argument even with special characters (e.g. quotes,
+        # redirection).
+        escaped_command = shlex.quote(command)
+        wrapped_command = "command_wrapper.bash {} {} {} {} {}".format(
+            self._config.files_base_dir.absolute(), self._agent.information.id,
+            self._config.tools.shell.shell_binary, cwd, escaped_command)
+        result = self._conn.run(
+            wrapped_command, shell=self._config.tools.shell.shell_binary,
+            env=env, replace_env=True, warn=True)
         return mdl.ShellResult(
             stdout=result.stdout, stderr=result.stderr,
             exit_code=result.exited, shell=result.shell)
@@ -199,10 +230,10 @@ def _make_filesystem_proxy(
 
 class Client:
     """A client providing tools via MCP servers."""
-    def __init__(self, config: mdl.ToolConfig, agent: "agt.Agent"):
+    def __init__(self, config: mdl.GatewayConfig, agent: "agt.Agent"):
         self._logger = logging.getLogger(type(self).__name__)
         server = fastmcp.FastMCP(name="Clawp MCP server")
-        self._shell_server = ShellMcpServer(config.shell, agent.workspace_dir)
+        self._shell_server = ShellMcpServer(config, agent)
         server.mount(_make_filesystem_proxy(agent.workspace_dir))
         server.mount(ClawpMcpServer(agent), namespace="clawp")
         server.mount(self._shell_server)

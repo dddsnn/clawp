@@ -1,8 +1,17 @@
 services:
+  # Init container that just creates the ./clawp_files directory if it doesn't
+  # exist. Necessary because the mount via the top-level volumes element doesn't
+  # do this automatically.
+  init-data-directory:
+    image: "alpine:latest"
+    volumes:
+      - "./clawp_files:/app/clawp_files/"
+    command: "chown 2000:2000 /app/clawp_files && chmod 711 /app/clawp_files"
+
   # Init container that generates SSH keys to be used in the shell sandbox.
   shell-sandbox-init:
-    image: "linuxserver/openssh-server:latest"
-    entrypoint: ["sh", "-c"]
+    build:
+      context: "shell_sandbox"
     command: "sh /scripts/generate_keys.sh"
     volumes:
       - "./shell_sandbox/generate_keys.sh:/scripts/generate_keys.sh:ro"
@@ -13,7 +22,7 @@ services:
     build:
       context: "shell_sandbox"
     volumes:
-      - "./clawp_files/:/app/clawp_files/"
+      - "clawp-data:/app/clawp_files/"
       - type: "volume"
         source: "sandbox-ssh-keys"
         volume:
@@ -21,6 +30,8 @@ services:
         target: "/root/.ssh/authorized_keys"
         read_only: true
     depends_on:
+      init-data-directory:
+        condition: "service_completed_successfully"
       shell-sandbox-init:
         condition: "service_completed_successfully"
 
@@ -32,7 +43,7 @@ services:
     command: "clawp"
     volumes:
       - "./config.yaml:/app/config.yaml"
-      - "./clawp_files/:/app/clawp_files/"
+      - "clawp-data:/app/clawp_files/"
       - type: "volume"
         source: "sandbox-ssh-keys"
         volume:
@@ -45,11 +56,21 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      shell-sandbox-init:
-        condition: "service_completed_successfully"
       shell-sandbox:
         condition: "service_started"
 
 volumes:
+  # Volume containing persistent data like agents and config.
+  clawp-data:
+    driver: local
+    driver_opts:
+      type: "none"
+      # We set the nosuid option, which disallows agents from setting the SGID
+      # bit on files they create via the shell in the sandbox. This would be a
+      # vulnerability, since they'd be able to execute scripts with the
+      # permissions of the clawp group, which has access to anything in the data
+      # directory.
+      o: "bind,nosuid"
+      device: "${PWD}/clawp_files/"
   # Volume to write the sandbox SSH key into.
   sandbox-ssh-keys:

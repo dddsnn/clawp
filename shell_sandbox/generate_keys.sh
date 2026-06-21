@@ -18,8 +18,8 @@
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 # This script generates an SSH key pair named id_shell_sandbox{,.pub} and places
-# it in /shared_ssh. It sets the owner of the private key to 1000:1000, which is
-# the user and group used inside the gateway container. It also copies the
+# it in /shared_ssh. It sets the owner of the private key to clawp:clawp, which
+# is the user and group used inside the gateway container. It also copies the
 # public key to the filed authorized_keys in the same directory, so it can be
 # mounted directly.
 
@@ -32,8 +32,8 @@ PUBLIC_KEY="$KEY_DIR/id_shell_sandbox.pub"
 echo "Generating fresh SSH key pair for shell sandbox."
 yes | ssh-keygen -t ed25519 -N "" -f "$PRIVATE_KEY" -q -C "auto-generated key"
 chmod 600 "$PRIVATE_KEY"
-# Set private key owner to 1000:1000, which is the user ID in the gateway.
-chown 1000:1000 "$PRIVATE_KEY"
+# Set private key owner to clawp:clawp, which is the user ID in the gateway.
+chown clawp:clawp "$PRIVATE_KEY"
 
 echo "Preparing authorized_keys file."
 cp "$PUBLIC_KEY" "$KEY_DIR/authorized_keys"

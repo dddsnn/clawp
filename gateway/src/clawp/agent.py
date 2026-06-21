@@ -339,7 +339,7 @@ class Agent:
         self._workspace_dir = workspace_dir
         self._message_store = message_store
         self.memory_store = memory_store
-        self._mcp_client = tool.Client(config=config.tools, agent=self)
+        self._mcp_client = tool.Client(config=config, agent=self)
         self._channel_router = channel_router
         self._session_factory = ft.partial(
             Session, model_config=config.openrouter.model,
@@ -354,6 +354,9 @@ class Agent:
 
     @property
     def workspace_dir(self) -> pathlib.Path:
+        """
+        Directory inside the base_dir to which the agent has direct access.
+        """
         return self._workspace_dir
 
     @property

@@ -20,6 +20,7 @@ import asyncio
 import contextlib
 import logging
 import logging.config
+import os
 import pathlib
 import signal
 
@@ -27,6 +28,7 @@ from . import agent as agt
 from . import api
 from . import channel as chan
 from . import config as cfg
+from . import model as mdl
 from . import provider as prov
 
 _log_fmt = "%(asctime)s|%(module)s|%(name)s|%(levelname)s: %(message)s"
@@ -59,18 +61,16 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-async def main():
+async def main(config: mdl.GatewayConfig):
     shutdown_event = asyncio.Event()
     asyncio.get_running_loop().add_signal_handler(
         signal.SIGTERM, shutdown, shutdown_event)
-    args = parse_args()
-    config = cfg.load_config(args.config_file)
-    channel_pool = chan.ChannelPool(config.gateway.channels)
-    openrouter_provider = prov.OpenrouterProvider(config.gateway.openrouter)
+    channel_pool = chan.ChannelPool(config.channels)
+    openrouter_provider = prov.OpenrouterProvider(config.openrouter)
     agent_repo = agt.AgentRepository(
-        base_dir=config.gateway.agents_base_dir, channel_pool=channel_pool,
-        provider=openrouter_provider, config=config.gateway)
-    clawp_api = api.Api(config.gateway.api, agent_repo, channel_pool)
+        base_dir=config.agents_base_dir, channel_pool=channel_pool,
+        provider=openrouter_provider, config=config)
+    clawp_api = api.Api(config.api, agent_repo, channel_pool)
     async with contextlib.AsyncExitStack() as stack:
         await stack.enter_async_context(openrouter_provider)
         await stack.enter_async_context(agent_repo)
@@ -79,7 +79,12 @@ async def main():
 
 
 def run():
-    asyncio.run(main())
+    args = parse_args()
+    config = cfg.load_config(args.config_file)
+    # Set the umask to configure which ermissions are set by default when
+    # creating new files/directories.
+    os.umask(0o0007)
+    asyncio.run(main(config.gateway))
 
 
 if __name__ == "__main__":

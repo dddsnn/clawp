@@ -21,9 +21,14 @@ PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License along
 with clawp. If not, see <https://www.gnu.org/licenses/>.
 
-## Installing and running
+## Gateway
 
-### Docker
+The gateway is the backend component of the system. It runs the agents and
+provides a REST API to interact with them.
+
+### Installing and running
+
+#### Docker
 
 Use the `docker-compose.yaml` to, which expects a `config.yaml` in the root
 directory and mounts `clawp_files/` for data:
@@ -38,7 +43,7 @@ Run tests with the `docker-compose.test.yaml`
 docker compose -f docker-compose.test.yaml up --build --exit-code-from=test
 ```
 
-### Local
+#### Local
 
 Clawp needs external dependencies:
 
@@ -70,8 +75,39 @@ Run tests with
 uv --project gateway run pytest gateway
 ```
 
-## Configuration
+### Configuration
 
 Clawp is mostly configured via a configuration file. See `config.yaml.example`.
 Some values (secrets) can also be supplied as environment variables, these are
 marked with comments in the example file.
+
+### Tools
+
+#### Shell sandbox
+
+The gateway includes a tool that lets agents run shell commands. Due to the
+destructive potential, commands are meant to be run in a sandbox (though the
+gateway can be configured to run on the same host). The shell tool connects to
+the sandbox via SSH and then executes a single command. Every tool call starts a
+new shell, so working directory and environment doesn't persist. On the host
+running the sandbox (which may be the same host as the gateway), the base
+directory containing files must be accessible at the same path (e.g. a volume
+mounted to the same mountpoint). The shell tool expects a `command_wrapper.bash`
+script in path, which ensures permission boundaries before running the command.
+
+This is how the sandbox is implemented in the `docker-compose.yaml`:
+
+- A sandbox container is started, which starts an SSH server. An init container
+  creates a key pair in a volume accessed by gateway and sandbox, so the gateway
+  can connect to the sandbox.
+- Both gateway and sandbox mount the `./clawp_files` directory.
+- Both the gateway and sandbox create a user and group clawp:clawp with the same
+  uid/gid (2000:2000).
+- The wrapper script inside the sandbox creates a system user just for the agent
+  and ensures it has access to its workspace directory and nothing else. It also
+  makes sure the gateway always has access to the workspace via the clawp group
+  (see the [wrapper script](shell_sandbox/command_wrapper.bash)'s documentation
+  for details).
+- The umask for the gateway process is set to 0007, which means any files and
+  directories created by the gateway itself are not readable by others (which
+  would make them accessible to the agents).
