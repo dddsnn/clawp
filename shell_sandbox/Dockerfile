@@ -3,9 +3,7 @@ ARG CLAWP_ROOT=/app/clawp_files
 ARG UID=2000
 ARG GID=2000
 
-RUN apt-get update && apt-get install -y \
-    openssh-server \
-    && apt-get clean
+RUN apt-get update && apt-get install -y openssh-server && apt-get clean
 # Set SSH configuration to only allow public key authentication.
 RUN sed -i 's/^.*PubkeyAuthentication.*$/PubkeyAuthentication yes/' \
         /etc/ssh/sshd_config \
@@ -16,6 +14,12 @@ RUN sed -i 's/^.*PubkeyAuthentication.*$/PubkeyAuthentication yes/' \
 RUN groupadd --gid ${GID} clawp
 RUN useradd --uid ${UID} --home-dir ${CLAWP_ROOT} --no-create-home \
         --shell /bin/bash --no-user-group --gid clawp clawp
+# Install any extra packages.
+ARG EXTRA_PACKAGES
+RUN if [ -n "${EXTRA_PACKAGES}" ] ; then \
+    apt-get update && apt-get install -y ${EXTRA_PACKAGES} && apt-get clean ; \
+fi
+# Copy our scripts.
 COPY command_lib.bash /scripts/lib/
 COPY generate_keys.sh /scripts/
 RUN chmod +x /scripts/generate_keys.sh

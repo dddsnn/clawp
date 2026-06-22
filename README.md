@@ -117,3 +117,7 @@ This is how the sandbox is implemented in the `docker-compose.yaml`:
 - The umask for the gateway process is set to 0007, which means any files and
   directories created by the gateway itself are not readable by others (which
   would make them accessible to the agents).
+
+The sandbox' Dockerfile has an `EXTRA_PACKAGES` argument that can be populated
+with a space-separated list of extra packages to install (via `apt-get` on an
+Ubuntu image).
