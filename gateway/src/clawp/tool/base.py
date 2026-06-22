@@ -45,7 +45,8 @@ class Client:
         server.mount(builtin.make_filesystem_proxy(agent.workspace_dir))
         server.mount(builtin.ClawpMcpServer(agent), namespace="clawp")
         server.mount(self._shell_server)
-        self._client = fastmcp.Client(server)
+        self._client = fastmcp.Client(
+            server, timeout=config.tools.client_timeout.total("seconds"))
         self._tools = None
 
     async def __aenter__(self):

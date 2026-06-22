@@ -27,6 +27,8 @@ gateway:
           # password: ""
           device_id: "clawp"
   tools:
+    # Client-side timeout for tool calls (applies to all tools).
+    client_timeout: "PT2M"
     shell:
       # SSH connection details to connect to the shell environment.
       ssh:

@@ -150,6 +150,7 @@ class ShellConfig(BaseSettings):
 
 
 class ToolConfig(BaseSettings):
+    client_timeout: we.TimeDelta
     shell: ShellConfig
 
 
