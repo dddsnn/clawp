@@ -31,6 +31,8 @@ services:
   shell-sandbox:
     build:
       context: "shell_sandbox"
+      args:
+        EXTRA_PACKAGES: "build-essential curl git python3.14-dev"
     volumes:
       - "clawp-data:/app/clawp_files/"
       - type: "volume"
