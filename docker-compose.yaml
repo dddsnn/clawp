@@ -9,12 +9,11 @@ services:
     command: "chown 2000:2000 /app/clawp_files && chmod 711 /app/clawp_files"
 
   # Init container that generates SSH keys to be used in the shell sandbox.
-  shell-sandbox-init:
+  init-shell-sandbox-keys:
     build:
       context: "shell_sandbox"
-    command: "sh /scripts/generate_keys.sh"
+    command: "/scripts/generate_keys.sh"
     volumes:
-      - "./shell_sandbox/generate_keys.sh:/scripts/generate_keys.sh:ro"
       - "sandbox-ssh-keys:/shared_ssh"
 
   # Ubuntu container acting as a sandbox for agent shell execution.
@@ -32,7 +31,7 @@ services:
     depends_on:
       init-data-directory:
         condition: "service_completed_successfully"
-      shell-sandbox-init:
+      init-shell-sandbox-keys:
         condition: "service_completed_successfully"
 
   # The backend gateway.

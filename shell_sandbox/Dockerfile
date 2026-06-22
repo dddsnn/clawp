@@ -16,9 +16,10 @@ RUN sed -i 's/^.*PubkeyAuthentication.*$/PubkeyAuthentication yes/' \
 RUN groupadd --gid ${GID} clawp
 RUN useradd --uid ${UID} --home-dir ${CLAWP_ROOT} --no-create-home \
         --shell /bin/bash --no-user-group --gid clawp clawp
-COPY generate_keys.sh /scripts/
-COPY command_wrapper.bash /usr/local/bin/
 COPY command_lib.bash /scripts/lib/
+COPY generate_keys.sh /scripts/
+RUN chmod +x /scripts/generate_keys.sh
+COPY command_wrapper.bash /usr/local/bin/
 RUN chmod +x /usr/local/bin/command_wrapper.bash
 EXPOSE 22
 # -D starts SSH in the foreground so the container stays alive.
