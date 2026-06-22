@@ -32,6 +32,9 @@ from . import model as mdl
 from . import provider as prov
 
 _log_fmt = "%(asctime)s|%(module)s|%(name)s|%(levelname)s: %(message)s"
+_loggers_with_only_info_level = [
+    "fabric", "httpcore", "invoke", "mcp.server.lowlevel.server", "nio",
+    "paramiko.transport", "peewee", "WebUiChannel"]
 logging.config.dictConfig({
     "version": 1,
     "formatters": {"simple": {"format": _log_fmt}},
@@ -40,12 +43,8 @@ logging.config.dictConfig({
             "class": "logging.StreamHandler", "formatter": "simple"}},
     "root": {"level": "DEBUG", "handlers": ["stream_handler"]},
     "loggers": {
-        "httpcore": {"level": "INFO", "handlers": ["stream_handler"]},
-        "nio": {"level": "INFO", "handlers": ["stream_handler"]},
-        "peewee": {"level": "INFO", "handlers": ["stream_handler"]},
-        "mcp.server.lowlevel.server": {
-            "level": "INFO", "handlers": ["stream_handler"]},
-        "WebUiChannel": {"level": "INFO", "handlers": ["stream_handler"]}},})
+        logger_name: {"level": "INFO", "handlers": ["stream_handler"]}
+        for logger_name in _loggers_with_only_info_level},})
 logger = logging.getLogger(__name__)
 
 
