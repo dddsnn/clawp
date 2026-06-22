@@ -108,6 +108,12 @@ This is how the sandbox is implemented in the `docker-compose.yaml`:
   makes sure the gateway always has access to the workspace via the clawp group
   (see the [wrapper script](shell_sandbox/command_wrapper.bash)'s documentation
   for details).
+- When starting the sandbox, an init container goes through all existing agents
+  in the agents directory, creates a system user for each one and sets up all
+  the permissions. This is necessary since uids/gids are assigned on a
+  first-come first-serve basis, so agents' workspaces may belong to a uid from a
+  previous run, which is now assigned to another agent. Going through everything
+  on startup ensures no agent can access other agents' files by accident.
 - The umask for the gateway process is set to 0007, which means any files and
   directories created by the gateway itself are not readable by others (which
   would make them accessible to the agents).

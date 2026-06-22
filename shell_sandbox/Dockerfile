@@ -19,6 +19,8 @@ RUN useradd --uid ${UID} --home-dir ${CLAWP_ROOT} --no-create-home \
 COPY command_lib.bash /scripts/lib/
 COPY generate_keys.sh /scripts/
 RUN chmod +x /scripts/generate_keys.sh
+COPY init_permissions.bash /scripts/
+RUN chmod +x /scripts/init_permissions.bash
 COPY command_wrapper.bash /usr/local/bin/
 RUN chmod +x /usr/local/bin/command_wrapper.bash
 EXPOSE 22

@@ -16,6 +16,17 @@ services:
     volumes:
       - "sandbox-ssh-keys:/shared_ssh"
 
+  # Init container that ensures permissions and users for the shell sandbox.
+  init-shell-sandbox-permissions:
+    build:
+      context: "shell_sandbox"
+    command: ["/scripts/init_permissions.bash", "/app/clawp_files", "/bin/bash"]
+    volumes:
+      - "clawp-data:/app/clawp_files/"
+    depends_on:
+      init-data-directory:
+        condition: "service_completed_successfully"
+
   # Ubuntu container acting as a sandbox for agent shell execution.
   shell-sandbox:
     build:
@@ -32,6 +43,8 @@ services:
       init-data-directory:
         condition: "service_completed_successfully"
       init-shell-sandbox-keys:
+        condition: "service_completed_successfully"
+      init-shell-sandbox-permissions:
         condition: "service_completed_successfully"
 
   # The backend gateway.
