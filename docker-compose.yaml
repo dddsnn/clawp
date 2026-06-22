@@ -56,6 +56,8 @@ services:
     ports:
       - "8000:8000"
     depends_on:
+      init-data-directory:
+        condition: "service_completed_successfully"
       shell-sandbox:
         condition: "service_started"
 
