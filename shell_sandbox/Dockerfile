@@ -19,6 +19,7 @@ ARG EXTRA_PACKAGES
 RUN if [ -n "${EXTRA_PACKAGES}" ] ; then \
     apt-get update && apt-get install -y ${EXTRA_PACKAGES} && apt-get clean ; \
 fi
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # Copy our scripts.
 COPY command_lib.bash /scripts/lib/
 COPY generate_keys.sh /scripts/
