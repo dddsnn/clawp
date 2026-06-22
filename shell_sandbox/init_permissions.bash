@@ -37,6 +37,10 @@ fi
 
 CLAWP_BASE_DIR="$1"
 
+if [ ! -d "$CLAWP_BASE_DIR/agents" ] ; then
+    mkdir -p "$CLAWP_BASE_DIR/agents"
+fi
+
 # Go through the agents directory and create users for all of them. This also
 # sets agent-specific permissions. If a user exists, set the permissions.
 for AGENT_ID in $(ls "$CLAWP_BASE_DIR/agents") ; do
