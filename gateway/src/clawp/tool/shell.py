@@ -43,7 +43,6 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
       This must be accessible in the sandbox at the same path as in the
       gateway.
     - agent_id: The agent's ID.
-    - shell: The shell which the command should be executed with.
     - cwd: The directory to change to before executing the command.
     - cmd: The command as a single string, escaped for the shell.
     """
@@ -112,12 +111,12 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
         # single argument even with special characters (e.g. quotes,
         # redirection).
         escaped_command = shlex.quote(command)
-        wrapped_command = "command_wrapper.bash {} {} {} {} {}".format(
+        wrapped_command = "command_wrapper.bash {} {} {} {}".format(
             self._config.files_base_dir.absolute(), self._agent.information.id,
-            self._config.tools.shell.shell_binary, cwd, escaped_command)
+            cwd, escaped_command)
         result = self._conn.run(
-            wrapped_command, shell=self._config.tools.shell.shell_binary,
-            env=env, replace_env=True, warn=True)
+            wrapped_command, shell="/bin/bash", env=env, replace_env=True,
+            warn=True)
         return mdl.ShellResult(
             stdout=result.stdout, stderr=result.stderr,
             exit_code=result.exited, shell=result.shell)

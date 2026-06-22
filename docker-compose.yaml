@@ -20,7 +20,7 @@ services:
   init-shell-sandbox-permissions:
     build:
       context: "shell_sandbox"
-    command: ["/scripts/init_permissions.bash", "/app/clawp_files", "/bin/bash"]
+    command: ["/scripts/init_permissions.bash", "/app/clawp_files"]
     volumes:
       - "clawp-data:/app/clawp_files/"
     depends_on:

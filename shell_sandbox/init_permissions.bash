@@ -24,25 +24,24 @@
 # See the documentation of command_wrapper.bash for an explanation of the
 # permissions system in the sandbox.
 #
-# Usage: init_permissions.bash <clawp_base_dir> <shell>
+# Usage: init_permissions.bash <clawp_base_dir>
 
 set -e
 
 source /scripts/lib/command_lib.bash
 
-if [ "$#" -ne 2 ]; then
+if [ "$#" -ne 1 ]; then
     echo "Usage error in the permission init script." >&2
     exit 1
 fi
 
 CLAWP_BASE_DIR="$1"
-AGENT_SHELL="$2"
 
 # Go through the agents directory and create users for all of them. This also
 # sets agent-specific permissions. If a user exists, set the permissions.
 for AGENT_ID in $(ls "$CLAWP_BASE_DIR/agents") ; do
     if ! id "$AGENT_ID" &>/dev/null; then
-        if ! create_agent_user "$CLAWP_BASE_DIR" "$AGENT_ID" "$AGENT_SHELL" ; then
+        if ! create_agent_user "$CLAWP_BASE_DIR" "$AGENT_ID" ; then
             echo "Error creating user $AGENT_ID." >&2
             exit 1
         fi

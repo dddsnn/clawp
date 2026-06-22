@@ -21,11 +21,11 @@
 # their workspace, they don't access to anything else, and the gateway isn't
 # locked out either.
 #
-# Usage: command_wrapper.bash <clawp_base_dir> <agent_id> <shell> <cwd> <cmd>
+# Usage: command_wrapper.bash <clawp_base_dir> <agent_id> <cwd> <cmd>
 #
-# This executes <cmd> for the given <agent_id> using <shell>, changing directory
-# to <cwd> first. <clawp_base_dir> is the directory containing the system's
-# files. The agent's workspace is assumed to be at
+# This executes <cmd> for the given <agent_id>, changing directory to <cwd>
+# first. <clawp_base_dir> is the directory containing the system's files. The
+# agent's workspace is assumed to be at
 # <clawp_base_dir>/agents/<agent_id>/workspace.
 #
 # The script further assumes there is a system user/group named clawp:clawp
@@ -50,21 +50,20 @@ set -e
 
 source /scripts/lib/command_lib.bash
 
-if [ "$#" -ne 5 ]; then
+if [ "$#" -ne 4 ]; then
     echo "Usage error in the sandbox wrapper script." >&2
     exit 1
 fi
 
 CLAWP_BASE_DIR="$1"
 AGENT_ID="$2"
-AGENT_SHELL="$3"
-CWD="$4"
-COMMAND="$5"
+CWD="$3"
+COMMAND="$4"
 
 if ! id "$AGENT_ID" &>/dev/null; then
     # There is no system user with the same name as the agent's ID. Create one.
     # This also sets permissions on the agent's directories.
-    if ! create_agent_user "$CLAWP_BASE_DIR" "$AGENT_ID" "$AGENT_SHELL" ; then
+    if ! create_agent_user "$CLAWP_BASE_DIR" "$AGENT_ID" ; then
         echo "Error creating user $AGENT_ID." >&2
         exit 1
     fi

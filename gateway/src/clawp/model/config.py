@@ -145,7 +145,6 @@ class ShellSshConfig(BaseSettings):
 
 class ShellConfig(BaseSettings):
     ssh: ShellSshConfig
-    shell_binary: str
     # Value of the PATH variable in the shell.
     path: str
 

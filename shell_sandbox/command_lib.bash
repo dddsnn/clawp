@@ -27,6 +27,8 @@
 # For the reasoning behind these choices, see the documentation of
 # command_wrapper.bash.
 
+AGENT_SHELL="/bin/bash"
+
 agent_base_dir() {
     CLAWP_BASE_DIR="$1"
     AGENT_ID="$2"
@@ -117,7 +119,7 @@ ensure_agent_dir_permissions() {
 }
 
 # Create a system user for an agent.
-# Usage: create_agent_user <clawp_base_dir> <agent_id> <agent_shell>
+# Usage: create_agent_user <clawp_base_dir> <agent_id>
 #
 # The user must not yet exist, but the workspace directory must. The agent's ID
 # is used as the username. The agent's workspace is used as HOME. Also ensures
@@ -125,7 +127,6 @@ ensure_agent_dir_permissions() {
 create_agent_user() {
     CLAWP_BASE_DIR="$1"
     AGENT_ID="$2"
-    AGENT_SHELL="$3"
     AGENT_BASE_DIR="$(agent_base_dir "$CLAWP_BASE_DIR" "$AGENT_ID")"
     AGENT_WORKSPACE_DIR="$(agent_workspace_dir "$CLAWP_BASE_DIR" "$AGENT_ID")"
 
