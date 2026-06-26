@@ -86,17 +86,18 @@ class AgentChannel(base.Channel):
         return mdl.AgentChannelStatus(available=True)
 
     async def send(self, message: msg.AgentMessage) -> None:
-        chat = message.metadata.chat
-        assert chat.channel == "agent"
-        if chat.chat_id == self._agent_id:
+        assert message.metadata.chat.channel == "agent"
+        try:
+            agent_id = uuid.UUID(message.metadata.chat.chat_id)
+        except ValueError:
+            raise ValueError(
+                f"{message.metadata.chat.chat_id} is not a valid UUID")
+        if agent_id == self._agent_id:
             raise ValueError("sender and recipient IDs are equal")
         try:
-            recipient = self._agent_repo.get_agent(
-                message.metadata.chat.chat_id)
+            recipient = self._agent_repo.get_agent(agent_id)
         except KeyError:
-            raise ValueError(
-                f"no agent with ID {message.metadata.chat.chat_id} "
-                "exists")
+            raise ValueError(f"no agent with ID {agent_id} exists")
         try:
             recipient_channel = recipient.channels["agent"]
         except KeyError:
@@ -115,10 +116,9 @@ class AgentChannel(base.Channel):
         message. That message will appear has having arrived on the channel and
         will be delivered to the agent.
         """
-        metadata = msg.IncomingMessageMetadata(
-            time=message.metadata.time,
-            channel=mdl.AgentIncomingChannelDescriptor(sender_id=sender_id))
-        message = base.IncomingMessage(
-            role="user", metadata=metadata, content=await message.content,
-            request_response=True)
+        metadata = mdl.ChatMessageMetadata(
+            time=await message.metadata.time.value,
+            chat=mdl.ChatDescriptor(channel=self.type, chat_id=str(sender_id)))
+        message = mdl.ChatMessage(
+            role="user", metadata=metadata, content=await message.content)
         await self._publisher.append(message)

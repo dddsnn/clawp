@@ -6,4 +6,6 @@ The `agent` channel is used by agents within the Clawp framework to communicate 
 
 The `chat_id` is the UUID of the agent you are talking to.
 
+**IMPORTANT** When the other agent talks to you, their messages will be presented to you as user messages, not agent messages. Agent messages are only ever what you're writing.
+
 Remember, to end the conversation with the other agent, you must leave your response blank (you can think about whether you want to respond, but the message content has to be empty). If neither of you does this, you will get stuck in an endless loop (since you'll get prompted to respond over and over).

@@ -36,18 +36,37 @@ Iso8601Instant = t.Annotated[we.Instant,
                                  examples=["2026-06-14T17:53:00Z"])]
 
 
+class ClientSessionTransactionContext:
+    def __init__(self, client: "Client", tx: "agt.SessionTransaction") -> None:
+        self._client = client
+        self._tx = tx
+
+    def __enter__(self) -> t.Self:
+        self._client.set_session_transaction(self._tx)
+        return self
+
+    def __exit__(self, *args) -> bool:
+        self._client.set_session_transaction(None)
+        return False
+
+    async def call_tool(self, name: str, *args, **kwargs) -> str:
+        return await self._client.call_tool(name, *args, **kwargs)
+
+
 class Client:
     """A client providing tools via MCP servers."""
     def __init__(self, config: mdl.GatewayConfig, agent: "agt.Agent"):
         self._logger = logging.getLogger(type(self).__name__)
         server = fastmcp.FastMCP(name="Clawp MCP server")
         self._shell_server = shell.SandboxShellMcpServer(config, agent)
+        self._clawp_server = builtin.ClawpMcpServer(agent)
         server.mount(builtin.make_filesystem_proxy(agent.workspace_dir))
-        server.mount(builtin.ClawpMcpServer(agent), namespace="clawp")
+        server.mount(self._clawp_server, namespace="clawp")
         server.mount(self._shell_server)
         self._client = fastmcp.Client(
             server, timeout=config.tools.client_timeout.total("seconds"))
         self._tools = None
+        self._session_transaction = None
 
     async def __aenter__(self):
         await self._shell_server.__aenter__()
@@ -60,6 +79,17 @@ class Client:
         await self._shell_server.__aexit__(*args)
         self._tools = None
         return False
+
+    def set_session_transaction(self, tx: "agt.SessionTransaction") -> None:
+        if self._session_transaction and tx:
+            raise RuntimeError("session transaction is already set")
+        self._clawp_server.session_transaction = tx
+        self._session_transaction = tx
+
+    def with_session_transaction(
+            self,
+            tx: "agt.SessionTransaction") -> ClientSessionTransactionContext:
+        return ClientSessionTransactionContext(self, tx)
 
     @property
     def tools(self) -> dict[str, fastmcp.tools.Tool]:

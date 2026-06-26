@@ -57,11 +57,22 @@ class ClawpMcpServer(fastmcp.FastMCP):
     def __init__(self, agent: "agt.Agent"):
         super().__init__("Clawp system MCP server")
         self._agent = agent
+        self._session_transaction = None
         self.add_tool(self.list_tutorial_topics)
         self.add_tool(self.read_tutorial)
         self.add_tool(self.switch_chat)
         self.add_tool(self.log_memory)
         self.add_tool(self.search_memory)
+
+    @property
+    def session_transaction(self) -> "agt.SessionTransaction":
+        if self._session_transaction is None:
+            raise RuntimeError("no session transaction has been set")
+        return self._session_transaction
+
+    @session_transaction.setter
+    def session_transaction(self, value: "agt.SessionTransaction") -> None:
+        self._session_transaction = value
 
     async def list_tutorial_topics(self) -> list[str]:
         """List all tutorial topics."""
@@ -86,7 +97,11 @@ class ClawpMcpServer(fastmcp.FastMCP):
 
     async def switch_chat(self, channel: str, chat_id: str) -> str:
         """Switch the active chat."""
-        raise NotImplementedError
+        chat = mdl.ChatDescriptor(channel=channel, chat_id=chat_id)
+        await self._agent.switch_active_chat(chat, self.session_transaction)
+        return (
+            f"You are now talking in chat {chat.model_dump_json()}. No unread "
+            "messages")
 
     async def get_unread_chat_messages(self, channel: str,
                                        chat_id: str) -> list[mdl.ChatMessage]:

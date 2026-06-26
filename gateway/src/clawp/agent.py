@@ -324,11 +324,13 @@ class Session:
             self._logger.debug(f"Handling tool call {tool_call}.")
             try:
                 arguments_dict = json.loads(tool_call.function.arguments)
-                result_string = await self._mcp_client.call_tool(
-                    tool_call.function.name, arguments_dict)
-                await self._append_internal_message(
-                    msg.ToolMessage, content=result_string,
-                    tool_call_id=tool_call.id)
+                with self._mcp_client.with_session_transaction(
+                        self._active_transaction) as tx_client:
+                    result_string = await tx_client.call_tool(
+                        tool_call.function.name, arguments_dict)
+                    await self._append_internal_message(
+                        msg.ToolMessage, content=result_string,
+                        tool_call_id=tool_call.id)
             except Exception as e:
                 await self._append_internal_message(
                     msg.ToolMessage, content="Error in tool call: " + str(e),
@@ -394,11 +396,10 @@ class Agent:
     def information(self) -> mdl.AgentInformation:
         return self._agent_information
 
-
-    def update_active_chat(
-            self, value: mdl.ChatDescriptor, tx: SessionTransaction) -> None:
-        self._agent_information.active_chat = value
-        tx.active_chat = value
+    async def switch_active_chat(
+            self, chat: mdl.ChatDescriptor, tx: SessionTransaction) -> None:
+        self._agent_information.active_chat = chat
+        tx.active_chat = chat
 
     @property
     def workspace_dir(self) -> pathlib.Path:
@@ -559,17 +560,18 @@ class Agent:
                     # We've received a message in a chat other than the active
                     # chat. Inject messages into the session that make it look
                     # like the agent switched to that chat in response to it.
-                    await self._switch_active_chat(message.metadata.chat, tx)
+                    await self._fake_agent_switch_message(
+                        message.metadata.chat, tx)
                 await tx.handle_chat_message(message)
         except Exception:
             self._logger.exception("Error handling chat message.")
 
-    async def _switch_active_chat(
+    async def _fake_agent_switch_message(
             self, chat: mdl.ChatDescriptor, tx: SessionTransaction) -> None:
         assert self.information.active_chat != chat
         await tx.append_internal_message(
             msg.SystemMessage,
-            content=f"1 new message in chat {chat.model_dump_json()}")
+            content=f"1 unread message in chat {chat.model_dump_json()}")
         tool_part = msg.AgentMessageToolPart()
         function = msg.ToolCallFunction(
             name="clawp_switch_chat", arguments=chat.model_dump_json())
@@ -581,8 +583,8 @@ class Agent:
         await tx.append_internal_message(
             msg.ToolMessage,
             content=f"Switched to chat {chat.model_dump_json()}, showing 1 "
-            "new message", tool_call_id="call_00_ui1YuJA6eD2P7r4v1DQP8967")
-        self.update_active_chat(chat, tx)
+            "unread message", tool_call_id="call_00_ui1YuJA6eD2P7r4v1DQP8967")
+        await self.switch_active_chat(chat, tx)
 
     def messages(
             self) -> cl_abc.Generator[tuple[mdl.MessageOffset, msg.Message]]:
