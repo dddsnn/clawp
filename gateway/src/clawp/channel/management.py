@@ -187,7 +187,7 @@ class ChannelRouter(base.MessageSender):
             raise SendError(f"error sending message: {e}") from e
 
     def incoming_messages(self) -> cl_abc.AsyncGenerator[mdl.ChatMessage]:
-        """Iterate over incoming messages."""
+        """Iterate over incoming chat messages."""
         return self._publisher.subscribe()
 
 

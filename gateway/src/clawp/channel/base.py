@@ -34,7 +34,7 @@ class MessageSender(abc.ABC):
 
 class MessageReceiver(abc.ABC):
     def incoming_messages(self) -> cl_abc.AsyncGenerator[mdl.ChatMessage]:
-        """Iterate over incoming messages."""
+        """Iterate over incoming chat messages."""
         raise NotImplementedError
 
 
@@ -43,8 +43,8 @@ class Channel(MessageSender, MessageReceiver):
     A communication channel.
 
     A channel is a way for the agent to communicate with the user. It can
-    iterate over incoming messages (from the user/outside), and send messages
-    back.
+    iterate over incoming chat messages (from the user/outside), and send
+    messages back.
     """
     def __init__(self, channel_type: mdl.ChannelType) -> None:
         self._logger = logging.getLogger(type(self).__name__)
@@ -81,5 +81,5 @@ class Channel(MessageSender, MessageReceiver):
         raise NotImplementedError
 
     def incoming_messages(self) -> cl_abc.AsyncGenerator[mdl.ChatMessage]:
-        """Iterate over incoming messages."""
+        """Iterate over incoming chat messages."""
         return self._publisher.subscribe()

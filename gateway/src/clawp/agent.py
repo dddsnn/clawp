@@ -35,6 +35,92 @@ if t.TYPE_CHECKING:
     from . import provider as prov
 
 
+class SessionTransaction:
+    """
+    Transaction proxying operations on a Session.
+
+    The transaction is an asynchronous context manager that mutexes access to
+    the Session's write operations. It's a thin proxy for the Session's public
+    interface.
+
+    Calling methods is only valid in the entered state. The context manager
+    must be used exactly once (or it won't show as completed), and it can't be
+    reused.
+    """
+    def __init__(self, session: "Session") -> None:
+        self._session = session
+        self._is_active = False
+        self._completed_event = asyncio.Event()
+
+    async def __aenter__(self) -> t.Self:
+        if self._completed_event.is_set():
+            raise RuntimeError("transaction has already completed")
+        self._is_active = True
+        return self
+
+    async def __aexit__(self, *args) -> bool:
+        self._is_active = False
+        self._completed_event.set()
+        return False
+
+    def is_complete(self) -> bool:
+        """Check if the transaction is completed."""
+        return self._completed_event.is_set()
+
+    async def wait(self) -> None:
+        """Wait until the transaction is completed."""
+        await self._completed_event.wait()
+
+    @property
+    def active_chat(self) -> mdl.ChatDescriptor:
+        if not self._is_active:
+            raise RuntimeError("transaction is not active")
+        return self._session._active_chat
+
+    @active_chat.setter
+    def active_chat(self, value: mdl.ChatDescriptor) -> None:
+        if not self._is_active:
+            raise RuntimeError("transaction is not active")
+        self._session._active_chat = value
+
+    @property
+    def num_messages(self) -> int:
+        """The number of messages in this session."""
+        if not self._is_active:
+            raise RuntimeError("transaction is not active")
+        return self._session.num_messages
+
+    async def append_internal_message(
+            self, message_class: type[msg.InternalMessage], content: str,
+            **kwargs) -> None:
+        if not self._is_active:
+            raise RuntimeError("transaction is not active")
+        await self._session._append_internal_message(
+            message_class, content, **kwargs)
+
+    async def append_agent_message(
+            self, message_parts: util.StreamableList) -> None:
+        if not self._is_active:
+            raise RuntimeError("transaction is not active")
+        await self._session._append_agent_message(message_parts)
+
+    async def handle_chat_message(self, chat_message: mdl.ChatMessage) -> None:
+        if not self._is_active:
+            raise RuntimeError("transaction is not active")
+        await self._session._handle_chat_message(chat_message)
+
+    def messages(self) -> cl_abc.Generator[msg.Message]:
+        """Iterate all messages."""
+        if not self._is_active:
+            raise RuntimeError("transaction is not active")
+        yield from self._session.messages()
+
+    def subscribe(self) -> cl_abc.AsyncGenerator[tuple[int, msg.Message]]:
+        if not self._is_active:
+            raise RuntimeError("transaction is not active")
+        return self._session.subscribe()
+
+
 class Session:
     """
     Session with an agent.
@@ -47,9 +133,14 @@ class Session:
     from the store on aenter and also ensures all agent messages have finished
     streaming when it shuts down.
 
-    A session can only handle one request at a time (incoming message or
-    requesting a response). Concurrent calls will block until the current one
-    is done.
+    For modifying operations, the session is meant to be used through the
+    SessionTransaction context manager returned by transaction(). Only one of
+    those is returned at a time, the previous one has to complete for the next
+    one to be returned. This ensures that operations that add more than one
+    message don't write concurrently, which might lead to their messages being
+    interleaved in a nonsensical way.
+
+    Pure read operations (e.g. messages()) can be done on the session itself.
     """
     def __init__(
             self, session_seq: int, *, model_config: mdl.ModelConfig,
@@ -63,11 +154,10 @@ class Session:
         self._message_sender = message_sender
         self._provider = provider
         self._mcp_client = mcp_client
+        self._active_chat = active_chat
         self._messages = None
-        self._lock = asyncio.Lock()
-        self._is_shut_down = False
         self._publisher = util.Publisher()
-        self.active_chat = active_chat
+        self._active_transaction = None
 
     async def __aenter__(self) -> t.Self:
         self._messages = await self._message_store.read_session_messages()
@@ -75,30 +165,39 @@ class Session:
         return self
 
     async def __aexit__(self, *args) -> bool:
-        async with self._lock:
-            # Now that we've acquired the lock, we can be sure all message
-            # streaming is done. Prevent any subsequent requests by setting the
-            # shutdown flag.
-            self._is_shut_down = True
+        if (self._active_transaction
+                and not self._active_transaction.is_complete()):
+            self._logger.debug(
+                "Waiting for ongoing transaction to complete before exiting.")
+            await self._active_transaction.wait()
         await self._publisher.__aexit__(*args)
         return False
+
+    async def transaction(self) -> SessionTransaction:
+        """
+        Create a transaction.
+
+        A transaction isolates a set of operations by only allowing one of them
+        at a time. If there is still an active transaction, blocks until it
+        completes.
+        """
+        if self._active_transaction:
+            if not self._active_transaction.is_complete():
+                self._logger.debug(
+                    "Waiting for ongoing transaction to complete before "
+                    "starting the next one.")
+            await self._active_transaction.wait()
+        self._active_transaction = SessionTransaction(self)
+        return self._active_transaction
 
     @property
     def num_messages(self) -> int:
         """The number of messages in this session."""
         return len(self._messages or [])
 
-    async def append_internal_message(
+    async def _append_internal_message(
             self, message_class: type[msg.InternalMessage], content: str,
             **kwargs) -> None:
-        async with self._lock:
-            if self._is_shut_down:
-                raise RuntimeError("shut down, can't process more messages")
-            await self._append_internal_message_locked(
-                message_class, content, **kwargs)
-
-    async def _append_internal_message_locked(
-            self, message_class, content, **kwargs):
         assert issubclass(message_class, msg.InternalMessage)
         message = message_class(
             msg.InternalMessageMetadata(
@@ -106,31 +205,27 @@ class Session:
             **kwargs)
         await self._append_message(message)
 
-    async def append_agent_message(
+    async def _append_agent_message(
             self, message_parts: util.StreamableList) -> None:
-        async with self._lock:
-            if self._is_shut_down:
-                raise RuntimeError("shut down, can't process more messages")
-            metadata = self._make_chat_metadata(
-                util.ImmediateValue(we.Instant.now()), self.active_chat)
-            message = msg.AgentMessage(metadata, message_parts)
-            await self._append_message(message)
 
-    async def handle_chat_message(self, chat_message: mdl.ChatMessage) -> None:
+        metadata = self._make_chat_metadata(
+            util.ImmediateValue(we.Instant.now()), self._active_chat)
+        message = msg.AgentMessage(metadata, message_parts)
+        await self._append_message(message)
+
+    async def _handle_chat_message(
+            self, chat_message: mdl.ChatMessage) -> None:
         """
         Add an incoming message to this session.
         """
         if chat_message.role != "user":
             raise ValueError("Can only handle chat messages with role 'user'.")
-        async with self._lock:
-            if self._is_shut_down:
-                raise RuntimeError("shut down, can't process more messages")
-            await self._add_metadata_for_user_message(chat_message)
-            metadata = self._make_chat_metadata(
-                chat_message.metadata.time, chat_message.metadata.chat)
-            message = msg.UserMessage(metadata, content=chat_message.content)
-            await self._append_message(message)
-            await self._request_responses()
+        await self._add_metadata_for_user_message(chat_message)
+        metadata = self._make_chat_metadata(
+            chat_message.metadata.time, chat_message.metadata.chat)
+        message = msg.UserMessage(metadata, content=chat_message.content)
+        await self._append_message(message)
+        await self._request_responses()
 
     async def _add_metadata_for_user_message(
             self, user_message: mdl.ChatMessage):
@@ -143,7 +238,7 @@ class Session:
             # end the conversation.
             message_content += await file.render_message_template(
                 "fragments/agent_to_agent_comm_reminder.md")
-        await self._append_internal_message_locked(
+        await self._append_internal_message(
             msg.SystemMessage, content=message_content)
 
     def _make_chat_metadata(
@@ -217,7 +312,7 @@ class Session:
         stream_task = await self._provider.stream_agent_message(
             parts, self._messages, self._mcp_client.tools.values())
         metadata = self._make_chat_metadata(
-            util.FutureValue(), self.active_chat)
+            util.FutureValue(), self._active_chat)
         message = msg.AgentMessage(metadata, parts)
         await self._append_message(message)
         return message, stream_task
@@ -231,11 +326,11 @@ class Session:
                 arguments_dict = json.loads(tool_call.function.arguments)
                 result_string = await self._mcp_client.call_tool(
                     tool_call.function.name, arguments_dict)
-                await self._append_internal_message_locked(
+                await self._append_internal_message(
                     msg.ToolMessage, content=result_string,
                     tool_call_id=tool_call.id)
             except Exception as e:
-                await self._append_internal_message_locked(
+                await self._append_internal_message(
                     msg.ToolMessage, content="Error in tool call: " + str(e),
                     tool_call_id=tool_call.id)
                 self._logger.exception("Error in tool call.")
@@ -299,14 +394,11 @@ class Agent:
     def information(self) -> mdl.AgentInformation:
         return self._agent_information
 
-    @property
-    def active_chat(self) -> mdl.ChatDescriptor:
-        return self._agent_information.active_chat
 
-    @active_chat.setter
-    def active_chat(self, value: mdl.ChatDescriptor) -> None:
+    def update_active_chat(
+            self, value: mdl.ChatDescriptor, tx: SessionTransaction) -> None:
         self._agent_information.active_chat = value
-        self._session.active_chat = value
+        tx.active_chat = value
 
     @property
     def workspace_dir(self) -> pathlib.Path:
@@ -337,14 +429,14 @@ class Agent:
         await self._mcp_client.__aenter__()
         await self._channel_router.__aenter__()
         async with self._lock:
-            self._read_incoming_messages_task = asyncio.create_task(
-                self._read_incoming_messages())
+            self._read_chat_messages_task = asyncio.create_task(
+                self._read_chat_messages())
             await self._ensure_active_session()
             return self
 
     async def __aexit__(self, *args) -> bool:
         async with self._lock:
-            self._read_incoming_messages_task.cancel()
+            self._read_chat_messages_task.cancel()
             try:
                 async with asyncio.timeout(120):
                     await self._session.__aexit__(*args)
@@ -352,10 +444,9 @@ class Agent:
                 self._logger.exception("Error shutting down session.")
             try:
                 async with asyncio.timeout(20):
-                    await self._read_incoming_messages_task
+                    await self._read_chat_messages_task
             except Exception:
-                self._logger.exception(
-                    "Error waiting for incoming message task.")
+                self._logger.exception("Error waiting for chat message task.")
         try:
             async with asyncio.timeout(5):
                 await self._channel_router.__aexit__(*args)
@@ -378,17 +469,18 @@ class Agent:
             session_seq)
         return self._session_factory(
             session_seq, message_store=message_store,
-            active_chat=self.active_chat)
+            active_chat=self.information.active_chat)
 
     async def _ensure_active_session(self):
         active_session_seq = self._message_store.get_active_session_seq()
         self._session = self._make_session(active_session_seq)
         await self._session.__aenter__()
-        if active_session_seq == 0 and not self._session.num_messages:
-            self._logger.info(
-                f"Existing agent {self} has no sessions. Starting the first "
-                "one.")
-            await self._send_session_init_messages()
+        async with await self._session.transaction() as tx:
+            if active_session_seq == 0 and not tx.num_messages:
+                self._logger.info(
+                    f"Existing agent {self} has no sessions. Starting the "
+                    "first one.")
+                await self._send_session_init_messages(tx)
 
     async def _start_new_session(self):
         if self._session:
@@ -396,24 +488,25 @@ class Agent:
         self._session = self._make_session(
             self._message_store.get_active_session_seq() + 1)
         await self._session.__aenter__()
-        await self._send_session_init_messages()
+        async with await self._session.transaction() as tx:
+            await self._send_session_init_messages(tx)
 
-    async def _send_session_init_messages(self):
+    async def _send_session_init_messages(
+            self, tx: SessionTransaction) -> None:
         async for message in self._onboarding_messages():
-            await self._session.append_internal_message(
-                msg.DeveloperMessage, message)
+            await tx.append_internal_message(msg.DeveloperMessage, message)
         # Tell the agent that this is a new session.
-        await self._session.append_internal_message(
+        await tx.append_internal_message(
             msg.SystemMessage, await file.render_message_template(
                 "system_information/session_initialization.md"))
         # Tell the agent about available channels.
         for channel in self._channel_router.channels.values():
-            await self._add_channel_status_message(channel)
+            await self._add_channel_status_message(channel, tx)
         # Tell the agent about their workspace and personality files.
-        await self._session.append_internal_message(
+        await tx.append_internal_message(
             msg.SystemMessage, await file.render_workspace_info(self))
         for pf in self.information.personality.personality_files:
-            await self._session.append_internal_message(
+            await tx.append_internal_message(
                 msg.SystemMessage, await
                 file.render_file_content(self.workspace_dir, pf.path))
 
@@ -428,30 +521,26 @@ class Agent:
         tutorial_topics = [
             "system_sessions",
             "system_system_messages",
-            # "message_system_information",
-            # "message_message_metadata",
-            # "message_channel_status",
-            # "message_file_content",
             "system_channels_chats",
             "channel_web_ui",
             "channel_agent",
-            # "channel_matrix",
             "system_workspace_memory",]
         for topic in tutorial_topics:
             yield await file.render_tutorial(topic)
 
-    async def _add_channel_status_message(self, channel: chan.Channel):
-        await self._session.append_internal_message(
+    async def _add_channel_status_message(
+            self, channel: chan.Channel, tx: SessionTransaction) -> None:
+        await tx.append_internal_message(
             msg.SystemMessage, await file.render_channel_status(
                 channel, available=channel.type in self.channels))
 
-    async def _read_incoming_messages(self) -> None:
+    async def _read_chat_messages(self) -> None:
         handle_task = None
         try:
             async for message in self._channel_router.incoming_messages():
                 async with self._lock:
                     handle_task = asyncio.create_task(
-                        self._handle_incoming_message(message))
+                        self._handle_chat_message(message))
                     await asyncio.shield(handle_task)
         except asyncio.CancelledError:
             if not handle_task:
@@ -461,22 +550,24 @@ class Agent:
                     await handle_task
             except Exception:
                 self._logger.exception(
-                    "Error waiting for final incoming message.")
+                    "Error waiting to process final chat message.")
 
-    async def _handle_incoming_message(self, message: mdl.ChatMessage) -> None:
+    async def _handle_chat_message(self, message: mdl.ChatMessage) -> None:
         try:
-            if message.metadata.chat != self.active_chat:
-                # We've received a message in a chat other than the active
-                # chat. Inject messages into the session that make it look like
-                # the agent switched to that chat in response to it.
-                await self._switch_active_chat(message.metadata.chat)
-            await self._session.handle_chat_message(message)
+            async with await self._session.transaction() as tx:
+                if message.metadata.chat != self.information.active_chat:
+                    # We've received a message in a chat other than the active
+                    # chat. Inject messages into the session that make it look
+                    # like the agent switched to that chat in response to it.
+                    await self._switch_active_chat(message.metadata.chat, tx)
+                await tx.handle_chat_message(message)
         except Exception:
-            self._logger.exception("Error handling incoming message.")
+            self._logger.exception("Error handling chat message.")
 
-    async def _switch_active_chat(self, chat: mdl.ChatDescriptor) -> None:
-        assert self.active_chat != chat
-        await self._session.append_internal_message(
+    async def _switch_active_chat(
+            self, chat: mdl.ChatDescriptor, tx: SessionTransaction) -> None:
+        assert self.information.active_chat != chat
+        await tx.append_internal_message(
             msg.SystemMessage,
             content=f"1 new message in chat {chat.model_dump_json()}")
         tool_part = msg.AgentMessageToolPart()
@@ -486,13 +577,12 @@ class Agent:
             msg.ToolCall(
                 id="call_00_ui1YuJA6eD2P7r4v1DQP8967", function=function))
         await tool_part.finalize()
-        await self._session.append_agent_message(
-            util.StreamableList([tool_part]))
-        await self._session.append_internal_message(
+        await tx.append_agent_message(util.StreamableList([tool_part]))
+        await tx.append_internal_message(
             msg.ToolMessage,
             content=f"Switched to chat {chat.model_dump_json()}, showing 1 "
             "new message", tool_call_id="call_00_ui1YuJA6eD2P7r4v1DQP8967")
-        self.active_chat = chat
+        self.update_active_chat(chat, tx)
 
     def messages(
             self) -> cl_abc.Generator[tuple[mdl.MessageOffset, msg.Message]]:
@@ -533,12 +623,13 @@ class Agent:
         Raises a ValueError if a channel of this type already exists for the
         agent.
         """
-        if channel.type in self.information.claimed_channels:
-            raise ValueError(
-                f"agent already has a channel of type {channel.type}")
-        await self._channel_router.add_channel(channel)
-        self.information.claimed_channels[channel.type] = channel.id
-        await self._add_channel_status_message(channel)
+        async with await self._session.transaction() as tx:
+            if channel.type in self.information.claimed_channels:
+                raise ValueError(
+                    f"agent already has a channel of type {channel.type}")
+            await self._channel_router.add_channel(channel)
+            self.information.claimed_channels[channel.type] = channel.id
+            await self._add_channel_status_message(channel, tx)
 
     async def remove_channel(self, channel_type: mdl.ChannelType) -> None:
         """
@@ -546,14 +637,16 @@ class Agent:
 
         Raises a ValueError if the agent currently has no channel of this type.
         """
-        try:
-            channel = self.channels[channel_type]
-            assert channel_type in self.information.claimed_channels
-        except (KeyError, AssertionError):
-            raise ValueError(f"agent has no channel of type {channel_type}")
-        await self._channel_router.remove_channel(channel_type)
-        del self.information.claimed_channels[channel_type]
-        await self._add_channel_status_message(channel)
+        async with await self._session.transaction() as tx:
+            try:
+                channel = self.channels[channel_type]
+                assert channel_type in self.information.claimed_channels
+            except (KeyError, AssertionError):
+                raise ValueError(
+                    f"agent has no channel of type {channel_type}")
+            await self._channel_router.remove_channel(channel_type)
+            del self.information.claimed_channels[channel_type]
+            await self._add_channel_status_message(channel, tx)
 
 
 class AgentRepository:
@@ -662,7 +755,7 @@ class AgentRepository:
             workspace_dir=workspace_dir, message_store=message_store,
             memory_store=memory_store,
             channel_router=chan.ChannelRouter(channels),
-            provider=self._provider, active_chat=agent_information.active_chat)
+            provider=self._provider)
 
     def _load_agent_information(
             self, agent_base_dir: pathlib.Path) -> mdl.AgentInformation:
