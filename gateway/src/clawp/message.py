@@ -28,38 +28,29 @@ from . import model as mdl
 from . import provider as prov
 from . import util
 
-MessageRole = t.Literal["agent", "developer", "system", "tool", "user"]
-
 
 @dc.dataclass
-class IncomingMessageMetadata:
-    """
-    Message metadata known immediately.
-
-    This is the metadata that is known as soon as the message is fully
-    received.
-    """
+class InternalMessageMetadata:
+    """Message metadata for internal messages."""
     time: util.Value[we.Instant]
     """The time the message was fully received."""
-    channel: mdl.ChannelDescriptor
-    """The channel the message is on."""
+    @property
+    async def model(self) -> mdl.MessageMetadata:
+        return mdl.InternalMessageMetadata(time=await self.time.value)
 
 
 @dc.dataclass
-class MessageMetadata(IncomingMessageMetadata):
-    """
-    Full message metadata.
-
-    This is the metadata that is known once a message has been integrated and
-    committed into the running system.
-    """
-    seq_in_session: int
-    """The message's sequence number in its session."""
+class ChatMessageMetadata(InternalMessageMetadata):
+    """Message metadata for chat messages."""
+    chat: mdl.ChatDescriptor
+    """The chat the message is a part of."""
     @property
     async def model(self) -> mdl.MessageMetadata:
-        return mdl.MessageMetadata(
-            time=await self.time.value, channel=self.channel,
-            seq_in_session=self.seq_in_session)
+        return mdl.ChatMessageMetadata(
+            time=await self.time.value, chat=self.chat)
+
+
+MessageMetadata = InternalMessageMetadata | ChatMessageMetadata
 
 
 class Message(abc.ABC):
@@ -72,7 +63,7 @@ class Message(abc.ABC):
 
     @property
     @abc.abstractmethod
-    def role(self) -> MessageRole:
+    def role(self) -> mdl.MessageRole:
         raise NotImplementedError
 
     @property
@@ -86,14 +77,6 @@ class Message(abc.ABC):
     async def model(self) -> mdl.Message:
         """Model representation of this message."""
         raise NotImplementedError
-
-    @property
-    async def _metadata_model(self) -> mdl.MessageMetadata:
-        return mdl.MessageMetadata(
-            seq_in_session=self.metadata.seq_in_session,
-            time=await self.metadata.time.value,
-            channel=self.metadata.channel,
-        )
 
     @classmethod
     def from_model(cls, message_model: mdl.Message) -> t.Self:
@@ -109,27 +92,80 @@ class Message(abc.ABC):
             assert isinstance(message_model, mdl.UserMessage)
             return UserMessage.from_model(message_model)
 
-    @classmethod
-    def _metadata_from_model(cls, model: mdl.Message) -> MessageMetadata:
-        return MessageMetadata(
-            seq_in_session=model.metadata.seq_in_session,
-            time=util.ImmediateValue(model.metadata.time),
-            channel=model.metadata.channel,
-        )
 
-
-class SimpleMessage(Message):
-    def __init__(
-            self, metadata: MessageMetadata, role: MessageRole,
-            content: str) -> None:
+class InternalMessage(Message):
+    def __init__(self, metadata: InternalMessageMetadata) -> None:
         super().__init__(metadata)
-        if role not in t.get_args(MessageRole):
+
+    @property
+    def metadata(self) -> InternalMessageMetadata:
+        return super().metadata
+
+    @property
+    @abc.abstractmethod
+    def role(self) -> mdl.InternalMessageRole:
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    async def model(self) -> mdl.InternalMessage:
+        raise NotImplementedError
+
+    @property
+    async def _metadata_model(self) -> mdl.InternalMessageMetadata:
+        return mdl.InternalMessageMetadata(time=await self.metadata.time.value)
+
+    @classmethod
+    def _metadata_from_model(
+            cls, model: mdl.InternalMessage) -> InternalMessageMetadata:
+        return InternalMessageMetadata(
+            time=util.ImmediateValue(model.metadata.time))
+
+
+class ChatMessage(Message):
+    def __init__(self, metadata: ChatMessageMetadata) -> None:
+        super().__init__(metadata)
+
+    @property
+    def metadata(self) -> ChatMessageMetadata:
+        return super().metadata
+
+    @property
+    @abc.abstractmethod
+    def role(self) -> mdl.ChatMessageRole:
+        raise NotImplementedError
+
+    @property
+    @abc.abstractmethod
+    async def model(self) -> mdl.ChatMessage:
+        """Model representation of this message."""
+        raise NotImplementedError
+
+    @property
+    async def _metadata_model(self) -> mdl.ChatMessageMetadata:
+        return mdl.ChatMessageMetadata(
+            time=await self.metadata.time.value, chat=self.metadata.chat)
+
+    @classmethod
+    def _metadata_from_model(
+            cls, model: mdl.ChatMessage) -> ChatMessageMetadata:
+        return ChatMessageMetadata(
+            time=util.ImmediateValue(model.metadata.time),
+            chat=model.metadata.chat)
+
+
+class SimpleInternalMessage(InternalMessage):
+    def __init__(
+            self, metadata: InternalMessageMetadata,
+            role: mdl.InternalMessageRole, content: str) -> None:
+        super().__init__(metadata)
+        if role not in t.get_args(mdl.InternalMessageRole):
             raise ValueError(f"invalid role {role}")
         self._role = role
         self._content = content
 
     @property
-    def role(self) -> MessageRole:
+    def role(self) -> mdl.InternalMessageRole:
         return self._role
 
     @property
@@ -137,12 +173,13 @@ class SimpleMessage(Message):
         return self._content
 
     @classmethod
-    def from_model(cls, model: mdl.Message) -> t.Self:
+    def from_model(cls, model: mdl.InternalMessage) -> t.Self:
         return cls(cls._metadata_from_model(model), model.content)
 
 
-class SystemMessage(SimpleMessage):
-    def __init__(self, metadata: MessageMetadata, content: str) -> None:
+class SystemMessage(SimpleInternalMessage):
+    def __init__(
+            self, metadata: InternalMessageMetadata, content: str) -> None:
         super().__init__(metadata, "system", content)
 
     @property
@@ -151,8 +188,9 @@ class SystemMessage(SimpleMessage):
             metadata=await self._metadata_model, content=await self.content)
 
 
-class DeveloperMessage(SimpleMessage):
-    def __init__(self, metadata: MessageMetadata, content: str) -> None:
+class DeveloperMessage(SimpleInternalMessage):
+    def __init__(
+            self, metadata: InternalMessageMetadata, content: str) -> None:
         super().__init__(metadata, "developer", content)
 
     @property
@@ -161,21 +199,34 @@ class DeveloperMessage(SimpleMessage):
             metadata=await self._metadata_model, content=await self.content)
 
 
-class UserMessage(SimpleMessage):
+class UserMessage(ChatMessage):
     """Message sent by the user."""
-    def __init__(self, metadata: MessageMetadata, content: str) -> None:
-        super().__init__(metadata, "user", content)
+    def __init__(self, metadata: ChatMessageMetadata, content: str) -> None:
+        super().__init__(metadata)
+        self._content = content
+
+    @property
+    def role(self) -> t.Literal["user"]:
+        return "user"
+
+    @property
+    async def content(self) -> str:
+        return self._content
 
     @property
     async def model(self) -> mdl.UserMessage:
         return mdl.UserMessage(
-            metadata=await self._metadata_model, content=await self.content)
+            metadata=await self._metadata_model, content=self._content)
+
+    @classmethod
+    def from_model(cls, model: mdl.UserMessage) -> t.Self:
+        return cls(cls._metadata_from_model(model), model.content)
 
 
-class ToolMessage(SimpleMessage):
+class ToolMessage(SimpleInternalMessage):
     """Message sent by the system in response to a tool call."""
     def __init__(
-            self, metadata: MessageMetadata, content: str,
+            self, metadata: InternalMessageMetadata, content: str,
             tool_call_id: str) -> None:
         super().__init__(metadata, "tool", content)
         self._tool_call_id = tool_call_id
@@ -306,7 +357,7 @@ class AgentMessageErrorPart(AgentMessagePart):
             yield fragment
 
 
-class AgentMessage(Message):
+class AgentMessage(ChatMessage):
     """
     A message returned by the agent.
 

@@ -18,13 +18,13 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type {
-  AssistantMessage,
   AssistantMessageError,
-  ChannelDescriptor,
-  Message,
+  ChatDescriptor,
+  MessageInSession,
+  MessageOffset,
   ToolCall,
   StreamingMessageMarkerPartStart,
-  StreamingAssistantMessage,
+  StreamingAssistantMessageInSession,
 } from "../types/api";
 
 type ActivePartType = StreamingMessageMarkerPartStart['part_type'];
@@ -46,7 +46,7 @@ export type HistoryState =
   | { status: 'error', error: string };
 
 export const useChatStore = defineStore('chat', () => {
-  const messages = ref<Message[]>([]);
+  const messages = ref<MessageInSession[]>([]);
   const visibility = ref({
     systemDeveloper: 'show' as MessageVisibilityMode,
     tool: 'show' as MessageVisibilityMode,
@@ -58,13 +58,13 @@ export const useChatStore = defineStore('chat', () => {
   const historyState = ref<HistoryState>({ status: 'loading' });
 
   // Streaming State
-  const activeStreamingMessage = ref<StreamingAssistantMessage | null>(null);
+  const activeStreamingMessage = ref<StreamingAssistantMessageInSession | null>(null);
   const activeStreamPartType = ref<ActivePartType | null>(null);
 
   const displayedMessages = computed(() => {
     const list = [...messages.value];
     if (activeStreamingMessage.value) {
-      list.push(activeStreamingMessage.value as unknown as Message);
+      list.push(activeStreamingMessage.value as unknown as MessageInSession);
     }
     return list;
   });
@@ -77,10 +77,10 @@ export const useChatStore = defineStore('chat', () => {
     historyState.value = state;
   }
 
-  function addMessage(message: Message) {
-    const seq = message.metadata.seq_in_session;
+  function addMessage(message: MessageInSession) {
+    const seq = message.message_offset.message_seq;
     // Check if we already have a message with this sequence number
-    const existingIndex = messages.value.findIndex(m => m.metadata.seq_in_session === seq);
+    const existingIndex = messages.value.findIndex(m => m.message_offset.message_seq === seq);
     if (existingIndex !== -1) {
       // If it exists, we assume it's already being handled (e.g. streaming or already complete from history).
       return;
@@ -88,7 +88,7 @@ export const useChatStore = defineStore('chat', () => {
 
     // Insert maintaining order
     messages.value.push(message);
-    messages.value.sort((a, b) => a.metadata.seq_in_session - b.metadata.seq_in_session);
+    messages.value.sort((a, b) => a.message_offset.message_seq - b.message_offset.message_seq);
   }
 
   function clearMessages() {
@@ -99,8 +99,8 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   // Used by the stream to create the placeholder agent message before fragments arrive
-  function startStreamingMessage(seqInSession: number, channel: ChannelDescriptor) {
-    const existingMsg = messages.value.find(m => m.metadata.seq_in_session === seqInSession);
+  function startStreamingMessage(messageOffset: MessageOffset, chat: ChatDescriptor) {
+    const existingMsg = messages.value.find(m => m.message_offset.message_seq === messageOffset.message_seq);
     if (existingMsg) {
       // If we already have this message (e.g. from history), we should not start a new stream for it.
       activeStreamingMessage.value = null;
@@ -108,27 +108,32 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     activeStreamingMessage.value = {
-      role: 'agent',
-      content: '',
-      reasoning: '',
-      tool_calls: [],
-      errors: [],
-      metadata: {
-        seq_in_session: seqInSession,
-        channel: channel,
+      message: {
+        role: 'agent',
+        content: '',
+        reasoning: '',
+        tool_calls: [],
+        errors: [],
+        metadata: {
+          chat: chat,
+        },
       },
+      message_offset: messageOffset,
     };
   }
 
   function endStreamingMessage(time: Date) {
     if (!activeStreamingMessage.value) return;
     
-    const finalizedMessage: AssistantMessage = {
-      ...activeStreamingMessage.value,
-      metadata: {
-        ...activeStreamingMessage.value.metadata,
-        time,
+    const finalizedMessage: MessageInSession = {
+      message: {
+        ...activeStreamingMessage.value.message,
+        metadata: {
+          ...activeStreamingMessage.value.message.metadata,
+          time,
+        },
       },
+      message_offset: activeStreamingMessage.value.message_offset,
     };
     
     addMessage(finalizedMessage);
@@ -148,20 +153,20 @@ export const useChatStore = defineStore('chat', () => {
     if (!activeStreamingMessage.value || !activeStreamPartType.value) return;
 
     if (activeStreamPartType.value === 'content') {
-      activeStreamingMessage.value.content += text;
+      activeStreamingMessage.value.message.content += text;
     } else if (activeStreamPartType.value === 'reasoning') {
-      activeStreamingMessage.value.reasoning += text;
+      activeStreamingMessage.value.message.reasoning += text;
     }
   }
 
   function appendStreamFragmentToolCall(toolCall: ToolCall) {
     if (!activeStreamingMessage.value || activeStreamPartType.value !== 'tool') return;
-    activeStreamingMessage.value.tool_calls.push(toolCall);
+    activeStreamingMessage.value.message.tool_calls.push(toolCall);
   }
 
   function appendStreamFragmentError(error: AssistantMessageError) {
     if (!activeStreamingMessage.value || activeStreamPartType.value !== 'error') return;
-    activeStreamingMessage.value.errors.push(error);
+    activeStreamingMessage.value.message.errors.push(error);
   }
 
   function cycleMessageVisibility(key: MessageVisibilityKey) {

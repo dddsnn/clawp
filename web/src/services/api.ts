@@ -18,7 +18,7 @@
 import { z } from 'zod';
 import { useChatStore } from '../stores/chatStore';
 import {
-  MessageSchema,
+  MessageInSessionSchema,
   WebsocketChunkSchema,
   AgentInformationSchema,
   AgentPersonalitySchema,
@@ -34,7 +34,7 @@ import type {
   ChannelInformation,
 } from '../types/api';
 
-const MessagesResponseSchema = z.array(MessageSchema);
+const MessagesInSessionResponseSchema = z.array(MessageInSessionSchema);
 const AgentsResponseSchema = z.array(AgentInformationSchema);
 const PersonalitiesResponseSchema = z.array(AgentPersonalitySchema);
 const ChannelsResponseSchema = z.array(ChannelInformationSchema);
@@ -63,7 +63,7 @@ export async function fetchHistory(agentId: string) {
     throw new Error(`HTTP error! status: ${response.status}`);
   }
   const rawData = await response.json();
-  return MessagesResponseSchema.parse(rawData);
+  return MessagesInSessionResponseSchema.parse(rawData);
 }
 
 export async function fetchPersonalities(): Promise<AgentPersonality[]> {
@@ -243,7 +243,7 @@ export class ChatConnection {
       const marker = chunk.payload;
       
       if (marker.marker_type === 'message_start') {
-        this.store.startStreamingMessage(marker.metadata.seq_in_session, marker.metadata.channel);
+        this.store.startStreamingMessage(marker.message_offset, marker.metadata.chat);
       } 
       else if (marker.marker_type === 'part_start') {
         this.store.setActivePartType(marker.part_type);

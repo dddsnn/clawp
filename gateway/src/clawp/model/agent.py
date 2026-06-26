@@ -65,3 +65,4 @@ class AgentInformation(base.BaseModel):
 
     A mapping of channel type to channel ID.
     """
+    active_chat: chan.ChatDescriptor

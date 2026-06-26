@@ -21,7 +21,7 @@ with clawp. If not, see <https://www.gnu.org/licenses/>.
 import { computed, ref, onMounted } from 'vue';
 import { useScroll } from '@vueuse/core';
 import { useChatStore } from '../../stores/chatStore';
-import type { Message, StreamingAssistantMessage } from '../../types/api';
+import type { Message, MessageInSession, StreamingAssistantMessage, StreamingAssistantMessageInSession } from '../../types/api';
 import MessageBubble from './MessageBubble.vue';
 import { Bot, Loader2, AlertCircle } from 'lucide-vue-next';
 
@@ -45,8 +45,7 @@ const isCrossChannelConversationMessage = (message: Message | StreamingAssistant
   if (message.role !== 'user' && message.role !== 'agent') {
     return false;
   }
-
-  return message.metadata.channel.type !== 'web_ui';
+  return message.metadata.chat.channel !== 'web_ui';
 };
 
 const resolveDisplayMode = (message: Message | StreamingAssistantMessage): BubbleDisplayMode | 'hidden' => {
@@ -76,12 +75,12 @@ const resolveDisplayMode = (message: Message | StreamingAssistantMessage): Bubbl
 
 const presentedMessages = computed(() => {
   return store.displayedMessages
-    .map((message) => ({
-      message,
-      displayMode: resolveDisplayMode(message),
+    .map((messageInSession) => ({
+      messageInSession,
+      displayMode: resolveDisplayMode(messageInSession.message),
     }))
     .filter((entry) => entry.displayMode !== 'hidden') as Array<{
-      message: Message | StreamingAssistantMessage;
+      messageInSession: MessageInSession | StreamingAssistantMessageInSession;
       displayMode: BubbleDisplayMode;
     }>;
 });
@@ -135,8 +134,8 @@ onMounted(() => {
       <!-- Message List -->
       <MessageBubble
         v-for="entry in presentedMessages"
-        :key="entry.message.metadata.seq_in_session"
-        :message="entry.message"
+        :key="entry.messageInSession.message_offset.message_seq"
+        :message="entry.messageInSession.message"
         :display-mode="entry.displayMode"
         :reasoning-visibility-mode="store.visibility.reasoning"
       />

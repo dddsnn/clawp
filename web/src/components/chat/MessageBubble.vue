@@ -56,16 +56,17 @@ const isCrossChannelConversation = computed(() => {
   if (props.message.role !== 'user' && props.message.role !== 'agent') {
     return false;
   }
-
-  return props.message.metadata.channel.type !== 'web_ui';
+  return props.message.metadata.chat.channel !== 'web_ui';
 });
 
 const channelTypeLabel = computed(() => {
   if (!isCrossChannelConversation.value) {
     return null;
   }
-
-  return props.message.metadata.channel.type;
+  if ('chat' in props.message.metadata) {
+    return props.message.metadata.chat.channel;
+  }
+  return 'internal';
 });
 
 const hintPreview = computed(() => {

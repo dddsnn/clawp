@@ -21,15 +21,17 @@ import pydantic as pyd
 
 from . import base
 from . import channel as chan
+from . import message as msg
 
-if t.TYPE_CHECKING:
-    from .. import message as msg
+
+InternalMessageRole = t.Literal["developer", "system", "tool"]
+ChatMessageRole = t.Literal["agent", "user"]
+MessageRole = InternalMessageRole | ChatMessageRole
 
 
 class StartMessageMetadata(base.BaseModel):
     """Metadata available when a message is first created."""
-    seq_in_session: int
-    channel: chan.ChannelDescriptor
+    chat: chan.ChatDescriptor
 
 
 class EndMessageMetadata(base.BaseModel):
@@ -37,41 +39,58 @@ class EndMessageMetadata(base.BaseModel):
     time: base.Iso8601Millis
 
 
-class MessageMetadata(StartMessageMetadata, EndMessageMetadata):
-    """Full message metadata."""
+class InternalMessageMetadata(EndMessageMetadata):
+    """Full message metadata for internal messages."""
+
+
+class ChatMessageMetadata(StartMessageMetadata, EndMessageMetadata):
+    """Full message metadata for chat messages."""
     @staticmethod
-    async def from_incoming_message(
-            incoming_metadata: "msg.IncomingMessageMetadata",
-            seq_in_session: int) -> "MessageMetadata":
-        """Create from incoming metadata and a seq_in_session."""
-        return MessageMetadata(
-            time=await incoming_metadata.time.value,
-            channel=incoming_metadata.channel, seq_in_session=seq_in_session)
+    def from_chat_message_metadata(
+            chat_metadata: msg.ChatMessageMetadata) -> "ChatMessageMetadata":
+        """Create from chat message metadata."""
+        return ChatMessageMetadata(
+            time=chat_metadata.time, chat=chat_metadata.chat)
+
+
+MessageMetadata = InternalMessageMetadata | ChatMessageMetadata
 
 
 class BaseMessage(base.BaseModel):
+    role: MessageRole
     metadata: MessageMetadata
-    role: t.Literal["agent", "developer", "system", "tool", "user"]
     content: str
 
 
-class DeveloperMessage(BaseMessage):
+class InternalMessage(BaseMessage):
+    """Message that only exists internally."""
+    role: InternalMessageRole
+    metadata: InternalMessageMetadata
+
+
+class ChatMessage(BaseMessage):
+    """Message that arrives via channels/chats."""
+    role: ChatMessageRole
+    metadata: ChatMessageMetadata
+
+
+class DeveloperMessage(InternalMessage):
     """Message sent by a developer."""
     role: t.Literal["developer"] = "developer"
 
 
-class SystemMessage(BaseMessage):
+class SystemMessage(InternalMessage):
     """Message sent by the system."""
     role: t.Literal["system"] = "system"
 
 
-class ToolMessage(BaseMessage):
+class ToolMessage(InternalMessage):
     """Message sent by the system in response to a tool call."""
     role: t.Literal["tool"] = "tool"
     tool_call_id: str
 
 
-class UserMessage(BaseMessage):
+class UserMessage(ChatMessage):
     """Message sent by the user."""
     role: t.Literal["user"] = "user"
 
@@ -95,7 +114,7 @@ class AgentMessageError(base.BaseModel):
     kwargs: dict = pyd.Field(default_factory=dict)
 
 
-class AgentMessage(BaseMessage):
+class AgentMessage(ChatMessage):
     """Message sent by the agent."""
     role: t.Literal["agent"] = "agent"
     reasoning: str
@@ -112,6 +131,16 @@ Message = t.Annotated[AgentMessage | NonStreamableMessage,
 MessageTypeAdapter = pyd.TypeAdapter(Message)
 
 
+class MessageOffset(base.BaseModel):
+    session_seq: int
+    message_seq: int
+
+
+class MessageInSession(base.BaseModel):
+    message: Message
+    message_offset: MessageOffset
+
+
 class BaseStreamingMessageMarker(base.BaseModel):
     """A marker in the stream of a streamable message."""
     marker_type: t.Literal["message_start", "message_end", "part_start",
@@ -122,6 +151,7 @@ class StreamingMessageMarkerMessageStart(BaseStreamingMessageMarker):
     """A marker signalling the start of the message."""
     marker_type: t.Literal["message_start"] = "message_start"
     metadata: StartMessageMetadata
+    message_offset: MessageOffset
 
 
 class StreamingMessageMarkerMessageEnd(BaseStreamingMessageMarker):
@@ -187,7 +217,7 @@ class BaseWebsocketChunk(base.BaseModel):
 class WebsocketChunkFullMessage(BaseWebsocketChunk):
     """A chunk containing a full message."""
     chunk_type: t.Literal["full_message"] = "full_message"
-    payload: NonStreamableMessage
+    payload: MessageInSession
 
 
 class WebsocketChunkAgentMessageMarker(BaseWebsocketChunk):

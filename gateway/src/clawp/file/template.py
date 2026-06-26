@@ -20,7 +20,6 @@ import pathlib
 import traceback
 import typing as t
 
-from .. import model as mdl
 from . import base
 
 if t.TYPE_CHECKING:

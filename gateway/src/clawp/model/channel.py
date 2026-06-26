@@ -23,75 +23,17 @@ import pydantic as pyd
 from . import base
 from . import config as cfg
 
-ChannelType = t.Literal["matrix", "system", "web_ui"]
+ChannelType = t.Literal["agent", "matrix", "web_ui"]
 
 
-class BaseChannelDescriptor(base.BaseModel):
-    type: ChannelType
+class ChatDescriptor(base.BaseModel):
+    channel: ChannelType
+    chat_id: str
 
 
-class SystemChannelDescriptor(BaseChannelDescriptor):
-    type: t.Literal["system"] = "system"
-    override_outgoing_channel: t.Optional[OutgoingChannelDescriptor] = None
-    """
-    An override for the outgoing channel for the response.
+class ChatInformation(base.BaseModel):
+    chat: ChatDescriptor
 
-    If this is set, the agent response should be sent to that outgoing channel
-    instead of the system channel.
-    """
-
-
-class WebUiChannelDescriptor(BaseChannelDescriptor):
-    type: t.Literal["web_ui"] = "web_ui"
-
-
-class AgentIncomingChannelDescriptor(BaseChannelDescriptor):
-    type: t.Literal["agent"] = "agent"
-    sender_id: uuid.UUID
-
-
-class AgentOutgoingChannelDescriptor(BaseChannelDescriptor):
-    type: t.Literal["agent"] = "agent"
-    recipient_id: uuid.UUID
-
-
-class MatrixOutgoingChannelDescriptor(BaseChannelDescriptor):
-    type: t.Literal["matrix"] = "matrix"
-    room_id: str
-
-
-class MatrixIncomingChannelDescriptor(MatrixOutgoingChannelDescriptor):
-    room_name: t.Optional[str]
-    sender_id: str
-    sender_name: t.Optional[str]
-
-
-IncomingChannelDescriptor = t.Annotated[SystemChannelDescriptor
-                                        | WebUiChannelDescriptor
-                                        | AgentIncomingChannelDescriptor
-                                        | MatrixIncomingChannelDescriptor,
-                                        pyd.Field(discriminator="type")]
-"""
-Channel descriptor for incoming messages.
-
-Incoming messages are ones sent to the agent.
-"""
-IncomingChannelDescriptorTypeAdapter = pyd.TypeAdapter(
-    IncomingChannelDescriptor)
-OutgoingChannelDescriptor = t.Annotated[SystemChannelDescriptor
-                                        | WebUiChannelDescriptor
-                                        | AgentOutgoingChannelDescriptor
-                                        | MatrixOutgoingChannelDescriptor,
-                                        pyd.Field(discriminator="type")]
-"""
-Channel descriptor for outgoing messages.
-
-Outgoing messages are ones sent to by agent to the outside.
-"""
-OutgoingChannelDescriptorTypeAdapter = pyd.TypeAdapter(
-    OutgoingChannelDescriptor)
-
-ChannelDescriptor = IncomingChannelDescriptor | OutgoingChannelDescriptor
 
 ChannelConfig = t.Annotated[cfg.MatrixAccountConfig,
                             pyd.Field(discriminator="type")]

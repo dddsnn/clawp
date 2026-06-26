@@ -19,7 +19,6 @@ import asyncio
 import collections.abc as cl_abc
 import enum
 import logging
-import uuid
 
 import fastapi
 import fastapi.exceptions as fa_exc
@@ -77,22 +76,24 @@ async def hatch_new_agent(
 
 @router.get("/{agent_id}/messages")
 async def get_messages(
-        agent: dep.Agent, agent_id: uuid.UUID,
-        ge_time: we.Instant = we.Instant.MIN,
-        lt_seq: int = 2**64) -> list[mdl.Message]:
+        agent: dep.Agent, ge_time: we.Instant = we.Instant.MIN,
+        lt_message_seq: int = 2**64) -> list[mdl.MessageInSession]:
     """
     Get a list of messages.
 
     Optionally, filter by ge_time (only messages with time greater or equal,
-    ISO 8601 format), or lt_seq (only messages with a sequence number less than
-    the given one).
+    ISO 8601 format), or lt_message_seq (only messages with a sequence number
+    less than the given one).
     """
     result = []
-    for message in agent.messages():
-        if message.metadata.seq_in_session >= lt_seq:
+    for message_offset, message in agent.messages():
+        if message_offset.message_seq >= lt_message_seq:
             break
         if await message.metadata.time.value >= ge_time:
-            result.append(await message.model)
+            result.append(
+                mdl.MessageInSession(
+                    message=await message.model,
+                    message_offset=message_offset))
     return result
 
 
@@ -100,8 +101,7 @@ async def get_messages(
     "/{agent_id}/stream/{cachebuster_to_circumvent_reconnection_delay}")
 async def websocket_stream(
         websocket: fastapi.WebSocket, agent: dep.Agent,
-        cachebuster_to_circumvent_reconnection_delay: str,
-        agent_id: uuid.UUID) -> None:
+        cachebuster_to_circumvent_reconnection_delay: str) -> None:
     """
     Open a websocket to stream messages.
 
@@ -163,8 +163,9 @@ async def _send_websocket(
         websocket: fastapi.WebSocket,
         message_iter: cl_abc.AsyncIterable[msg.Message]) -> None:
     try:
-        async for message in message_iter:
-            async for chunk in _generate_message_chunks(message):
+        async for message_offset, message in message_iter:
+            async for chunk in _generate_message_chunks(message_offset,
+                                                        message):
                 # For some reason, we have to schedule the send as a task and
                 # then immediately await that task. If we just await the send,
                 # this loop will sometimes block until the full message content
@@ -189,17 +190,18 @@ async def _try_close_websocket(
 
 
 async def _generate_message_chunks(
+        message_offset: mdl.MessageOffset,
         message: msg.Message) -> cl_abc.AsyncGenerator[mdl.WebsocketChunk]:
     if not isinstance(message, msg.AgentMessage):
-        yield mdl.WebsocketChunkFullMessage(payload=await message.model)
+        yield mdl.WebsocketChunkFullMessage(
+            payload=mdl.MessageInSession(
+                message=await message.model, message_offset=message_offset))
         return
     # At this point, it's a streaming agent message.
-    start_metadata = mdl.StartMessageMetadata(
-        seq_in_session=message.metadata.seq_in_session,
-        channel=message.metadata.channel)
+    start_metadata = mdl.StartMessageMetadata(chat=message.metadata.chat)
     yield mdl.WebsocketChunkAgentMessageMarker(
         payload=mdl.StreamingMessageMarkerMessageStart(
-            metadata=start_metadata))
+            metadata=start_metadata, message_offset=message_offset))
     async for message_part in message.stream_parts():
         yield mdl.WebsocketChunkAgentMessageMarker(
             payload=mdl.StreamingMessageMarkerPartStart(

@@ -17,11 +17,10 @@
 
 from .base import (
     Channel,
-    IncomingMessage,
     MessageReceiver,
     MessageSender,
 )
-from .builtin import AgentChannel, SystemChannel, WebUiChannel
+from .builtin import AgentChannel, WebUiChannel
 from .management import (
     ChannelError,
     ChannelPool,
@@ -36,12 +35,10 @@ from .matrix import MatrixChannel
 __all__ = [
     # base
     "Channel",
-    "IncomingMessage",
     "MessageReceiver",
     "MessageSender",
     # builtin
     "AgentChannel",
-    "SystemChannel",
     "WebUiChannel",
     # management
     "ChannelError",

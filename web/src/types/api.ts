@@ -19,68 +19,57 @@ import { z } from 'zod';
 
 export const Iso8601Schema = z.string().transform((str) => new Date(str));
 
-export const BaseChannelDescriptorSchema = z.object({
-  type: z.enum(['matrix', 'system', 'web_ui']),
+export const BaseChatDescriptorSchema = z.object({
+  channel: z.enum(['agent', 'matrix', 'web_ui']),
+  chat_id: z.string(),
 });
 
-export const AgentIncomingChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
-  type: z.literal('agent'),
-  sender_id: z.string().uuid(),
+export const AgentChatDescriptorSchema = BaseChatDescriptorSchema.extend({
+  channel: z.literal('agent'),
+  chat_id: z.string().uuid(),
 });
 
-export const AgentOutgoingChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
-  type: z.literal('agent'),
-  recipient_id: z.string().uuid(),
+export const MatrixChatDescriptorSchema = BaseChatDescriptorSchema.extend({
+  channel: z.literal('matrix'),
 });
 
-
-export const MatrixOutgoingChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
-  type: z.literal('matrix'),
-  room_id: z.string(),
+export const WebUiChatDescriptorSchema = BaseChatDescriptorSchema.extend({
+  channel: z.literal('web_ui'),
+  chat_id: z.literal(''),
 });
 
-export const MatrixIncomingChannelDescriptorSchema = MatrixOutgoingChannelDescriptorSchema.extend({
-  room_name: z.string().nullable(),
-  sender_id: z.string(),
-  sender_name: z.string().nullable(),
-});
-
-export const SystemChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
-  type: z.literal('system'),
-});
-
-export const WebUiChannelDescriptorSchema = BaseChannelDescriptorSchema.extend({
-  type: z.literal('web_ui'),
-});
-
-export type ChannelDescriptor =
-  | z.infer<typeof AgentOutgoingChannelDescriptorSchema>
-  | z.infer<typeof AgentIncomingChannelDescriptorSchema>
-  | z.infer<typeof MatrixOutgoingChannelDescriptorSchema>
-  | z.infer<typeof MatrixIncomingChannelDescriptorSchema>
-  | z.infer<typeof SystemChannelDescriptorSchema>
-  | z.infer<typeof WebUiChannelDescriptorSchema>;
+export type ChatDescriptor =
+| z.infer<typeof AgentChatDescriptorSchema>
+| z.infer<typeof MatrixChatDescriptorSchema>
+| z.infer<typeof WebUiChatDescriptorSchema>;
 
 
-export const ChannelDescriptorSchema: z.ZodType<ChannelDescriptor> = z.lazy(() => z.union([
-  AgentOutgoingChannelDescriptorSchema,
-  AgentIncomingChannelDescriptorSchema,
-  MatrixOutgoingChannelDescriptorSchema,
-  MatrixIncomingChannelDescriptorSchema,
-  SystemChannelDescriptorSchema,
-  WebUiChannelDescriptorSchema,
+export const ChatDescriptorSchema: z.ZodType<ChatDescriptor> = z.lazy(() => z.union([
+  AgentChatDescriptorSchema,
+  MatrixChatDescriptorSchema,
+  WebUiChatDescriptorSchema,
 ]));
 
 export const StartMessageMetadataSchema = z.object({
-  seq_in_session: z.number(),
-  channel: ChannelDescriptorSchema
+  chat: ChatDescriptorSchema
 });
 
 export const EndMessageMetadataSchema = z.object({
   time: Iso8601Schema,
 });
 
-export const MessageMetadataSchema = StartMessageMetadataSchema.merge(EndMessageMetadataSchema);
+export const InternalMessageMetadataSchema = EndMessageMetadataSchema;
+
+export const ChatMessageMetadataSchema = StartMessageMetadataSchema.merge(EndMessageMetadataSchema);
+
+export type InternalMessageMetadata = z.infer<typeof InternalMessageMetadataSchema>
+export type ChatMessageMetadata = z.infer<typeof ChatMessageMetadataSchema>
+export type MessageMetadata = InternalMessageMetadata | ChatMessageMetadata;
+
+export const MessageMetadataSchema: z.ZodType<MessageMetadata> = z.lazy(() => z.union([
+  InternalMessageMetadataSchema,
+  ChatMessageMetadataSchema,
+]));
 
 const BaseMessageSchema = z.object({
   metadata: MessageMetadataSchema,
@@ -89,19 +78,23 @@ const BaseMessageSchema = z.object({
 
 export const DeveloperMessageSchema = BaseMessageSchema.extend({
   role: z.literal('developer'),
+  metadata: InternalMessageMetadataSchema,
 });
 
 export const SystemMessageSchema = BaseMessageSchema.extend({
   role: z.literal('system'),
+  metadata: InternalMessageMetadataSchema,
 });
 
 export const ToolMessageSchema = BaseMessageSchema.extend({
   role: z.literal('tool'),
+  metadata: InternalMessageMetadataSchema,
   tool_call_id: z.string(),
 });
 
 export const UserMessageSchema = BaseMessageSchema.extend({
   role: z.literal('user'),
+  metadata: ChatMessageMetadataSchema,
 });
 
 export const ToolCallFunctionSchema = z.object({
@@ -122,6 +115,7 @@ export const AssistantMessageErrorSchema = z.object({
 
 export const AssistantMessageSchema = BaseMessageSchema.extend({
   role: z.literal('agent'),
+  metadata: ChatMessageMetadataSchema,
   reasoning: z.string(),
   tool_calls: z.array(ToolCallSchema),
   errors: z.array(AssistantMessageErrorSchema),
@@ -142,6 +136,16 @@ export const MessageSchema = z.discriminatedUnion('role', [
   UserMessageSchema,
 ]);
 
+export const MessageOffsetSchema = z.object({
+  session_seq: z.int(),
+  message_seq: z.int(),
+});
+
+export const MessageInSessionSchema = z.object({
+  message: MessageSchema,
+  message_offset: MessageOffsetSchema,
+});
+
 // --- Streaming Markers ---
 
 const BaseStreamingMessageMarkerSchema = z.object({
@@ -151,6 +155,7 @@ const BaseStreamingMessageMarkerSchema = z.object({
 export const StreamingMessageMarkerMessageStartSchema = BaseStreamingMessageMarkerSchema.extend({
   marker_type: z.literal('message_start'),
   metadata: StartMessageMetadataSchema,
+  message_offset: MessageOffsetSchema,
 });
 
 export const StreamingMessageMarkerMessageEndSchema = BaseStreamingMessageMarkerSchema.extend({
@@ -209,7 +214,7 @@ const BaseWebsocketChunkSchema = z.object({
 
 export const WebsocketChunkFullMessageSchema = BaseWebsocketChunkSchema.extend({
   chunk_type: z.literal('full_message'),
-  payload: NonStreamableMessageSchema,
+  payload: MessageInSessionSchema,
 });
 
 export const WebsocketChunkAssistantMessageMarkerSchema = BaseWebsocketChunkSchema.extend({
@@ -308,6 +313,8 @@ export type ChannelInformation = z.infer<typeof ChannelInformationSchema>;
 // --- Exported Types ---
 
 export type Message = z.infer<typeof MessageSchema>;
+export type MessageInSession = z.infer<typeof MessageInSessionSchema>;
+export type MessageOffset = z.infer<typeof MessageOffsetSchema>;
 export type AssistantMessageError = z.infer<typeof AssistantMessageErrorSchema>;
 export type AssistantMessage = z.infer<typeof AssistantMessageSchema>;
 export type NonStreamableMessage = z.infer<typeof NonStreamableMessageSchema>;
@@ -323,7 +330,11 @@ export interface StreamingAssistantMessage {
   tool_calls: ToolCall[];
   errors: AssistantMessageError[];
   metadata: {
-    seq_in_session: number;
-    channel: ChannelDescriptor;
+    chat: ChatDescriptor;
   };
+}
+
+export interface StreamingAssistantMessageInSession {
+  message: StreamingAssistantMessage;
+  message_offset: MessageOffset;
 }

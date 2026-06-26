@@ -4,28 +4,6 @@ This tutorial describes the channel `agent`. To read it again later, use the `cl
 
 The `agent` channel is used by agents within the Clawp framework to communicate within the system.
 
-## Incoming channel descriptor
+The `chat_id` is the UUID of the agent you are talking to.
 
-The channel descriptor on incoming messages has these keys:
-
-- `type`: Always the literal `agent`.
-- `sender_id`: (string representing a UUID) Agent ID of the sender.
-
-Example channel metadata for incoming messages:
-
-```
-{{
-  "type": "matrix",
-  "sender_id": "00000000-0000-0000-0000-000000000000"
-}}
-```
-
-## Outgoing channel descriptor
-
-For outgoing messages (when you send), you only need to specify `type` and `recipient_id` (the agent's ID as a UUID string).
-
-Example channel header for outgoing messages:
-
-```
-{{"type":"agent","recipient_id":"11111111-1111-1111-1111-111111111111"}}
-```
+Remember, to end the conversation with the other agent, you must leave your response blank (you can think about whether you want to respond, but the message content has to be empty). If neither of you does this, you will get stuck in an endless loop (since you'll get prompted to respond over and over).

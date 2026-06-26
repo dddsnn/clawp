@@ -72,8 +72,6 @@ class ChannelRouter(base.MessageSender):
             if channel.type in self._stati:
                 raise ValueError(f"Channel {channel.type} specified twice.")
             self._stati[channel.type] = self.ChannelStatus(channel)
-        if not any(isinstance(c, builtin.SystemChannel) for c in channels):
-            self._stati["system"] = self.ChannelStatus(builtin.SystemChannel())
         if not any(isinstance(c, builtin.WebUiChannel) for c in channels):
             self._stati["web_ui"] = self.ChannelStatus(builtin.WebUiChannel())
 
@@ -162,12 +160,6 @@ class ChannelRouter(base.MessageSender):
         return {t: s.channel for t, s in self._stati.items()}
 
     @property
-    def system_channel(self) -> builtin.SystemChannel:
-        system_channel = self.channels["system"]
-        assert isinstance(system_channel, builtin.SystemChannel)
-        return system_channel
-
-    @property
     def web_ui_channel(self) -> builtin.WebUiChannel:
         web_ui_channel = self.channels["web_ui"]
         assert isinstance(web_ui_channel, builtin.WebUiChannel)
@@ -185,35 +177,16 @@ class ChannelRouter(base.MessageSender):
         raised.
         """
         try:
-            channel_status = self._stati[message.metadata.channel.type]
+            channel_status = self._stati[message.metadata.chat.channel]
         except KeyError:
             raise NoSuchChannelError(
-                f"no such channel {message.metadata.channel.type}")
+                f"no such channel {message.metadata.chat.channel}")
         try:
             await channel_status.channel.send(message)
         except Exception as e:
             raise SendError(f"error sending message: {e}") from e
 
-    def response_channel(
-        self, incoming_descriptor: mdl.IncomingChannelDescriptor
-    ) -> mdl.OutgoingChannelDescriptor:
-        """
-        Create a channel descriptor for a response.
-
-        Looks up the channel in the given channel descriptor and requests an
-        outgoing descriptor from it that will lead to the message being routed
-        back to the sender of the incoming message.
-
-        If the channel doesn't exist, a ChannelUnavailableError is raised.
-        """
-        try:
-            channel_status = self._stati[incoming_descriptor.type]
-        except KeyError:
-            raise NoSuchChannelError(
-                f"no such channel {incoming_descriptor.type}")
-        return channel_status.channel.response_channel(incoming_descriptor)
-
-    def incoming_messages(self) -> cl_abc.AsyncGenerator[base.IncomingMessage]:
+    def incoming_messages(self) -> cl_abc.AsyncGenerator[mdl.ChatMessage]:
         """Iterate over incoming messages."""
         return self._publisher.subscribe()
 

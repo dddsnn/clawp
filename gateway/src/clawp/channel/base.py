@@ -17,7 +17,6 @@
 
 import abc
 import collections.abc as cl_abc
-import dataclasses as dc
 import logging
 import typing as t
 
@@ -26,46 +25,15 @@ from .. import model as mdl
 from .. import util
 
 
-@dc.dataclass
-class IncomingMessage:
-    """
-    An incoming message.
-
-    This represents a message that's just arrived and doesn't exist within an
-    agent's session yet. It is missing the metadata related to the agent.
-    """
-    role: msg.MessageRole
-    metadata: msg.IncomingMessageMetadata
-    content: str
-    request_response: bool
-    """Whether a response to this message should be requested."""
-    def __post_init__(self):
-        if self.request_response and self.role not in ["system", "user"]:
-            raise ValueError(
-                "only system and user messages may request a response")
-
-
 class MessageSender(abc.ABC):
     @abc.abstractmethod
-    async def send(self, message: msg.AgentMessage) -> None:
+    async def send(self, chat_id: str, message: msg.AgentMessage) -> None:
         """Send a message."""
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def response_channel(
-        self, incoming_descriptor: mdl.IncomingChannelDescriptor
-    ) -> mdl.OutgoingChannelDescriptor:
-        """
-        Create a channel descriptor for a response.
-
-        Takes an incoming channel descriptor and returns an outgoing channel
-        descriptor that will lead to a message being sent to whoever sent a
-        message with the incoming descriptor."""
         raise NotImplementedError
 
 
 class MessageReceiver(abc.ABC):
-    def incoming_messages(self) -> cl_abc.AsyncGenerator[IncomingMessage]:
+    def incoming_messages(self) -> cl_abc.AsyncGenerator[mdl.ChatMessage]:
         """Iterate over incoming messages."""
         raise NotImplementedError
 
@@ -112,6 +80,6 @@ class Channel(MessageSender, MessageReceiver):
         """Current status of the channel."""
         raise NotImplementedError
 
-    def incoming_messages(self) -> cl_abc.AsyncGenerator[IncomingMessage]:
+    def incoming_messages(self) -> cl_abc.AsyncGenerator[mdl.ChatMessage]:
         """Iterate over incoming messages."""
         return self._publisher.subscribe()

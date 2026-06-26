@@ -67,6 +67,7 @@ class Session:
         self._lock = asyncio.Lock()
         self._is_shut_down = False
         self._publisher = util.Publisher()
+        self._active_chat = mdl.ChatDescriptor(channel="matrix", chat_id="asd")
 
     async def __aenter__(self) -> t.Self:
         self._messages = await self._message_store.read_session_messages()
@@ -87,96 +88,86 @@ class Session:
         """The number of messages in this session."""
         return len(self._messages or [])
 
-    async def add_incoming_message(
-            self, incoming_message: chan.IncomingMessage) -> None:
-        """
-        Add an incoming message to this session.
-
-        Metadata will be generated to put the incoming message into the context
-        of the session and appended to the end of it.
-
-        If the request_response flag is True, the provider is called to
-        generate one or more AgentMessages in response to the current state of
-        the session (with the new message added). Any tool calls the agent
-        makes are handled. Only system and user messages are allowed to set the
-        request_response flag. Both messages come with a reminder to the agent
-        that they will respond on the same channel automatically. For user
-        messages, this is part of the metadata message, for system messages, a
-        small paragraph is appended to the message itself.
-
-        The new message and any generated messages are are available via
-        subscribe().
-        """
-        if (incoming_message.request_response
-                and incoming_message.role not in ["system", "user"]):
-            raise ValueError(
-                "only system and user messages may request a response")
+    async def append_internal_message(
+            self, message_class: type[msg.InternalMessage], content: str,
+            **kwargs) -> None:
         async with self._lock:
             if self._is_shut_down:
                 raise RuntimeError("shut down, can't process more messages")
-            if incoming_message.role == "developer":
-                message_class = msg.DeveloperMessage
-            elif incoming_message.role == "system":
-                message_class = msg.SystemMessage
-            elif incoming_message.role == "user":
-                message_class = msg.UserMessage
-                await self._add_metadata_for_user_message(incoming_message)
-            else:
-                raise ValueError(
-                    f"unable to handle message role {incoming_message.role}")
-            metadata = self._make_metadata(
-                incoming_message.metadata.time,
-                incoming_message.metadata.channel)
-            if incoming_message.request_response:
-                try:
-                    outgoing_channel = self._message_sender.response_channel(
-                        incoming_message.metadata.channel)
-                except chan.ChannelError:
-                    self._logger.exception(
-                        "Unable to find a response channel for incoming "
-                        f"message with content '{incoming_message.content}' "
-                        f"on channel {incoming_message.metadata.channel}. "
-                        "Message will not be added or processed at all.")
-                    return
-            else:
-                outgoing_channel = None
-            message = message_class(metadata, content=incoming_message.content)
+            await self._append_internal_message_locked(
+                message_class, content, **kwargs)
+
+    async def _append_internal_message_locked(
+            self, message_class, content, **kwargs):
+        assert issubclass(message_class, msg.InternalMessage)
+        message = message_class(
+            msg.InternalMessageMetadata(
+                time=util.ImmediateValue(we.Instant.now())), content=content,
+            **kwargs)
+        await self._append_message(message)
+
+    async def handle_chat_message(self, chat_message: mdl.ChatMessage) -> None:
+        """
+        Add an incoming message to this session.
+        """
+        if chat_message.role != "user":
+            raise ValueError("Can only handle chat messages with role 'user'.")
+        async with self._lock:
+            if self._is_shut_down:
+                raise RuntimeError("shut down, can't process more messages")
+            if chat_message.metadata.chat != self._active_chat:
+                await self._switch_active_chat(chat_message.metadata.chat)
+            await self._add_metadata_for_user_message(chat_message)
+            metadata = self._make_chat_metadata(
+                chat_message.metadata.time, chat_message.metadata.chat)
+            message = msg.UserMessage(metadata, content=chat_message.content)
             await self._append_message(message)
-            if outgoing_channel:
-                await self._request_responses(outgoing_channel)
+            await self._request_responses()
+
+    async def _switch_active_chat(self, chat: mdl.ChatDescriptor) -> None:
+        assert self._active_chat != chat
+        await self._append_internal_message_locked(
+            msg.SystemMessage,
+            content=f"1 new message in chat {chat.model_dump_json()}")
+        tool_part = msg.AgentMessageToolPart()
+        function = msg.ToolCallFunction(
+            name="clawp_switch_chat", arguments=chat.model_dump_json())
+        await tool_part.append(
+            msg.ToolCall(
+                id="call_00_ui1YuJA6eD2P7r4v1DQP8967", function=function))
+        await tool_part.finalize()
+        metadata = self._make_chat_metadata(
+            util.ImmediateValue(we.Instant.now()), self._active_chat)
+        message = msg.AgentMessage(metadata, util.StreamableList([tool_part]))
+        await self._append_message(message)
+        await self._append_internal_message_locked(
+            msg.ToolMessage,
+            content=f"Switched to chat {chat.model_dump_json()}, showing 1 new "
+            "message", tool_call_id="call_00_ui1YuJA6eD2P7r4v1DQP8967")
+        self._active_chat = chat
 
     async def _add_metadata_for_user_message(
-            self, user_message: chan.IncomingMessage):
-        # The user message will be the one right after the system message with
-        # the metadata, so seq_in_session should be one more.
-        seq_in_session = len(self._messages) + 1
-        metadata = await mdl.MessageMetadata.from_incoming_message(
-            user_message.metadata, seq_in_session)
+            self, user_message: mdl.ChatMessage):
+        metadata = mdl.ChatMessageMetadata.from_chat_message_metadata(
+            user_message.metadata)
         message_content = await file.render_message_template(
             "message_metadata.md", metadata_json=metadata.model_dump_json())
-        if user_message.metadata.channel.type == "agent":
+        if user_message.metadata.chat.channel == "agent":
             # This message comes from another agent, remind the agent on how to
             # end the conversation.
             message_content += await file.render_message_template(
                 "fragments/agent_to_agent_comm_reminder.md")
-        await self._append_message_now(
+        await self._append_internal_message_locked(
             msg.SystemMessage, content=message_content)
 
-    async def _append_message_now(self, message_class, **kwargs):
-        metadata = self._make_metadata(
-            we.Instant.now(), mdl.SystemChannelDescriptor())
-        message = message_class(metadata, **kwargs)
-        await self._append_message(message)
-
-    def _make_metadata(
+    def _make_chat_metadata(
         self,
         time: we.Instant | util.Value[we.Instant],
-        channel: mdl.ChannelDescriptor,
-    ) -> msg.MessageMetadata:
+        chat: mdl.ChatDescriptor,
+    ) -> msg.ChatMessageMetadata:
         if not isinstance(time, util.Value):
             time = util.ImmediateValue(time)
-        return msg.MessageMetadata(
-            seq_in_session=len(self._messages), time=time, channel=channel)
+        return msg.ChatMessageMetadata(time=time, chat=chat)
 
     async def _append_message(self, message):
         self._messages.append(message)
@@ -192,15 +183,13 @@ class Session:
                 "added and is being processed in memory, but will likely not "
                 "be present when reloading from the persistent store.")
 
-    async def _request_responses(
-            self, outgoing_channel: mdl.OutgoingChannelDescriptor) -> None:
+    async def _request_responses(self) -> None:
         num_requests = 0
         while num_requests < self._model_config.doom_loop_max_requests:
             try:
                 async with asyncio.timeout(
                         self._model_config.request_timeout.total("seconds")):
-                    outgoing_channel, need_another_request = (
-                        await self._request_response(outgoing_channel))
+                    need_another_request = await self._request_response()
                     if not need_another_request:
                         break
             except TimeoutError:
@@ -210,10 +199,8 @@ class Session:
             self._logger.warning(
                 f"Breaking out of request loop after {num_requests} requests.")
 
-    async def _request_response(
-            self, outgoing_channel: mdl.OutgoingChannelDescriptor):
-        message, stream_task = await self._request_agent_message(
-            outgoing_channel)
+    async def _request_response(self):
+        message, stream_task = await self._request_agent_message()
         # Wait for the message to completely arrive before handling tool calls
         # or sending.
         try:
@@ -236,21 +223,15 @@ class Session:
         except Exception as e:
             self._logger.exception(
                 "Error sending message. Informing the agent to allow a retry.")
-            await self._append_message_now(
-                msg.SystemMessage, content=await
-                file.render_message_send_error(message, e))
-            # Set outgoing_channel so the agent's response goes to the system
-            # channel.
-            outgoing_channel = mdl.SystemChannelDescriptor()
             need_another_request = True
-        return outgoing_channel, need_another_request
+        return need_another_request
 
-    async def _request_agent_message(
-            self, outgoing_channel: mdl.OutgoingChannelDescriptor):
+    async def _request_agent_message(self):
         parts = util.StreamableList()
         stream_task = await self._provider.stream_agent_message(
             parts, self._messages, self._mcp_client.tools.values())
-        metadata = self._make_metadata(util.FutureValue(), outgoing_channel)
+        metadata = self._make_chat_metadata(
+            util.FutureValue(), self._active_chat)
         message = msg.AgentMessage(metadata, parts)
         await self._append_message(message)
         return message, stream_task
@@ -264,48 +245,28 @@ class Session:
                 arguments_dict = json.loads(tool_call.function.arguments)
                 result_string = await self._mcp_client.call_tool(
                     tool_call.function.name, arguments_dict)
-                await self._append_message_now(
+                await self._append_internal_message_locked(
                     msg.ToolMessage, content=result_string,
                     tool_call_id=tool_call.id)
             except Exception as e:
-                await self._append_message_now(
+                await self._append_internal_message_locked(
                     msg.ToolMessage, content="Error in tool call: " + str(e),
                     tool_call_id=tool_call.id)
                 self._logger.exception("Error in tool call.")
         return True
 
-    async def add_agent_message(
-            self, channel: mdl.OutgoingChannelDescriptor,
-            content: str) -> msg.AgentMessage:
-        """
-        Add an agent message.
-
-        Appends an agent message to this session with the given channel and
-        content. Returns the agent message.
-
-        This method must be called from a context where the session is already
-        locked, i.e. from somewhere that gets called from
-        add_incoming_message().
-        """
-        if not self._lock.locked():
-            raise RuntimeError(
-                "add_agent_message() must be called from a context where the "
-                "session is locked")
-        metadata = self._make_metadata(we.Instant.now(), channel)
-        message = msg.AgentMessage.from_model(
-            mdl.AgentMessage(
-                metadata=await metadata.model, content=content, reasoning="",
-                tool_calls=[], errors=[]))
-        await self._append_message(message)
-        return message
-
     def messages(self) -> cl_abc.Generator[msg.Message]:
         """Iterate all messages."""
         yield from self._messages
 
-    def subscribe(self) -> cl_abc.AsyncGenerator[msg.Message]:
-        """Subscribe to messages in this session."""
-        return self._publisher.subscribe()
+    async def subscribe(
+            self) -> cl_abc.AsyncGenerator[tuple[int, msg.Message]]:
+        async for message in self._publisher.subscribe():
+            # We append before publishing, so message sequence number is one
+            # less than the number of messages.
+            message_seq = len(self._messages) - 1
+            assert message_seq >= 0
+            yield message_seq, message
 
 
 class Agent:
@@ -442,21 +403,21 @@ class Agent:
 
     async def _send_session_init_messages(self):
         async for message in self._onboarding_messages():
-            await self._channel_router.system_channel.add_incoming_message(
-                "developer", message)
+            await self._session.append_internal_message(
+                msg.DeveloperMessage, message)
         # Tell the agent that this is a new session.
-        await self._channel_router.system_channel.add_incoming_message(
-            "system", await file.render_message_template(
+        await self._session.append_internal_message(
+            msg.SystemMessage, await file.render_message_template(
                 "system_information/session_initialization.md"))
         # Tell the agent about available channels.
         for channel in self._channel_router.channels.values():
             await self._add_channel_status_message(channel)
         # Tell the agent about their workspace and personality files.
-        await self._channel_router.system_channel.add_incoming_message(
-            "system", await file.render_workspace_info(self))
+        await self._session.append_internal_message(
+            msg.SystemMessage, await file.render_workspace_info(self))
         for pf in self.information.personality.personality_files:
-            await self._channel_router.system_channel.add_incoming_message(
-                "system", await
+            await self._session.append_internal_message(
+                msg.SystemMessage, await
                 file.render_file_content(self.workspace_dir, pf.path))
 
     async def _onboarding_messages(self) -> cl_abc.AsyncGenerator[str]:
@@ -470,22 +431,21 @@ class Agent:
         tutorial_topics = [
             "system_sessions",
             "system_system_messages",
-            "message_system_information",
-            "message_message_metadata",
-            "message_channel_status",
-            "message_file_content",
-            "system_channels",
+            # "message_system_information",
+            # "message_message_metadata",
+            # "message_channel_status",
+            # "message_file_content",
+            "system_channels_chats",
             "channel_web_ui",
-            "channel_system",
             "channel_agent",
-            "channel_matrix",
+            # "channel_matrix",
             "system_workspace_memory",]
         for topic in tutorial_topics:
             yield await file.render_tutorial(topic)
 
     async def _add_channel_status_message(self, channel: chan.Channel):
-        await self._channel_router.system_channel.add_incoming_message(
-            "system", await file.render_channel_status(
+        await self._session.append_internal_message(
+            msg.SystemMessage, await file.render_channel_status(
                 channel, available=channel.type in self.channels))
 
     async def _read_incoming_messages(self) -> None:
@@ -506,49 +466,43 @@ class Agent:
                 self._logger.exception(
                     "Error waiting for final incoming message.")
 
-    async def _handle_incoming_message(
-            self, message: chan.IncomingMessage) -> None:
+    async def _handle_incoming_message(self, message: mdl.ChatMessage) -> None:
         try:
-            await self._session.add_incoming_message(message)
+            await self._session.handle_chat_message(message)
         except Exception:
             self._logger.exception("Error handling incoming message.")
 
-    def messages(self) -> cl_abc.Generator[msg.Message]:
+    def messages(
+            self) -> cl_abc.Generator[tuple[mdl.MessageOffset, msg.Message]]:
         """
         Iterate all of this agent's messages.
 
         Yields all messages across all sessions that exist at the time of the
         call. To get live updates, use subscribe().
-        """
-        yield from self._session.messages()
 
-    def subscribe(self) -> cl_abc.AsyncGenerator[msg.Message]:
+        """
+        session_seq = 0
+        for message_seq, message in enumerate(self._session.messages()):
+            message_offset = mdl.MessageOffset(
+                session_seq=session_seq, message_seq=message_seq)
+            yield message_offset, message
+
+    async def subscribe(
+            self
+    ) -> cl_abc.AsyncGenerator[tuple[mdl.MessageOffset, msg.Message]]:
         """
         Subscribe to the this agent's messages.
 
         These are all of the agent's messages in the context of its session and
         in the same order. This includes all message roles, also
         user/system/developer/tool messages.
+
         """
-        return self._session.subscribe()
-
-    async def add_and_send_agent_message(
-            self, channel: mdl.OutgoingChannelDescriptor,
-            content: str) -> None:
-        """
-        Sends a message on behalf of the agent.
-
-        Adds an agent message with the given content to the current session and
-        also sends it to the given channel.
-
-        This method must be called from a context where the session is already
-        locked, i.e. essentially from a tool callback that gets called from
-        Session.add_incoming_message().
-
-        Any error in sending is bubbled up.
-        """
-        message = await self._session.add_agent_message(channel, content)
-        await self._channel_router.send(message)
+        session_seq = 0
+        async for message_seq, message in self._session.subscribe():
+            message_offset = mdl.MessageOffset(
+                session_seq=session_seq, message_seq=message_seq)
+            yield message_offset, message
 
     async def add_channel(self, channel: chan.Channel) -> None:
         """
@@ -750,7 +704,8 @@ class AgentRepository:
         agent_base_dir.mkdir(parents=True, exist_ok=True)
         agent_information = mdl.AgentInformation(
             id=agent_id,
-            personality=personality_with_contents.get_personality())
+            personality=personality_with_contents.get_personality(),
+            active_chat=mdl.ChatDescriptor(channel="web_ui", chat_id=""))
         self._agent_information_file(agent_base_dir).write_text(
             agent_information.model_dump_json())
         self._logger.info(

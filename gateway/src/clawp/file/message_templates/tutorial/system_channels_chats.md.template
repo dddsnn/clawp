@@ -1,0 +1,23 @@
+# Tutorial: Channels and chats
+
+This tutorial describes how channels and chats work. To read it again later, use the `clawp_read_tutorial` tool with topic `system_channels_chats`.
+
+## Channels
+
+The system will supply you with different ways of communicating with the user or even other people. E.g., these could be the framework's built-in web UI, a direct messaging service or email. These ways of communicating are called channels. The system will inform you which channels are available to you.
+
+## Chats
+
+Each channel has one or more chats identified by a string ID. This could be a DM chat or a group chat room. You may receive user messages from the user or other people via these chats. Each user message is preceded by a short system message with some metadata, e.g. the time the message arrived.
+
+You always have an active chat, that's the one on which you're talking. If a message arrives in your active chat, it is just appended to your session and you see it immediately. If a message arrives in another chat, the system will tell you about it, and you have to use the `clawp_switch_chat` tool to switch to it. Then the unread messages will be shown and you can respond (or choose not to).
+
+## Staying silent
+
+When you see a message, it is valid to not respond if you don't have anything to say. An empty message content means no message gets delivered to the other party (or parties). This is the case even if with non-empty reasoning, so you can first think "do I really have something to say, or do I want to end the conversation here?", and then consciously leave the content blank. You can even make tool calls, but the content of your message after the last tool result must be empty.
+
+This is important to remember in group chats: When someone writes a message, it may be intended for someone else, or just be informational for the group without a need for you to respond. The system still asks you for a response so you have the **option** to say something, but you need not exercise it.
+
+It's even more important that you consider this in private chats with other agents. They are in the same situation as you: each time the other sends a message, the system prompts them for a response. As long as both of you keep producing content in your response, messages will keep going back and forth. So ask yourself: is this conversation at an end? Should I stop prompting the other agent for responses? If so, leave your response content blank. Don't get yourself stuck in a no-you-hang-up-first loop.
+
+But also remember: if you need to take further action after ending the conversation, you **MUST** make tool calls in that response (the one with the empty content). The system will not prompt you again otherwise. E.g., to talk in a different instead, use `clawp_switch_chat` in that response with the empty content.

@@ -59,7 +59,7 @@ class ClawpMcpServer(fastmcp.FastMCP):
         self._agent = agent
         self.add_tool(self.list_tutorial_topics)
         self.add_tool(self.read_tutorial)
-        self.add_tool(self.send_message)
+        self.add_tool(self.switch_chat)
         self.add_tool(self.log_memory)
         self.add_tool(self.search_memory)
 
@@ -74,21 +74,26 @@ class ClawpMcpServer(fastmcp.FastMCP):
         except FileNotFoundError as e:
             raise ValueError(f"topic {topic} doesn't exist") from e
 
-    async def send_message(
-            self, channel: mdl.OutgoingChannelDescriptor, content: str) -> str:
+    async def list_chats(self, channel_type: str) -> list[mdl.ChatInformation]:
         """
-        Send a message to a specific channel.
+        """
+        raise NotImplementedError
 
-        Normally, you don't need this since your normal response gets routed to
-        the same channel you were just contacted on. If you want to respond on
-        a different channel instead, or send messages on multiple channels, you
-        can use this tool.
+    async def get_active_chat(self) -> mdl.ChatInformation:
         """
-        await self._agent.add_and_send_agent_message(channel, content)
-        return (
-            "Message delivered. Respond with empty content to acknowledge "
-            "(otherwise that content will be delivered on the previous "
-            "channel).")
+        """
+        raise NotImplementedError
+
+    async def switch_chat(self, channel: str, chat_id: str) -> str:
+        """Switch the active chat."""
+        raise NotImplementedError
+
+    async def get_unread_chat_messages(self, channel: str,
+                                       chat_id: str) -> list[mdl.ChatMessage]:
+        """
+
+        """
+        raise NotImplementedError
 
     async def log_memory(self, content: str) -> None:
         """
