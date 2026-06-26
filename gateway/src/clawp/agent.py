@@ -55,7 +55,7 @@ class Session:
             self, session_seq: int, *, model_config: mdl.ModelConfig,
             message_store: store.SessionMessageStore,
             message_sender: chan.MessageSender, provider: "prov.Provider",
-            mcp_client: tool.Client) -> None:
+            mcp_client: tool.Client, active_chat: mdl.ChatDescriptor) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._session_seq = session_seq
         self._model_config = model_config
@@ -67,7 +67,7 @@ class Session:
         self._lock = asyncio.Lock()
         self._is_shut_down = False
         self._publisher = util.Publisher()
-        self._active_chat = mdl.ChatDescriptor(channel="matrix", chat_id="asd")
+        self.active_chat = active_chat
 
     async def __aenter__(self) -> t.Self:
         self._messages = await self._message_store.read_session_messages()
@@ -106,6 +106,16 @@ class Session:
             **kwargs)
         await self._append_message(message)
 
+    async def append_agent_message(
+            self, message_parts: util.StreamableList) -> None:
+        async with self._lock:
+            if self._is_shut_down:
+                raise RuntimeError("shut down, can't process more messages")
+            metadata = self._make_chat_metadata(
+                util.ImmediateValue(we.Instant.now()), self.active_chat)
+            message = msg.AgentMessage(metadata, message_parts)
+            await self._append_message(message)
+
     async def handle_chat_message(self, chat_message: mdl.ChatMessage) -> None:
         """
         Add an incoming message to this session.
@@ -115,36 +125,12 @@ class Session:
         async with self._lock:
             if self._is_shut_down:
                 raise RuntimeError("shut down, can't process more messages")
-            if chat_message.metadata.chat != self._active_chat:
-                await self._switch_active_chat(chat_message.metadata.chat)
             await self._add_metadata_for_user_message(chat_message)
             metadata = self._make_chat_metadata(
                 chat_message.metadata.time, chat_message.metadata.chat)
             message = msg.UserMessage(metadata, content=chat_message.content)
             await self._append_message(message)
             await self._request_responses()
-
-    async def _switch_active_chat(self, chat: mdl.ChatDescriptor) -> None:
-        assert self._active_chat != chat
-        await self._append_internal_message_locked(
-            msg.SystemMessage,
-            content=f"1 new message in chat {chat.model_dump_json()}")
-        tool_part = msg.AgentMessageToolPart()
-        function = msg.ToolCallFunction(
-            name="clawp_switch_chat", arguments=chat.model_dump_json())
-        await tool_part.append(
-            msg.ToolCall(
-                id="call_00_ui1YuJA6eD2P7r4v1DQP8967", function=function))
-        await tool_part.finalize()
-        metadata = self._make_chat_metadata(
-            util.ImmediateValue(we.Instant.now()), self._active_chat)
-        message = msg.AgentMessage(metadata, util.StreamableList([tool_part]))
-        await self._append_message(message)
-        await self._append_internal_message_locked(
-            msg.ToolMessage,
-            content=f"Switched to chat {chat.model_dump_json()}, showing 1 new "
-            "message", tool_call_id="call_00_ui1YuJA6eD2P7r4v1DQP8967")
-        self._active_chat = chat
 
     async def _add_metadata_for_user_message(
             self, user_message: mdl.ChatMessage):
@@ -231,7 +217,7 @@ class Session:
         stream_task = await self._provider.stream_agent_message(
             parts, self._messages, self._mcp_client.tools.values())
         metadata = self._make_chat_metadata(
-            util.FutureValue(), self._active_chat)
+            util.FutureValue(), self.active_chat)
         message = msg.AgentMessage(metadata, parts)
         await self._append_message(message)
         return message, stream_task
@@ -314,6 +300,15 @@ class Agent:
         return self._agent_information
 
     @property
+    def active_chat(self) -> mdl.ChatDescriptor:
+        return self._agent_information.active_chat
+
+    @active_chat.setter
+    def active_chat(self, value: mdl.ChatDescriptor) -> None:
+        self._agent_information.active_chat = value
+        self._session.active_chat = value
+
+    @property
     def workspace_dir(self) -> pathlib.Path:
         """
         Directory inside the base_dir to which the agent has direct access.
@@ -381,7 +376,9 @@ class Agent:
     def _make_session(self, session_seq: int) -> Session:
         message_store = self._message_store.get_session_message_store(
             session_seq)
-        return self._session_factory(session_seq, message_store=message_store)
+        return self._session_factory(
+            session_seq, message_store=message_store,
+            active_chat=self.active_chat)
 
     async def _ensure_active_session(self):
         active_session_seq = self._message_store.get_active_session_seq()
@@ -468,9 +465,34 @@ class Agent:
 
     async def _handle_incoming_message(self, message: mdl.ChatMessage) -> None:
         try:
+            if message.metadata.chat != self.active_chat:
+                # We've received a message in a chat other than the active
+                # chat. Inject messages into the session that make it look like
+                # the agent switched to that chat in response to it.
+                await self._switch_active_chat(message.metadata.chat)
             await self._session.handle_chat_message(message)
         except Exception:
             self._logger.exception("Error handling incoming message.")
+
+    async def _switch_active_chat(self, chat: mdl.ChatDescriptor) -> None:
+        assert self.active_chat != chat
+        await self._session.append_internal_message(
+            msg.SystemMessage,
+            content=f"1 new message in chat {chat.model_dump_json()}")
+        tool_part = msg.AgentMessageToolPart()
+        function = msg.ToolCallFunction(
+            name="clawp_switch_chat", arguments=chat.model_dump_json())
+        await tool_part.append(
+            msg.ToolCall(
+                id="call_00_ui1YuJA6eD2P7r4v1DQP8967", function=function))
+        await tool_part.finalize()
+        await self._session.append_agent_message(
+            util.StreamableList([tool_part]))
+        await self._session.append_internal_message(
+            msg.ToolMessage,
+            content=f"Switched to chat {chat.model_dump_json()}, showing 1 "
+            "new message", tool_call_id="call_00_ui1YuJA6eD2P7r4v1DQP8967")
+        self.active_chat = chat
 
     def messages(
             self) -> cl_abc.Generator[tuple[mdl.MessageOffset, msg.Message]]:
@@ -640,7 +662,7 @@ class AgentRepository:
             workspace_dir=workspace_dir, message_store=message_store,
             memory_store=memory_store,
             channel_router=chan.ChannelRouter(channels),
-            provider=self._provider)
+            provider=self._provider, active_chat=agent_information.active_chat)
 
     def _load_agent_information(
             self, agent_base_dir: pathlib.Path) -> mdl.AgentInformation:
