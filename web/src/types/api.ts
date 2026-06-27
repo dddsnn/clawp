@@ -31,6 +31,7 @@ export const AgentChatDescriptorSchema = BaseChatDescriptorSchema.extend({
 
 export const MatrixChatDescriptorSchema = BaseChatDescriptorSchema.extend({
   channel: z.literal('matrix'),
+  room_name: z.string().nullable(),
 });
 
 export const WebUiChatDescriptorSchema = BaseChatDescriptorSchema.extend({

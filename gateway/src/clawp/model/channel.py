@@ -31,6 +31,18 @@ class ChatDescriptor(base.BaseModel):
     chat_id: str
 
 
+class MatrixChatDescriptor(ChatDescriptor):
+    room_name: t.Optional[str]
+
+    def __eq__(self, other: any) -> bool:
+        # channel/chat_id are enough for equality, room_name is optional.
+        if not isinstance(other, ChatDescriptor):
+            return NotImplemented
+        self_dict = self.model_dump(exclude={"room_name"})
+        other_dict = other.model_dump(exclude={"room_name"})
+        return self_dict == other_dict
+
+
 class ChatInformation(base.BaseModel):
     chat: ChatDescriptor
 

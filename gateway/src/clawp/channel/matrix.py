@@ -86,8 +86,10 @@ class MatrixChannel(base.Channel):
         return mdl.MatrixChannelStatus(
             available=True, username=self._config.username)
 
-    async def get_chat_descriptor(self, chat_id: str) -> mdl.ChatDescriptor:
-        return mdl.ChatDescriptor(channel=self.type, chat_id=chat_id)
+    async def get_chat_descriptor(
+            self, chat_id: str) -> mdl.MatrixChatDescriptor:
+        return mdl.MatrixChatDescriptor(
+            channel=self.type, chat_id=chat_id, room_name=None)
 
     async def get_unread_messages(self, chat_id: str) -> list[mdl.ChatMessage]:
         return []
