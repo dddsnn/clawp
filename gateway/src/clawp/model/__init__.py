@@ -30,7 +30,6 @@ from .channel import (
     ChatDescriptor,
     ChatInformation,
     MatrixChannelStatus,
-    SystemChannelStatus,
     WebUiChannelStatus,
 )
 from .config import (
@@ -108,7 +107,6 @@ __all__ = [
     "ChatDescriptor",
     "ChatInformation",
     "MatrixChannelStatus",
-    "SystemChannelStatus",
     "WebUiChannelStatus",
     # config
     "ApiConfig",

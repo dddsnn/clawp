@@ -51,8 +51,8 @@ class ChannelRouter(base.MessageSender, base.MessageReceiver):
     into a single stream, and routes outgoing messages to the appropriate
     channel based on the message's metadata.
 
-    Only one channel of each type may be added. The built-in channels system
-    and web_ui are added automatically if they don't exist.
+    Only one channel of each type may be added. The built-in web_ui channel is
+    added automatically if it doesn't exist.
 
     The asynchronous context manager takes control of the contexts of the
     channels, i.e. it expects them to not have been entered and instead

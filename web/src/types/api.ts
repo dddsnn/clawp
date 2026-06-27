@@ -278,11 +278,6 @@ export const MatrixChannelStatusSchema = z.object({
   username: z.string(),
 });
 
-export const SystemChannelStatusSchema = z.object({
-  type: z.literal('system').default('system'),
-  available: z.boolean(),
-});
-
 export const WebUiChannelStatusSchema = z.object({
   type: z.literal('web_ui').default('web_ui'),
   available: z.boolean(),
@@ -290,18 +285,16 @@ export const WebUiChannelStatusSchema = z.object({
 
 export const ChannelStatusSchema = z.discriminatedUnion('type', [
   MatrixChannelStatusSchema,
-  SystemChannelStatusSchema,
   WebUiChannelStatusSchema,
 ]);
 
 export const ChannelConfigSchema = z.union([
   MatrixAccountConfigSchema,
-  z.object({ type: z.literal('system') }).passthrough(),
   z.object({ type: z.literal('web_ui') }).passthrough(),
 ]);
 
 export const ChannelInformationSchema = z.object({
-  type: z.enum(['matrix', 'system', 'web_ui']),
+  type: z.enum(['matrix', 'web_ui']),
   id: z.string().nullable(),
   config: ChannelConfigSchema,
   status: ChannelStatusSchema,
