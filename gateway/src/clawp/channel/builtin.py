@@ -45,9 +45,14 @@ class WebUiChannel(base.Channel):
     async def status(self) -> mdl.WebUiChannelStatus:
         return mdl.WebUiChannelStatus(available=True)
 
+    async def get_chat_descriptor(self, chat_id: str) -> mdl.ChatDescriptor:
+        if chat_id != "":
+            raise base.ChatIdError("invalid chat_id (use empty string \"\")")
+        return mdl.ChatDescriptor(channel=self.type, chat_id=chat_id)
+
     async def get_unread_messages(self, chat_id: str) -> list[mdl.ChatMessage]:
         if chat_id != "":
-            raise ValueError("invalid chat_id (use empty string \"\")")
+            raise base.ChatIdError("invalid chat_id (use empty string \"\")")
         return []
 
     async def send(self, message: msg.AgentMessage) -> None:
@@ -90,23 +95,23 @@ class AgentChannel(base.Channel):
     async def status(self) -> mdl.AgentChannelStatus:
         return mdl.AgentChannelStatus(available=True)
 
-    async def get_unread_messages(self, chat_id: str) -> list[mdl.ChatMessage]:
+    async def get_chat_descriptor(self, chat_id: str) -> mdl.ChatDescriptor:
         # Get the other agent to make sure the ID is in order and the agent
         # exists.
         self._get_agent(chat_id)
-        return []
+        return mdl.ChatDescriptor(channel=self.type, chat_id=chat_id)
 
     def _get_agent(self, chat_id: str) -> "agt.Agent":
         try:
             agent_id = uuid.UUID(chat_id)
         except ValueError:
-            raise ValueError(f"{chat_id} is not a valid UUID")
+            raise base.ChatIdError(f"{chat_id} is not a valid UUID")
         if agent_id == self._agent_id:
-            raise ValueError("sender and recipient IDs are equal")
+            raise base.ChatIdError("sender and recipient IDs are equal")
         try:
             return self._agent_repo.get_agent(agent_id)
         except KeyError:
-            raise ValueError(f"no agent with ID {agent_id} exists")
+            raise base.ChatIdError(f"no agent with ID {agent_id} exists")
 
     async def get_unread_messages(self, chat_id: str) -> list[mdl.ChatMessage]:
         # Get the other agent to make sure the ID is in order and the agent
@@ -120,7 +125,7 @@ class AgentChannel(base.Channel):
         try:
             recipient_channel = recipient.channels["agent"]
         except KeyError:
-            raise ValueError(
+            raise RuntimeError(
                 "recipient doesn't have an agent channel to send to")
         assert isinstance(recipient_channel, AgentChannel)
         await recipient_channel.add_incoming_agent_message(

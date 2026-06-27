@@ -103,7 +103,7 @@ class ClawpMcpServer(fastmcp.FastMCP):
         except pyd.ValidationError as e:
             raise ValueError("invalid channel/chat_id") from e
         unread_messages = await self._agent.switch_active_chat(
-            chat, self.session_transaction)
+            channel, chat_id, self.session_transaction)
         message = f"You are now talking in chat {chat.model_dump_json()}."
         if not unread_messages:
             message += " No unread messages"

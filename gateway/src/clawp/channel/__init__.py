@@ -17,6 +17,7 @@
 
 from .base import (
     Channel,
+    ChatIdError,
     MessageReceiver,
     MessageSender,
 )
@@ -35,6 +36,7 @@ from .matrix import MatrixChannel
 __all__ = [
     # base
     "Channel",
+    "ChatIdError",
     "MessageReceiver",
     "MessageSender",
     # builtin

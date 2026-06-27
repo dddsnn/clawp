@@ -25,6 +25,10 @@ from .. import model as mdl
 from .. import util
 
 
+class ChatIdError(ValueError):
+    """Raised when a chat ID is invalid in any way."""
+
+
 class MessageSender(abc.ABC):
     @abc.abstractmethod
     async def send(self, chat_id: str, message: msg.AgentMessage) -> None:
@@ -78,6 +82,15 @@ class Channel(MessageSender, MessageReceiver):
     @abc.abstractmethod
     async def status(self) -> mdl.ChannelStatus:
         """Current status of the channel."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    async def get_chat_descriptor(self, chat_id: str) -> mdl.ChatDescriptor:
+        """
+        Get a full descriptor for the given chat ID.
+
+        Raises ChatIdError if chat_id is invalid.
+        """
         raise NotImplementedError
 
     def incoming_messages(self) -> cl_abc.AsyncGenerator[mdl.ChatMessage]:

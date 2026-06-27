@@ -400,9 +400,11 @@ class Agent:
         return self._agent_information
 
     async def switch_active_chat(
-            self, chat: mdl.ChatDescriptor,
+            self, channel: str, chat_id: str,
             tx: SessionTransaction) -> list[mdl.ChatMessage]:
         async with self._lock:
+            chat = await self._channel_router.get_chat_descriptor(
+                channel, chat_id)
             if self._agent_information.active_chat == chat:
                 raise ValueError("new chat is the same as the current one")
             unread_messages = await self._channel_router.get_unread_messages(
@@ -597,7 +599,7 @@ class Agent:
             msg.ToolMessage,
             content=f"Switched to chat {chat.model_dump_json()}, showing 1 "
             "unread message", tool_call_id="call_00_ui1YuJA6eD2P7r4v1DQP8967")
-        await self.switch_active_chat(chat, tx)
+        await self.switch_active_chat(chat.channel, chat.chat_id, tx)
 
     def messages(
             self) -> cl_abc.Generator[tuple[mdl.MessageOffset, msg.Message]]:
