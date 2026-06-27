@@ -304,6 +304,9 @@ class Session:
         except Exception as e:
             self._logger.exception(
                 "Error sending message. Informing the agent to allow a retry.")
+            await self._append_internal_message(
+                msg.SystemMessage, content=await
+                file.render_message_send_error(message, e))
             need_another_request = True
         return need_another_request
 

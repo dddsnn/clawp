@@ -128,5 +128,5 @@ async def render_message_send_error(
     """Render a message informing the agent about a message send error."""
     return await render_message_template(
         "system_information/send_error.md",
-        channel_descriptor=message.metadata.channel.model_dump_json(),
+        chat=message.metadata.chat.model_dump_json(),
         traceback="".join(traceback.format_exception(exc, limit=10)))
