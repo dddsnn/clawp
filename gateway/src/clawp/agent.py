@@ -402,14 +402,16 @@ class Agent:
     async def switch_active_chat(
             self, chat: mdl.ChatDescriptor,
             tx: SessionTransaction) -> list[mdl.ChatMessage]:
-        if self._agent_information.active_chat == chat:
-            raise ValueError("new chat is the same as the current one")
-        unread_messages = await self._channel_router.get_unread_messages(chat)
-        self._agent_information.active_chat = chat
-        tx.active_chat = chat
-        if unread_messages:
-            pass
-        return unread_messages
+        async with self._lock:
+            if self._agent_information.active_chat == chat:
+                raise ValueError("new chat is the same as the current one")
+            unread_messages = await self._channel_router.get_unread_messages(
+                chat)
+            self._agent_information.active_chat = chat
+            tx.active_chat = chat
+            if unread_messages:
+                pass
+            return unread_messages
 
     @property
     def workspace_dir(self) -> pathlib.Path:
@@ -442,7 +444,7 @@ class Agent:
         async with self._lock:
             self._read_chat_messages_task = asyncio.create_task(
                 self._read_chat_messages())
-            await self._ensure_active_session()
+            await self._ensure_active_session_locked()
             return self
 
     async def __aexit__(self, *args) -> bool:
@@ -482,7 +484,7 @@ class Agent:
             session_seq, message_store=message_store,
             active_chat=self.information.active_chat)
 
-    async def _ensure_active_session(self):
+    async def _ensure_active_session_locked(self):
         active_session_seq = self._message_store.get_active_session_seq()
         self._session = self._make_session(active_session_seq)
         await self._session.__aenter__()
@@ -491,18 +493,18 @@ class Agent:
                 self._logger.info(
                     f"Existing agent {self} has no sessions. Starting the "
                     "first one.")
-                await self._send_session_init_messages(tx)
+                await self._send_session_init_messages_locked(tx)
 
-    async def _start_new_session(self):
+    async def _start_new_session_locked(self):
         if self._session:
             await self._session.__aexit__(None, None, None)
         self._session = self._make_session(
             self._message_store.get_active_session_seq() + 1)
         await self._session.__aenter__()
         async with await self._session.transaction() as tx:
-            await self._send_session_init_messages(tx)
+            await self._send_session_init_messages_locked(tx)
 
-    async def _send_session_init_messages(
+    async def _send_session_init_messages_locked(
             self, tx: SessionTransaction) -> None:
         async for message in self._onboarding_messages():
             await tx.append_internal_message(msg.DeveloperMessage, message)
@@ -512,7 +514,7 @@ class Agent:
                 "system_information/session_initialization.md"))
         # Tell the agent about available channels.
         for channel in self._channel_router.channels.values():
-            await self._add_channel_status_message(channel, tx)
+            await self._add_channel_status_message_locked(channel, tx)
         # Tell the agent about their workspace and personality files.
         await tx.append_internal_message(
             msg.SystemMessage, await file.render_workspace_info(self))
@@ -539,7 +541,7 @@ class Agent:
         for topic in tutorial_topics:
             yield await file.render_tutorial(topic)
 
-    async def _add_channel_status_message(
+    async def _add_channel_status_message_locked(
             self, channel: chan.Channel, tx: SessionTransaction) -> None:
         await tx.append_internal_message(
             msg.SystemMessage, await file.render_channel_status(
@@ -551,7 +553,7 @@ class Agent:
             async for message in self._channel_router.incoming_messages():
                 async with self._lock:
                     handle_task = asyncio.create_task(
-                        self._handle_chat_message(message))
+                        self._handle_chat_message_locked(message))
                     await asyncio.shield(handle_task)
         except asyncio.CancelledError:
             if not handle_task:
@@ -563,20 +565,21 @@ class Agent:
                 self._logger.exception(
                     "Error waiting to process final chat message.")
 
-    async def _handle_chat_message(self, message: mdl.ChatMessage) -> None:
+    async def _handle_chat_message_locked(
+            self, message: mdl.ChatMessage) -> None:
         try:
             async with await self._session.transaction() as tx:
                 if message.metadata.chat != self.information.active_chat:
                     # We've received a message in a chat other than the active
                     # chat. Inject messages into the session that make it look
                     # like the agent switched to that chat in response to it.
-                    await self._fake_agent_switch_message(
+                    await self._fake_agent_switch_message_locked(
                         message.metadata.chat, tx)
                 await tx.handle_chat_message(message)
         except Exception:
             self._logger.exception("Error handling chat message.")
 
-    async def _fake_agent_switch_message(
+    async def _fake_agent_switch_message_locked(
             self, chat: mdl.ChatDescriptor, tx: SessionTransaction) -> None:
         assert self.information.active_chat != chat
         await tx.append_internal_message(
@@ -635,13 +638,13 @@ class Agent:
         Raises a ValueError if a channel of this type already exists for the
         agent.
         """
-        async with await self._session.transaction() as tx:
+        async with await self._session.transaction() as tx, self._lock:
             if channel.type in self.information.claimed_channels:
                 raise ValueError(
                     f"agent already has a channel of type {channel.type}")
             await self._channel_router.add_channel(channel)
             self.information.claimed_channels[channel.type] = channel.id
-            await self._add_channel_status_message(channel, tx)
+            await self._add_channel_status_message_locked(channel, tx)
 
     async def remove_channel(self, channel_type: mdl.ChannelType) -> None:
         """
@@ -649,7 +652,7 @@ class Agent:
 
         Raises a ValueError if the agent currently has no channel of this type.
         """
-        async with await self._session.transaction() as tx:
+        async with await self._session.transaction() as tx, self._lock:
             try:
                 channel = self.channels[channel_type]
                 assert channel_type in self.information.claimed_channels
@@ -658,7 +661,7 @@ class Agent:
                     f"agent has no channel of type {channel_type}")
             await self._channel_router.remove_channel(channel_type)
             del self.information.claimed_channels[channel_type]
-            await self._add_channel_status_message(channel, tx)
+            await self._add_channel_status_message_locked(channel, tx)
 
 
 class AgentRepository:
