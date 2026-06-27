@@ -86,6 +86,9 @@ class MatrixChannel(base.Channel):
         return mdl.MatrixChannelStatus(
             available=True, username=self._config.username)
 
+    async def get_unread_messages(self, chat_id: str) -> list[mdl.ChatMessage]:
+        return []
+
     async def send(self, message: msg.AgentMessage) -> None:
         channel = message.metadata.channel
         if not isinstance(channel, mdl.MatrixOutgoingChannelDescriptor):
@@ -95,12 +98,6 @@ class MatrixChannel(base.Channel):
         await self._client.room_send(
             channel.room_id, message_type="m.room.message",
             content={"msgtype": "m.text", "body": await message.content})
-
-    def response_channel(
-        self, incoming_descriptor: mdl.MatrixIncomingChannelDescriptor
-    ) -> mdl.MatrixOutgoingChannelDescriptor:
-        return mdl.MatrixOutgoingChannelDescriptor(
-            room_id=incoming_descriptor.room_id)
 
     async def _on_room_message_text(
             self, room: nio.MatrixRoom, event: nio.RoomMessageText) -> None:

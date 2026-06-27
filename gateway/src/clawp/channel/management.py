@@ -43,7 +43,7 @@ class SendError(Exception):
     """Raised when a message could not be sent."""
 
 
-class ChannelRouter(base.MessageSender):
+class ChannelRouter(base.MessageSender, base.MessageReceiver):
     """
     A router for all of an agent's channels.
 
@@ -165,6 +165,19 @@ class ChannelRouter(base.MessageSender):
         assert isinstance(web_ui_channel, builtin.WebUiChannel)
         return web_ui_channel
 
+    async def get_unread_messages(
+            self, chat: mdl.ChatDescriptor) -> list[mdl.ChatMessage]:
+        """Get messages that haven't been shown to the agent yet."""
+        channel = self._get_channel(chat.channel)
+        return await channel.get_unread_messages(chat.chat_id)
+
+    def _get_channel(self, channel_type: str) -> base.Channel:
+        try:
+            status = self._stati[channel_type]
+        except KeyError:
+            raise NoSuchChannelError(f"no such channel {channel_type}")
+        return status.channel
+
     async def send(self, message: msg.AgentMessage) -> None:
         """
         Send a message.
@@ -176,13 +189,9 @@ class ChannelRouter(base.MessageSender):
         is raised. If there is an error in sending the message, a SendError is
         raised.
         """
+        channel = self._get_channel(message.metadata.chat.channel)
         try:
-            channel_status = self._stati[message.metadata.chat.channel]
-        except KeyError:
-            raise NoSuchChannelError(
-                f"no such channel {message.metadata.chat.channel}")
-        try:
-            await channel_status.channel.send(message)
+            await channel.send(message)
         except Exception as e:
             raise SendError(f"error sending message: {e}") from e
 

@@ -45,6 +45,11 @@ class WebUiChannel(base.Channel):
     async def status(self) -> mdl.WebUiChannelStatus:
         return mdl.WebUiChannelStatus(available=True)
 
+    async def get_unread_messages(self, chat_id: str) -> list[mdl.ChatMessage]:
+        if chat_id != "":
+            raise ValueError("invalid chat_id (use empty string \"\")")
+        return []
+
     async def send(self, message: msg.AgentMessage) -> None:
         self._logger.debug(f"Sending {message}: {await message.content}")
 
@@ -85,19 +90,33 @@ class AgentChannel(base.Channel):
     async def status(self) -> mdl.AgentChannelStatus:
         return mdl.AgentChannelStatus(available=True)
 
-    async def send(self, message: msg.AgentMessage) -> None:
-        assert message.metadata.chat.channel == "agent"
+    async def get_unread_messages(self, chat_id: str) -> list[mdl.ChatMessage]:
+        # Get the other agent to make sure the ID is in order and the agent
+        # exists.
+        self._get_agent(chat_id)
+        return []
+
+    def _get_agent(self, chat_id: str) -> "agt.Agent":
         try:
-            agent_id = uuid.UUID(message.metadata.chat.chat_id)
+            agent_id = uuid.UUID(chat_id)
         except ValueError:
-            raise ValueError(
-                f"{message.metadata.chat.chat_id} is not a valid UUID")
+            raise ValueError(f"{chat_id} is not a valid UUID")
         if agent_id == self._agent_id:
             raise ValueError("sender and recipient IDs are equal")
         try:
-            recipient = self._agent_repo.get_agent(agent_id)
+            return self._agent_repo.get_agent(agent_id)
         except KeyError:
             raise ValueError(f"no agent with ID {agent_id} exists")
+
+    async def get_unread_messages(self, chat_id: str) -> list[mdl.ChatMessage]:
+        # Get the other agent to make sure the ID is in order and the agent
+        # exists.
+        self._get_agent(chat_id)
+        return []
+
+    async def send(self, message: msg.AgentMessage) -> None:
+        assert message.metadata.chat.channel == "agent"
+        recipient = self._get_agent(message.metadata.chat.chat_id)
         try:
             recipient_channel = recipient.channels["agent"]
         except KeyError:

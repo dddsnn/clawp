@@ -400,9 +400,16 @@ class Agent:
         return self._agent_information
 
     async def switch_active_chat(
-            self, chat: mdl.ChatDescriptor, tx: SessionTransaction) -> None:
+            self, chat: mdl.ChatDescriptor,
+            tx: SessionTransaction) -> list[mdl.ChatMessage]:
+        if self._agent_information.active_chat == chat:
+            raise ValueError("new chat is the same as the current one")
+        unread_messages = await self._channel_router.get_unread_messages(chat)
         self._agent_information.active_chat = chat
         tx.active_chat = chat
+        if unread_messages:
+            pass
+        return unread_messages
 
     @property
     def workspace_dir(self) -> pathlib.Path:

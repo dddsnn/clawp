@@ -83,3 +83,8 @@ class Channel(MessageSender, MessageReceiver):
     def incoming_messages(self) -> cl_abc.AsyncGenerator[mdl.ChatMessage]:
         """Iterate over incoming chat messages."""
         return self._publisher.subscribe()
+
+    @abc.abstractmethod
+    async def get_unread_messages(self, chat_id: str) -> list[mdl.ChatMessage]:
+        """Get messages that haven't been shown to the agent yet."""
+        raise NotImplementedError

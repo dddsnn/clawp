@@ -24,6 +24,7 @@ import fastmcp.client
 import fastmcp.client.transports
 import fastmcp.server
 import fastmcp.server.providers.proxy
+import pydantic as pyd
 
 from .. import file
 from .. import model as mdl
@@ -97,11 +98,18 @@ class ClawpMcpServer(fastmcp.FastMCP):
 
     async def switch_chat(self, channel: str, chat_id: str) -> str:
         """Switch the active chat."""
-        chat = mdl.ChatDescriptor(channel=channel, chat_id=chat_id)
-        await self._agent.switch_active_chat(chat, self.session_transaction)
-        return (
-            f"You are now talking in chat {chat.model_dump_json()}. No unread "
-            "messages")
+        try:
+            chat = mdl.ChatDescriptor(channel=channel, chat_id=chat_id)
+        except pyd.ValidationError as e:
+            raise ValueError("invalid channel/chat_id") from e
+        unread_messages = await self._agent.switch_active_chat(
+            chat, self.session_transaction)
+        message = f"You are now talking in chat {chat.model_dump_json()}."
+        if not unread_messages:
+            message += " No unread messages"
+        else:
+            message += f" Showing {len(unread_messages)} unread messages."
+        return message
 
     async def get_unread_chat_messages(self, channel: str,
                                        chat_id: str) -> list[mdl.ChatMessage]:
