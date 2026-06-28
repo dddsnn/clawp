@@ -208,8 +208,11 @@ class Session:
     async def _append_agent_message(
             self, message_parts: util.StreamableList) -> None:
 
-        metadata = self._make_chat_metadata(
-            util.ImmediateValue(we.Instant.now()), self._active_chat)
+        start_metadata, full_metadata_class = (
+            self._message_sender.make_outgoing_start_metadata(
+                self._active_chat))
+        metadata = msg.ChatMessageMetadata.from_start_metadata(
+            start_metadata, full_metadata_class)
         message = msg.AgentMessage(metadata, message_parts)
         await self._append_message(message)
 
@@ -221,18 +224,17 @@ class Session:
         if chat_message.role != "user":
             raise ValueError("Can only handle chat messages with role 'user'.")
         await self._add_metadata_for_user_message(chat_message)
-        metadata = self._make_chat_metadata(
-            chat_message.metadata.time, chat_message.metadata.chat)
-        message = msg.UserMessage(metadata, content=chat_message.content)
+        message = msg.UserMessage(
+            msg.ChatMessageMetadata.from_model(chat_message.metadata),
+            content=chat_message.content)
         await self._append_message(message)
         await self._request_responses()
 
     async def _add_metadata_for_user_message(
             self, user_message: mdl.ChatMessage):
-        metadata = mdl.ChatMessageMetadata.from_chat_message_metadata(
-            user_message.metadata)
         message_content = await file.render_message_template(
-            "message_metadata.md", metadata_json=metadata.model_dump_json())
+            "message_metadata.md",
+            metadata_json=user_message.metadata.model_dump_json())
         if user_message.metadata.chat.channel == "agent":
             # This message comes from another agent, remind the agent on how to
             # end the conversation.
@@ -240,15 +242,6 @@ class Session:
                 "fragments/agent_to_agent_comm_reminder.md")
         await self._append_internal_message(
             msg.SystemMessage, content=message_content)
-
-    def _make_chat_metadata(
-        self,
-        time: we.Instant | util.Value[we.Instant],
-        chat: mdl.ChatDescriptor,
-    ) -> msg.ChatMessageMetadata:
-        if not isinstance(time, util.Value):
-            time = util.ImmediateValue(time)
-        return msg.ChatMessageMetadata(time=time, chat=chat)
 
     async def _append_message(self, message):
         self._messages.append(message)
@@ -314,8 +307,11 @@ class Session:
         parts = util.StreamableList()
         stream_task = await self._provider.stream_agent_message(
             parts, self._messages, self._mcp_client.tools.values())
-        metadata = self._make_chat_metadata(
-            util.FutureValue(), self._active_chat)
+        start_metadata, full_metadata_class = (
+            self._message_sender.make_outgoing_start_metadata(
+                self._active_chat))
+        metadata = msg.ChatMessageMetadata.from_start_metadata(
+            start_metadata, full_metadata_class)
         message = msg.AgentMessage(metadata, parts)
         await self._append_message(message)
         return message, stream_task
@@ -399,21 +395,18 @@ class Agent:
     def information(self) -> mdl.AgentInformation:
         return self._agent_information
 
-    async def switch_active_chat(
+    async def switch_active_chat_locked(
             self, channel: str, chat_id: str,
             tx: SessionTransaction) -> list[mdl.ChatMessage]:
-        async with self._lock:
-            chat = await self._channel_router.get_chat_descriptor(
-                channel, chat_id)
-            if self._agent_information.active_chat == chat:
-                raise ValueError("new chat is the same as the current one")
-            unread_messages = await self._channel_router.get_unread_messages(
-                chat)
-            self._agent_information.active_chat = chat
-            tx.active_chat = chat
-            if unread_messages:
-                pass
-            return unread_messages
+        chat = await self._channel_router.get_chat_descriptor(channel, chat_id)
+        if self._agent_information.active_chat == chat:
+            raise ValueError("new chat is the same as the current one")
+        unread_messages = await self._channel_router.get_unread_messages(chat)
+        self._agent_information.active_chat = chat
+        tx.active_chat = chat
+        if unread_messages:
+            pass
+        return unread_messages
 
     @property
     def workspace_dir(self) -> pathlib.Path:
@@ -539,6 +532,7 @@ class Agent:
             "system_channels_chats",
             "channel_web_ui",
             "channel_agent",
+            "channel_matrix",
             "system_workspace_memory",]
         for topic in tutorial_topics:
             yield await file.render_tutorial(topic)
@@ -599,7 +593,7 @@ class Agent:
             msg.ToolMessage,
             content=f"Switched to chat {chat.model_dump_json()}, showing 1 "
             "unread message", tool_call_id="call_00_ui1YuJA6eD2P7r4v1DQP8967")
-        await self.switch_active_chat(chat.channel, chat.chat_id, tx)
+        await self.switch_active_chat_locked(chat.channel, chat.chat_id, tx)
 
     def messages(
             self) -> cl_abc.Generator[tuple[mdl.MessageOffset, msg.Message]]:
@@ -837,7 +831,7 @@ class AgentRepository:
         agent_information = mdl.AgentInformation(
             id=agent_id,
             personality=personality_with_contents.get_personality(),
-            active_chat=mdl.ChatDescriptor(channel="web_ui", chat_id=""))
+            active_chat=mdl.BasicChatDescriptor(channel="web_ui", chat_id=""))
         self._agent_information_file(agent_base_dir).write_text(
             agent_information.model_dump_json())
         self._logger.info(

@@ -21,17 +21,24 @@ import pydantic as pyd
 
 from . import base
 from . import channel as chan
-from . import message as msg
-
 
 InternalMessageRole = t.Literal["developer", "system", "tool"]
 ChatMessageRole = t.Literal["agent", "user"]
 MessageRole = InternalMessageRole | ChatMessageRole
 
 
-class StartMessageMetadata(base.BaseModel):
+class BasicStartMessageMetadata(base.BaseModel):
     """Metadata available when a message is first created."""
-    chat: chan.ChatDescriptor
+    chat: pyd.SerializeAsAny[chan.ChatDescriptor]
+
+
+class MatrixStartMessageMetadata(BasicStartMessageMetadata):
+    chat: chan.MatrixChatDescriptor
+    sender_id: str
+    sender_name: t.Optional[str]
+
+
+StartMessageMetadata = BasicStartMessageMetadata | MatrixStartMessageMetadata
 
 
 class EndMessageMetadata(base.BaseModel):
@@ -43,16 +50,19 @@ class InternalMessageMetadata(EndMessageMetadata):
     """Full message metadata for internal messages."""
 
 
-class ChatMessageMetadata(StartMessageMetadata, EndMessageMetadata):
+class BasicChatMessageMetadata(BasicStartMessageMetadata, EndMessageMetadata):
     """Full message metadata for chat messages."""
-    @staticmethod
-    def from_chat_message_metadata(
-            chat_metadata: msg.ChatMessageMetadata) -> "ChatMessageMetadata":
-        """Create from chat message metadata."""
-        return ChatMessageMetadata(
-            time=chat_metadata.time, chat=chat_metadata.chat)
+    start_metadata_class: t.ClassVar[type[BasicStartMessageMetadata]] = (
+        BasicStartMessageMetadata)
 
 
+class MatrixChatMessageMetadata(MatrixStartMessageMetadata,
+                                EndMessageMetadata):
+    start_metadata_class: t.ClassVar[type[MatrixStartMessageMetadata]] = (
+        MatrixStartMessageMetadata)
+
+
+ChatMessageMetadata = BasicChatMessageMetadata | MatrixChatMessageMetadata
 MessageMetadata = InternalMessageMetadata | ChatMessageMetadata
 
 
@@ -71,7 +81,12 @@ class InternalMessage(BaseMessage):
 class ChatMessage(BaseMessage):
     """Message that arrives via channels/chats."""
     role: ChatMessageRole
-    metadata: ChatMessageMetadata
+    metadata: pyd.SerializeAsAny[ChatMessageMetadata]
+
+
+class MatrixChatMessage(ChatMessage):
+    type: t.Literal["matrix"] = "matrix"
+    metadata: MatrixChatMessageMetadata
 
 
 class DeveloperMessage(InternalMessage):
@@ -137,7 +152,7 @@ class MessageOffset(base.BaseModel):
 
 
 class MessageInSession(base.BaseModel):
-    message: Message
+    message: pyd.SerializeAsAny[Message]
     message_offset: MessageOffset
 
 

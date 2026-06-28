@@ -51,26 +51,48 @@ export const ChatDescriptorSchema: z.ZodType<ChatDescriptor> = z.lazy(() => z.un
   WebUiChatDescriptorSchema,
 ]));
 
-export const StartMessageMetadataSchema = z.object({
-  chat: ChatDescriptorSchema
+export const BasicStartMessageMetadataSchema = z.object({
+  chat: ChatDescriptorSchema,
 });
+export type BasicStartMessageMetadata = z.infer<typeof BasicStartMessageMetadataSchema>;
+
+export const MatrixStartMessageMetadataSchema = z.object({
+  chat: MatrixChatDescriptorSchema,
+  sender_id: z.string(),
+  sender_name: z.string().nullable(),
+});
+export type MatrixStartMessageMetadata = z.infer<typeof MatrixStartMessageMetadataSchema>;
+
+export const StartMessageMetadataSchema: z.ZodType<StartMessageMetadata> = z.lazy(() => z.union([
+  MatrixStartMessageMetadataSchema,
+  BasicStartMessageMetadataSchema,
+]));
+export type StartMessageMetadata = BasicStartMessageMetadata | MatrixStartMessageMetadata;
 
 export const EndMessageMetadataSchema = z.object({
   time: Iso8601Schema,
 });
 
 export const InternalMessageMetadataSchema = EndMessageMetadataSchema;
+export type InternalMessageMetadata = z.infer<typeof InternalMessageMetadataSchema>;
 
-export const ChatMessageMetadataSchema = StartMessageMetadataSchema.merge(EndMessageMetadataSchema);
+export const BasicChatMessageMetadataSchema = BasicStartMessageMetadataSchema.merge(EndMessageMetadataSchema);
+export type BasicChatMessageMetadata = z.infer<typeof BasicChatMessageMetadataSchema>;
 
-export type InternalMessageMetadata = z.infer<typeof InternalMessageMetadataSchema>
-export type ChatMessageMetadata = z.infer<typeof ChatMessageMetadataSchema>
-export type MessageMetadata = InternalMessageMetadata | ChatMessageMetadata;
+export const MatrixChatMessageMetadataSchema = MatrixStartMessageMetadataSchema.merge(EndMessageMetadataSchema);
+export type MatrixChatMessageMetadata = z.infer<typeof MatrixChatMessageMetadataSchema>;
+
+export const ChatMessageMetadataSchema: z.ZodType<ChatMessageMetadata> = z.lazy(() => z.union([
+  MatrixChatMessageMetadataSchema,
+  BasicChatMessageMetadataSchema,
+]));
+export type ChatMessageMetadata = BasicChatMessageMetadata | MatrixChatMessageMetadata;
 
 export const MessageMetadataSchema: z.ZodType<MessageMetadata> = z.lazy(() => z.union([
   InternalMessageMetadataSchema,
   ChatMessageMetadataSchema,
 ]));
+export type MessageMetadata = InternalMessageMetadata | ChatMessageMetadata;
 
 const BaseMessageSchema = z.object({
   metadata: MessageMetadataSchema,

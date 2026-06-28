@@ -29,25 +29,93 @@ from . import provider as prov
 from . import util
 
 
-@dc.dataclass
 class InternalMessageMetadata:
     """Message metadata for internal messages."""
-    time: util.Value[we.Instant]
-    """The time the message was fully received."""
+    def __init__(self, time: we.Instant | util.Value[we.Instant]) -> None:
+        """
+        :param time: The time the message was fully received.
+        """
+        if not isinstance(time, util.Value):
+            time = util.ImmediateValue(time)
+        self.time = time
+
+    @staticmethod
+    def from_model(model: mdl.InternalMessage) -> "InternalMessageMetadata":
+        return InternalMessageMetadata(model.time)
+
     @property
     async def model(self) -> mdl.MessageMetadata:
         return mdl.InternalMessageMetadata(time=await self.time.value)
 
 
-@dc.dataclass
 class ChatMessageMetadata(InternalMessageMetadata):
     """Message metadata for chat messages."""
-    chat: mdl.ChatDescriptor
-    """The chat the message is a part of."""
+    def __init__(
+            self, time: we.Instant | util.Value[we.Instant],
+            chat: mdl.ChatDescriptor,
+            model_class: type[mdl.ChatMessageMetadata],
+            extra_model_kwargs: dict[str, t.Any]) -> None:
+        """
+        :param time: The time the message was fully received.
+        :param chat: The chat the message is a part of.
+        :param model_class: The class of the model representing this metadata.
+        """
+        super().__init__(time)
+        self.chat = chat
+        self._model_class = model_class
+        self._extra_model_kwargs = extra_model_kwargs
+
+    @staticmethod
+    def from_model(model: mdl.ChatMessageMetadata) -> "ChatMessageMetadata":
+        """Create from an existing model."""
+        return ChatMessageMetadata._from_time_and_start_metadata(
+            util.ImmediateValue(model.time), model, type(model))
+
+    @staticmethod
+    def from_start_metadata(
+        model: mdl.StartMessageMetadata,
+        full_model_class: type[mdl.ChatMessageMetadata]
+    ) -> "ChatMessageMetadata":
+        """
+        Create from only the metadata known at the start of a message.
+
+        This is needed for streaming messages.
+
+        :param model: The start message metadata.
+        :param full_model_class: The class of the model that also includes the
+            end metadata.
+        """
+        return ChatMessageMetadata._from_time_and_start_metadata(
+            util.FutureValue(), model, full_model_class)
+
+    @staticmethod
+    def _from_time_and_start_metadata(
+            time: util.Value[we.Instant], model: mdl.StartMessageMetadata,
+            model_class: type[mdl.ChatMessageMetadata]
+    ) -> "ChatMessageMetadata":
+        chat = model.chat
+        model_kwargs = model.model_dump()
+        model_kwargs.pop("time", None)
+        del model_kwargs["chat"]
+        return ChatMessageMetadata(time, chat, model_class, model_kwargs)
+
     @property
-    async def model(self) -> mdl.MessageMetadata:
-        return mdl.ChatMessageMetadata(
-            time=await self.time.value, chat=self.chat)
+    async def model(self) -> mdl.ChatMessageMetadata:
+        """Create a full metadata model."""
+        return self._model_class(
+            time=await self.time.value, chat=self.chat,
+            **self._extra_model_kwargs)
+
+    @property
+    def start_model(self) -> mdl.StartMessageMetadata:
+        """
+        Create a start metadata model.
+
+        The start model only contains data that is available immediately and
+        doesn't need to be awaited.
+        """
+        return self._model_class.start_metadata_class(
+            chat=self.chat, **self._extra_model_kwargs)
 
 
 MessageMetadata = InternalMessageMetadata | ChatMessageMetadata
@@ -111,16 +179,6 @@ class InternalMessage(Message):
     async def model(self) -> mdl.InternalMessage:
         raise NotImplementedError
 
-    @property
-    async def _metadata_model(self) -> mdl.InternalMessageMetadata:
-        return mdl.InternalMessageMetadata(time=await self.metadata.time.value)
-
-    @classmethod
-    def _metadata_from_model(
-            cls, model: mdl.InternalMessage) -> InternalMessageMetadata:
-        return InternalMessageMetadata(
-            time=util.ImmediateValue(model.metadata.time))
-
 
 class ChatMessage(Message):
     def __init__(self, metadata: ChatMessageMetadata) -> None:
@@ -140,18 +198,6 @@ class ChatMessage(Message):
     async def model(self) -> mdl.ChatMessage:
         """Model representation of this message."""
         raise NotImplementedError
-
-    @property
-    async def _metadata_model(self) -> mdl.ChatMessageMetadata:
-        return mdl.ChatMessageMetadata(
-            time=await self.metadata.time.value, chat=self.metadata.chat)
-
-    @classmethod
-    def _metadata_from_model(
-            cls, model: mdl.ChatMessage) -> ChatMessageMetadata:
-        return ChatMessageMetadata(
-            time=util.ImmediateValue(model.metadata.time),
-            chat=model.metadata.chat)
 
 
 class SimpleInternalMessage(InternalMessage):
@@ -174,7 +220,8 @@ class SimpleInternalMessage(InternalMessage):
 
     @classmethod
     def from_model(cls, model: mdl.InternalMessage) -> t.Self:
-        return cls(cls._metadata_from_model(model), model.content)
+        return cls(
+            InternalMessageMetadata.from_model(model.metadata), model.content)
 
 
 class SystemMessage(SimpleInternalMessage):
@@ -185,7 +232,7 @@ class SystemMessage(SimpleInternalMessage):
     @property
     async def model(self) -> mdl.SystemMessage:
         return mdl.SystemMessage(
-            metadata=await self._metadata_model, content=await self.content)
+            metadata=await self.metadata.model, content=await self.content)
 
 
 class DeveloperMessage(SimpleInternalMessage):
@@ -196,7 +243,7 @@ class DeveloperMessage(SimpleInternalMessage):
     @property
     async def model(self) -> mdl.DeveloperMessage:
         return mdl.DeveloperMessage(
-            metadata=await self._metadata_model, content=await self.content)
+            metadata=await self.metadata.model, content=await self.content)
 
 
 class UserMessage(ChatMessage):
@@ -216,11 +263,12 @@ class UserMessage(ChatMessage):
     @property
     async def model(self) -> mdl.UserMessage:
         return mdl.UserMessage(
-            metadata=await self._metadata_model, content=self._content)
+            metadata=await self.metadata.model, content=self._content)
 
     @classmethod
     def from_model(cls, model: mdl.UserMessage) -> t.Self:
-        return cls(cls._metadata_from_model(model), model.content)
+        return cls(
+            ChatMessageMetadata.from_model(model.metadata), model.content)
 
 
 class ToolMessage(SimpleInternalMessage):
@@ -238,13 +286,14 @@ class ToolMessage(SimpleInternalMessage):
     @property
     async def model(self) -> mdl.ToolMessage:
         return mdl.ToolMessage(
-            metadata=await self._metadata_model, content=await self.content,
+            metadata=await self.metadata.model, content=await self.content,
             tool_call_id=self.tool_call_id)
 
     @classmethod
     def from_model(cls, model: mdl.ToolMessage) -> t.Self:
         return cls(
-            cls._metadata_from_model(model), model.content, model.tool_call_id)
+            InternalMessageMetadata.from_model(model.metadata), model.content,
+            model.tool_call_id)
 
 
 @dc.dataclass
@@ -475,7 +524,7 @@ class AgentMessage(ChatMessage):
         tool_calls = [tool_call.model for tool_call in await self.tool_calls]
         error_models = [self.error_model(error) for error in await self.errors]
         return mdl.AgentMessage(
-            metadata=await self._metadata_model, content=await self.content,
+            metadata=await self.metadata.model, content=await self.content,
             reasoning=await self.reasoning, tool_calls=tool_calls,
             errors=error_models)
 
@@ -505,7 +554,9 @@ class AgentMessage(ChatMessage):
             parts.append(AgentMessageToolPart(tool_calls))
         for error in cls._parse_error_models(model.errors):
             parts.append(AgentMessageErrorPart([error]))
-        return cls(cls._metadata_from_model(model), util.StreamableList(parts))
+        return cls(
+            ChatMessageMetadata.from_model(model.metadata),
+            util.StreamableList(parts))
 
     @classmethod
     def _parse_error_models(

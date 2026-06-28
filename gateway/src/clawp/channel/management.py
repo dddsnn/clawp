@@ -189,6 +189,21 @@ class ChannelRouter(base.MessageSender, base.MessageReceiver):
             raise NoSuchChannelError(f"no such channel {channel_type}")
         return status.channel
 
+    def make_outgoing_start_metadata(
+        self, chat: mdl.ChatDescriptor
+    ) -> tuple[mdl.StartMessageMetadata, type[mdl.ChatMessageMetadata]]:
+        """
+        Create start metadata for outgoing chat messages.
+
+        Returns a tuple of the start metadata and the model class for full
+        metadata.
+
+        Raises NoSuchChannelError is the channel doesn't exist. Raises
+        ChatIdError if the chat isn't valid in any way.
+        """
+        channel = self._get_channel(chat.channel)
+        return channel.make_outgoing_start_metadata(chat)
+
     async def send(self, message: msg.AgentMessage) -> None:
         """
         Send a message.

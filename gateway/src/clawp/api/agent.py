@@ -198,10 +198,10 @@ async def _generate_message_chunks(
                 message=await message.model, message_offset=message_offset))
         return
     # At this point, it's a streaming agent message.
-    start_metadata = mdl.StartMessageMetadata(chat=message.metadata.chat)
     yield mdl.WebsocketChunkAgentMessageMarker(
         payload=mdl.StreamingMessageMarkerMessageStart(
-            metadata=start_metadata, message_offset=message_offset))
+            metadata=message.metadata.start_model,
+            message_offset=message_offset))
     async for message_part in message.stream_parts():
         yield mdl.WebsocketChunkAgentMessageMarker(
             payload=mdl.StreamingMessageMarkerPartStart(

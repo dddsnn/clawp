@@ -31,6 +31,20 @@ class ChatIdError(ValueError):
 
 class MessageSender(abc.ABC):
     @abc.abstractmethod
+    def make_outgoing_start_metadata(
+        self, chat: mdl.ChatDescriptor
+    ) -> tuple[mdl.StartMessageMetadata, type[mdl.ChatMessageMetadata]]:
+        """
+        Create start metadata for outgoing chat messages.
+
+        Returns a tuple of the start metadata and the model class for full
+        metadata.
+
+        Raises ChatIdError if the chat's ID is invalid.
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
     async def send(self, chat_id: str, message: msg.AgentMessage) -> None:
         """Send a message."""
         raise NotImplementedError

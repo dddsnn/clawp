@@ -4,40 +4,6 @@ This tutorial describes the channel `matrix`. To read it again later, use the `c
 
 The `matrix` channel is used to communicate via the Matrix messenger protocol.
 
-In Matrix, there is no real concept of direct messages, everything happens within rooms. To respond to someone, use the `room_id` from the incoming message's metadata in your outgoing channel descriptor.
+In Matrix, there is no real concept of direct messages, everything happens within rooms. Each chat is a room. The `chat_id` is the room ID.
 
-## Incoming channel descriptor
-
-The channel descriptor on incoming messages has these keys:
-
-- `type`: Always the literal `matrix`.
-- `room_id`: (string) ID of the room.
-- `room_name`: (string) Name of the room. May be `null` if the room has no name.
-- `sender_id`: (string) ID of the message's sender.
-- `sender_name`: (string) Display name of the message's sender. May be null if the sender has no display name.
-
-Example channel descriptor for incoming messages:
-
-```
-{{
-  "type": "matrix",
-  "room_id": "!someroomid:example.org",
-  "room_name": "Example room",
-  "sender_id": "@alice:example.org"
-  "sender_name": "Alice"
-}}
-```
-
-## Outgoing channel descriptor
-
-For outgoing messages (when you send), you only need to specify `type` and `room_id`.
-
-Example channel descriptor for outgoing messages:
-
-```
-{{"type":"matrix","room_id":"!someroomid:example.org"}}
-```
-
-## Channel status
-
-In channel status messages, the details JSON contains the additional key `username`. This is the username with which you are logged in and from which you will send. It's the full Matrix username/homeserver notation like "@clawp-assistant:example.org".
+Chat metadata and message metadata will contain additional keys about room and user: `room_name` (optional), `sender_id`, `sender_name` (optional).

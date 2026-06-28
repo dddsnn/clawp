@@ -19,12 +19,12 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type {
   AssistantMessageError,
-  ChatDescriptor,
   MessageInSession,
   MessageOffset,
   ToolCall,
   StreamingMessageMarkerPartStart,
   StreamingAssistantMessageInSession,
+  StartMessageMetadata,
 } from "../types/api";
 
 type ActivePartType = StreamingMessageMarkerPartStart['part_type'];
@@ -99,7 +99,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   // Used by the stream to create the placeholder agent message before fragments arrive
-  function startStreamingMessage(messageOffset: MessageOffset, chat: ChatDescriptor) {
+  function startStreamingMessage(messageOffset: MessageOffset, metadata: StartMessageMetadata) {
     const existingMsg = messages.value.find(m => m.message_offset.message_seq === messageOffset.message_seq);
     if (existingMsg) {
       // If we already have this message (e.g. from history), we should not start a new stream for it.
@@ -114,9 +114,7 @@ export const useChatStore = defineStore('chat', () => {
         reasoning: '',
         tool_calls: [],
         errors: [],
-        metadata: {
-          chat: chat,
-        },
+        metadata: metadata,
       },
       message_offset: messageOffset,
     };

@@ -243,7 +243,7 @@ export class ChatConnection {
       const marker = chunk.payload;
       
       if (marker.marker_type === 'message_start') {
-        this.store.startStreamingMessage(marker.message_offset, marker.metadata.chat);
+        this.store.startStreamingMessage(marker.message_offset, marker.metadata);
       } 
       else if (marker.marker_type === 'part_start') {
         this.store.setActivePartType(marker.part_type);

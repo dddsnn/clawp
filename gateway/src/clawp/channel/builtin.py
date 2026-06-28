@@ -45,15 +45,26 @@ class WebUiChannel(base.Channel):
     async def status(self) -> mdl.WebUiChannelStatus:
         return mdl.WebUiChannelStatus(available=True)
 
-    async def get_chat_descriptor(self, chat_id: str) -> mdl.ChatDescriptor:
+    async def get_chat_descriptor(
+            self, chat_id: str) -> mdl.BasicChatDescriptor:
         if chat_id != "":
             raise base.ChatIdError("invalid chat_id (use empty string \"\")")
-        return mdl.ChatDescriptor(channel=self.type, chat_id=chat_id)
+        return mdl.BasicChatDescriptor(channel=self.type, chat_id=chat_id)
 
     async def get_unread_messages(self, chat_id: str) -> list[mdl.ChatMessage]:
         if chat_id != "":
             raise base.ChatIdError("invalid chat_id (use empty string \"\")")
         return []
+
+    def make_outgoing_start_metadata(
+        self, chat: mdl.ChatDescriptor
+    ) -> tuple[mdl.BasicStartMessageMetadata,
+               t.Literal[mdl.BasicChatMessageMetadata]]:
+        if chat.channel != "web_ui":
+            raise ValueError(f"got descriptor for {chat.channel}")
+        return (
+            mdl.BasicStartMessageMetadata(chat=chat),
+            mdl.BasicChatMessageMetadata)
 
     async def send(self, message: msg.AgentMessage) -> None:
         self._logger.debug(f"Sending {message}: {await message.content}")
@@ -66,8 +77,9 @@ class WebUiChannel(base.Channel):
         The message will appear has having arrived on the channel and will be
         delivered to the agent.
         """
-        metadata = mdl.ChatMessageMetadata(
-            time=time, chat=mdl.ChatDescriptor(channel=self.type, chat_id=""))
+        metadata = mdl.BasicChatMessageMetadata(
+            time=time,
+            chat=mdl.BasicChatDescriptor(channel=self.type, chat_id=""))
         message = mdl.ChatMessage(
             role="user", metadata=metadata, content=content)
         await self._publisher.append(message)
@@ -99,7 +111,7 @@ class AgentChannel(base.Channel):
         # Get the other agent to make sure the ID is in order and the agent
         # exists.
         self._get_agent(chat_id)
-        return mdl.ChatDescriptor(channel=self.type, chat_id=chat_id)
+        return mdl.BasicChatDescriptor(channel=self.type, chat_id=chat_id)
 
     def _get_agent(self, chat_id: str) -> "agt.Agent":
         try:
@@ -118,6 +130,16 @@ class AgentChannel(base.Channel):
         # exists.
         self._get_agent(chat_id)
         return []
+
+    def make_outgoing_start_metadata(
+        self, chat: mdl.ChatDescriptor
+    ) -> tuple[mdl.BasicStartMessageMetadata,
+               t.Literal[mdl.BasicChatMessageMetadata]]:
+        if chat.channel != "agent":
+            raise ValueError(f"got descriptor for {chat.channel}")
+        return (
+            mdl.BasicStartMessageMetadata(chat=chat),
+            mdl.BasicChatMessageMetadata)
 
     async def send(self, message: msg.AgentMessage) -> None:
         assert message.metadata.chat.channel == "agent"
@@ -140,7 +162,7 @@ class AgentChannel(base.Channel):
         message. That message will appear has having arrived on the channel and
         will be delivered to the agent.
         """
-        metadata = mdl.ChatMessageMetadata(
+        metadata = mdl.BasicChatMessageMetadata(
             time=await message.metadata.time.value,
             chat=mdl.ChatDescriptor(channel=self.type, chat_id=str(sender_id)))
         message = mdl.ChatMessage(

@@ -24,7 +24,6 @@ import whenever as we
 
 from .. import message as msg
 from .. import model as mdl
-from .. import util
 from . import base
 
 
@@ -88,20 +87,26 @@ class MatrixChannel(base.Channel):
 
     async def get_chat_descriptor(
             self, chat_id: str) -> mdl.MatrixChatDescriptor:
-        return mdl.MatrixChatDescriptor(
-            channel=self.type, chat_id=chat_id, room_name=None)
+        return mdl.MatrixChatDescriptor(chat_id=chat_id, room_name=None)
 
-    async def get_unread_messages(self, chat_id: str) -> list[mdl.ChatMessage]:
+    async def get_unread_messages(self,
+                                  chat_id: str) -> list[mdl.MatrixChatMessage]:
         return []
 
+    def make_outgoing_start_metadata(
+        self, chat: mdl.MatrixChatDescriptor
+    ) -> tuple[mdl.MatrixStartMessageMetadata,
+               t.Literal[mdl.MatrixChatMessageMetadata]]:
+        if chat.channel != "matrix":
+            raise ValueError(f"got descriptor for {chat.channel}")
+        start_metadata = mdl.MatrixStartMessageMetadata(
+            chat=chat, sender_id=self.id, sender_name=None)
+        return start_metadata, mdl.MatrixChatMessageMetadata
+
     async def send(self, message: msg.AgentMessage) -> None:
-        channel = message.metadata.channel
-        if not isinstance(channel, mdl.MatrixOutgoingChannelDescriptor):
-            raise ValueError(
-                "cannot send to Matrix without Matrix channel descriptor (got "
-                f"{channel})")
+        assert message.metadata.chat.channel == "matrix"
         await self._client.room_send(
-            channel.room_id, message_type="m.room.message",
+            message.metadata.chat.chat_id, message_type="m.room.message",
             content={"msgtype": "m.text", "body": await message.content})
 
     async def _on_room_message_text(
@@ -109,16 +114,13 @@ class MatrixChannel(base.Channel):
         if event.sender == self._config.username:
             # We will get events for messages we sent. Avoid feedback loops.
             return
-        metadata = msg.IncomingMessageMetadata(
-            time=util.ImmediateValue(
-                we.Instant.from_timestamp_millis(event.server_timestamp)),
-            channel=mdl.MatrixIncomingChannelDescriptor(
-                room_id=room.room_id,
-                room_name=room.named_room_name(),
-                sender_id=event.sender,
-                sender_name=room.user_name(event.sender),
-            ))
-        message = base.IncomingMessage(
-            role="user", metadata=metadata, content=event.body,
-            request_response=True)
+        metadata = mdl.MatrixChatMessageMetadata(
+            time=we.Instant.from_timestamp_millis(event.server_timestamp),
+            chat=mdl.MatrixChatDescriptor(
+                chat_id=room.room_id, room_name=room.named_room_name()),
+            sender_id=event.sender,
+            sender_name=room.user_name(event.sender),
+        )
+        message = mdl.MatrixChatMessage(
+            role="user", metadata=metadata, content=event.body)
         await self._publisher.append(message)

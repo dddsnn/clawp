@@ -26,12 +26,13 @@ from . import config as cfg
 ChannelType = t.Literal["agent", "matrix", "web_ui"]
 
 
-class ChatDescriptor(base.BaseModel):
-    channel: ChannelType
+class BasicChatDescriptor(base.BaseModel):
+    channel: t.Literal["agent", "web_ui"]
     chat_id: str
 
 
-class MatrixChatDescriptor(ChatDescriptor):
+class MatrixChatDescriptor(BasicChatDescriptor):
+    channel: t.Literal["matrix"] = "matrix"
     room_name: t.Optional[str]
 
     def __eq__(self, other: any) -> bool:
@@ -43,8 +44,11 @@ class MatrixChatDescriptor(ChatDescriptor):
         return self_dict == other_dict
 
 
+ChatDescriptor = BasicChatDescriptor | MatrixChatDescriptor
+
+
 class ChatInformation(base.BaseModel):
-    chat: ChatDescriptor
+    chat: pyd.SerializeAsAny[ChatDescriptor]
 
 
 ChannelConfig = t.Annotated[cfg.MatrixAccountConfig,

@@ -99,10 +99,10 @@ class ClawpMcpServer(fastmcp.FastMCP):
     async def switch_chat(self, channel: str, chat_id: str) -> str:
         """Switch the active chat."""
         try:
-            chat = mdl.ChatDescriptor(channel=channel, chat_id=chat_id)
+            chat = mdl.BasicChatDescriptor(channel=channel, chat_id=chat_id)
         except pyd.ValidationError as e:
             raise ValueError("invalid channel/chat_id") from e
-        unread_messages = await self._agent.switch_active_chat(
+        unread_messages = await self._agent.switch_active_chat_locked(
             channel, chat_id, self.session_transaction)
         message = f"You are now talking in chat {chat.model_dump_json()}."
         if not unread_messages:
