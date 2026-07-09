@@ -43,6 +43,9 @@ class MatrixChatDescriptor(BasicChatDescriptor):
         other_dict = other.model_dump(exclude={"room_name"})
         return self_dict == other_dict
 
+    def __hash__(self) -> int:
+        return hash((self.channel, self.room_name))
+
 
 ChatDescriptor = BasicChatDescriptor | MatrixChatDescriptor
 
