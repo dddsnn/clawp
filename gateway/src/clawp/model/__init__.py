@@ -16,9 +16,11 @@
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 from .agent import (
+    AgentChannelPersistence,
     AgentInformation,
     AgentPersonality,
     AgentPersonalityWithFileContents,
+    WebUiChannelPersistence,
 )
 from .api import ErrorResponse
 from .base import BaseModel, Iso8601Millis
@@ -98,9 +100,11 @@ from .tool import ShellResult
 
 __all__ = [
     # agent
+    "AgentChannelPersistence",
     "AgentInformation",
     "AgentPersonality",
     "AgentPersonalityWithFileContents",
+    "WebUiChannelPersistence",
     # api
     "ErrorResponse",
     # base

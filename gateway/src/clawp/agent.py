@@ -816,8 +816,11 @@ class AgentRepository:
                 self._logger.warning(
                     f"Agent {agent_information.id} claims channel "
                     f"{ch_type}:{ch_id}, but it's not available: {e}.")
-        # Add the agent channel, which doesn't need to be exlicitly claimed.
-        channels.append(chan.AgentChannel(agent_information.id, self))
+        # Add the builtin web_ui and agent channels.
+        channels.append(chan.WebUiChannel(agent_information.web_ui_channel))
+        channels.append(
+            chan.AgentChannel(
+                agent_information.id, self, agent_information.agent_channel))
         return Agent(
             agent_information, config=self._config,
             workspace_dir=workspace_dir, message_store=message_store,
@@ -888,7 +891,12 @@ class AgentRepository:
         agent_information = mdl.AgentInformation(
             id=agent_id,
             personality=personality_with_contents.get_personality(),
-            active_chat=mdl.BasicChatDescriptor(channel="web_ui", chat_id=""))
+            active_chat=mdl.BasicChatDescriptor(channel="web_ui", chat_id=""),
+            web_ui_channel=mdl.WebUiChannelPersistence(
+                messages_dir=agent_base_dir / "web_ui_channel"),
+            agent_channel=mdl.AgentChannelPersistence(
+                messages_dir=agent_base_dir / "agent_channel"),
+        )
         self._agent_information_file(agent_base_dir).write_text(
             agent_information.model_dump_json())
         self._logger.info(

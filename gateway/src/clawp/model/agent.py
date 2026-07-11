@@ -55,6 +55,18 @@ class AgentPersonalityWithFileContents(AgentPersonality):
             name=self.name, personality_files=self.personality_files)
 
 
+class WebUiChannelPersistence(base.BaseModel):
+    """Persistent state for the built-in web_ui channel."""
+    messages_dir: pathlib.Path
+    read_offset: int = 0
+
+
+class AgentChannelPersistence(base.BaseModel):
+    """Persistent state for the built-in agent channel."""
+    messages_dir: pathlib.Path
+    read_offsets: dict[uuid.UUID, int] = pyd.Field(default_factory=dict)
+
+
 class AgentInformation(base.BaseModel):
     id: uuid.UUID
     personality: AgentPersonality
@@ -66,3 +78,5 @@ class AgentInformation(base.BaseModel):
     A mapping of channel type to channel ID.
     """
     active_chat: chan.ChatDescriptor
+    web_ui_channel: WebUiChannelPersistence
+    agent_channel: AgentChannelPersistence

@@ -51,8 +51,8 @@ class ChannelRouter(base.MessageSender, base.MessageReceiver):
     into a single stream, and routes outgoing messages to the appropriate
     channel based on the message's metadata.
 
-    Only one channel of each type may be added. The built-in web_ui channel is
-    added automatically if it doesn't exist.
+    Only one channel of each type may be added. The built-in channels web_ui
+    and agent must exist, or an exception is raised.
 
     The asynchronous context manager takes control of the contexts of the
     channels, i.e. it expects them to not have been entered and instead
@@ -72,8 +72,9 @@ class ChannelRouter(base.MessageSender, base.MessageReceiver):
             if channel.type in self._stati:
                 raise ValueError(f"Channel {channel.type} specified twice.")
             self._stati[channel.type] = self.ChannelStatus(channel)
-        if not any(isinstance(c, builtin.WebUiChannel) for c in channels):
-            self._stati["web_ui"] = self.ChannelStatus(builtin.WebUiChannel())
+        for mandatory_class in [builtin.WebUiChannel, builtin.AgentChannel]:
+            if not any(isinstance(c, mandatory_class) for c in channels):
+                raise ValueError(f"no channel of type {mandatory_class}")
 
     async def __aenter__(self) -> t.Self:
         self._logger.info(
@@ -131,12 +132,12 @@ class ChannelRouter(base.MessageSender, base.MessageReceiver):
         Add a new channel and start reading from it.
 
         Raises a ValueError if a channel of the type already exists. Raises a
-        RuntimeError if the router isn't running.
+        ChannelError if the router isn't running.
         """
         if channel.type in self._stati:
             raise ValueError(f"channel {channel.type} already exists")
         if not self._is_running:
-            raise RuntimeError("router isn't running, cant add channel")
+            raise base.ChannelError("router isn't running, cant add channel")
         self._stati[channel.type] = self.ChannelStatus(channel)
         await self._start_channel(self._stati[channel.type])
         self._logger.info(f"Added and started channel {channel.type}.")

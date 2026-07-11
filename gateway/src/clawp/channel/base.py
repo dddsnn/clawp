@@ -49,7 +49,7 @@ class MessageSender(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def send(self, chat_id: str, message: msg.AgentMessage) -> None:
+    async def send(self, message: msg.AgentMessage) -> None:
         """Send a message."""
         raise NotImplementedError
 

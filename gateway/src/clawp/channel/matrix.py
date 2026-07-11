@@ -121,7 +121,7 @@ class MatrixChannel(base.Channel):
     async def send(self, message: msg.AgentMessage) -> None:
         assert message.metadata.chat.channel == "matrix"
         if self._unread_messages.get(message.metadata.chat.chat_id, []):
-            raise RuntimeError("can't send if there are unread messages")
+            raise base.ChannelError("can't send if there are unread messages")
         await self._client.room_send(
             message.metadata.chat.chat_id, message_type="m.room.message",
             content={"msgtype": "m.text", "body": await message.content})
