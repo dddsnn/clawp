@@ -166,7 +166,8 @@ class Client:
         self._tools = None
         return False
 
-    def set_session_transaction(self, tx: "agt.SessionTransaction") -> None:
+    def set_session_transaction(
+            self, tx: t.Optional["agt.SessionTransaction"]) -> None:
         if self._session_transaction and tx:
             raise RuntimeError("session transaction is already set")
         self._clawp_server.session_transaction = tx
@@ -184,6 +185,7 @@ class Client:
         return self._tools
 
     async def call_tool(self, name: str, *args, **kwargs) -> ToolResult:
+        assert self._tools is not None
         if name not in self._tools:
             raise ValueError(f"unknown tool {name}")
         result = await self._client.call_tool(name, *args, **kwargs)

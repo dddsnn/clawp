@@ -75,7 +75,8 @@ class ClawpMcpServer(fastmcp.FastMCP):
         return self._session_transaction
 
     @session_transaction.setter
-    def session_transaction(self, value: "agt.SessionTransaction") -> None:
+    def session_transaction(
+            self, value: t.Optional["agt.SessionTransaction"]) -> None:
         self._session_transaction = value
 
     async def list_tutorial_topics(self) -> list[str]:
