@@ -18,7 +18,6 @@
 import functools as ft
 import pathlib
 import typing as t
-import uuid
 
 import fastmcp
 import fastmcp.client
@@ -57,10 +56,11 @@ def make_filesystem_proxy(
 class ClawpMcpServer(fastmcp.FastMCP):
     """MCP server providing tools to interact with Clawp itself."""
     def __init__(
-            self, agent: "agt.Agent", complex_metadata: dict[uuid.UUID, dict]):
+            self, agent: "agt.Agent",
+            complex_metadata_registry: base.ComplexToolResultMetadataRegistry):
         super().__init__("Clawp system MCP server")
         self._agent = agent
-        self._complex_metadata = complex_metadata
+        self._complex_metadata_registry = complex_metadata_registry
         self._session_transaction = None
         self.add_tool(self.list_tutorial_topics)
         self.add_tool(self.read_tutorial)
@@ -127,11 +127,8 @@ class ClawpMcpServer(fastmcp.FastMCP):
                 assert message.metadata.chat == chat
                 await tx.handle_chat_message(message)
 
-        complex_metadata_id = str(uuid.uuid4())
-        self._complex_metadata[complex_metadata_id] = {
-            "session_operation": add_unread_messages_to_session}
-        return fastmcp.tools.ToolResult(
-            content=content, meta={"complex_metadata_id": complex_metadata_id})
+        return self._complex_metadata_registry.make_result(
+            content, session_operation=add_unread_messages_to_session)
 
     async def get_unread_chat_messages(self, channel: str,
                                        chat_id: str) -> list[mdl.ChatMessage]:

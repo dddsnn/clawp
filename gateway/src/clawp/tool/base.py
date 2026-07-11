@@ -19,6 +19,7 @@ import collections.abc as cl_abc
 import dataclasses as dc
 import logging
 import typing as t
+import uuid
 
 import fastmcp
 import fastmcp.client.client
@@ -37,6 +38,69 @@ Iso8601Instant = t.Annotated[we.Instant,
                              pyd.Field(
                                  description="An ISO 8601 timestamp",
                                  examples=["2026-06-14T17:53:00Z"])]
+
+
+class ComplexToolResultMetadataRegistry:
+    """
+    Registry for complex, non-serializable MCP tool result metadata.
+
+    FastMCP tool results can carry normal metadata, but that metadata must be
+    serializable. We sometimes need to return process-local objects (e.g.
+    closures that perform session operations) together with the tool result.
+    This registry stores such objects out-of-band and links them to the FastMCP
+    result via an opaque ID in the result's regular metadata.
+
+    The registry is in-memory and process-local by design.
+    """
+    def __init__(self) -> None:
+        self._logger = logging.getLogger(type(self).__name__)
+        self._registry: dict[str, dict[str, t.Any]] = {}
+
+    def make_result(
+            self, content: list[mcp.types.ContentBlock] | str | t.Any,
+            structured_content: dict[str, t.Any] | t.Any | None = None,
+            **complex_metadata: t.Any) -> fastmcp.tools.ToolResult:
+        """
+        Create a FastMCP ToolResult and attach complex metadata.
+
+        The provided complex_metadata entries are stored in this registry under
+        a generated ID. That ID is embedded in the result's normal metadata,
+        allowing a process-local client to fetch the complex metadata later.
+
+        :param content: ToolResult content passed through to FastMCP.
+        :param structured_content: Structured content passed through to FastMCP.
+        :param complex_metadata: Arbitrary non-serializable values to associate
+            with this result.
+        :returns: A ToolResult containing the generated metadata reference ID.
+        """
+        complex_metadata_id = str(uuid.uuid4())
+        self._registry[complex_metadata_id] = complex_metadata
+        return fastmcp.tools.ToolResult(
+            content=content, structured_content=structured_content,
+            meta={"complex_metadata_id": complex_metadata_id})
+
+    def pop_for_result(self,
+                       result: fastmcp.tools.ToolResult) -> dict[str, t.Any]:
+        """
+        Get and remove complex metadata referenced by a ToolResult.
+
+        If the result does not reference complex metadata, or if the reference
+        is stale/missing, an empty dict is returned.
+
+        :param result: The ToolResult carrying the metadata reference.
+        :returns: The associated complex metadata dictionary.
+        """
+        try:
+            complex_metadata_id = result.meta["complex_metadata_id"]
+        except (TypeError, KeyError):
+            return {}
+        try:
+            return self._registry.pop(complex_metadata_id)
+        except KeyError:
+            self._logger.exception(
+                f"Result {result} specified a complex metadata ID, but it "
+                f"wasn't present in the registry.")
+            return {}
 
 
 @dc.dataclass
@@ -77,11 +141,11 @@ class Client:
     """A client providing tools via MCP servers."""
     def __init__(self, config: mdl.GatewayConfig, agent: "agt.Agent"):
         self._logger = logging.getLogger(type(self).__name__)
-        self._complex_metadata = {}
+        self._complex_metadata_registry = ComplexToolResultMetadataRegistry()
         server = fastmcp.FastMCP(name="Clawp MCP server")
         self._shell_server = shell.SandboxShellMcpServer(config, agent)
         self._clawp_server = builtin.ClawpMcpServer(
-            agent, self._complex_metadata)
+            agent, self._complex_metadata_registry)
         server.mount(builtin.make_filesystem_proxy(agent.workspace_dir))
         server.mount(self._clawp_server, namespace="clawp")
         server.mount(self._shell_server)
@@ -134,18 +198,8 @@ class Client:
                     f"Ignoring non-text content block {block}.")
                 continue
             result_kwargs["content_string"] += block.text
-        try:
-            complex_metadata_id = result.meta["complex_metadata_id"]
-        except (TypeError, KeyError):
-            # No complex metadata, regular result.
-            return ToolResult, result_kwargs
-        try:
-            complex_metadata = self._complex_metadata.pop(complex_metadata_id)
-        except KeyError:
-            self._logger.exception(
-                f"Result {result} specified a complex metadata ID, but it "
-                f"wasn't present in the dict.")
-            return ToolResult, result_kwargs
+        complex_metadata = self._complex_metadata_registry.pop_for_result(
+            result)
         if "session_operation" in complex_metadata:
             result_kwargs["operation"] = complex_metadata["session_operation"]
             return SessionOperationToolResult, result_kwargs
