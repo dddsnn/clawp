@@ -225,6 +225,12 @@ class ChannelRouter(base.MessageSender, base.MessageReceiver):
         """Iterate over incoming chat messages."""
         return self._publisher.subscribe()
 
+    async def unread_message_chats(
+            self) -> cl_abc.AsyncGenerator[mdl.ChatDescriptor]:
+        """Iterate over chats with unread messages."""
+        async for message in self.incoming_messages():
+            yield message.metadata.chat
+
 
 @dc.dataclass
 class PoolChannelStatus:

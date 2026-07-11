@@ -48,6 +48,8 @@ class MatrixChannel(base.Channel):
         self._client.add_event_callback(
             self._on_room_message_text, nio.RoomMessageText)
         self._sync_forever_task = None
+        self._unread_messages: dict[str, list[tuple[nio.RoomMessageText,
+                                                    mdl.ChatMessage]]] = {}
 
     async def __aenter__(self) -> t.Self:
         await super().__aenter__()
@@ -91,7 +93,20 @@ class MatrixChannel(base.Channel):
 
     async def get_unread_messages(self,
                                   chat_id: str) -> list[mdl.MatrixChatMessage]:
-        return []
+        try:
+            event_messages = self._unread_messages[chat_id]
+        except KeyError:
+            raise base.ChatIdError(f"no room {chat_id}")
+        if not event_messages:
+            return []
+        last_event_id = event_messages[-1][0].event_id
+        resp = await self._client.room_read_markers(
+            room_id=chat_id, fully_read_event=last_event_id,
+            read_event=last_event_id)
+        if isinstance(resp, nio.RoomReadMarkersError):
+            raise base.ChannelError(f"error in updating read marker: {resp}")
+        self._unread_messages[chat_id] = []
+        return [em[1] for em in event_messages]
 
     def make_outgoing_start_metadata(
         self, chat: mdl.MatrixChatDescriptor
@@ -105,6 +120,8 @@ class MatrixChannel(base.Channel):
 
     async def send(self, message: msg.AgentMessage) -> None:
         assert message.metadata.chat.channel == "matrix"
+        if self._unread_messages.get(message.metadata.chat.chat_id, []):
+            raise RuntimeError("can't send if there are unread messages")
         await self._client.room_send(
             message.metadata.chat.chat_id, message_type="m.room.message",
             content={"msgtype": "m.text", "body": await message.content})
@@ -123,4 +140,6 @@ class MatrixChannel(base.Channel):
         )
         message = mdl.MatrixChatMessage(
             role="user", metadata=metadata, content=event.body)
+        self._unread_messages.setdefault(room.room_id, []).append(
+            (event, message))
         await self._publisher.append(message)

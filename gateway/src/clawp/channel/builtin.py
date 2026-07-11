@@ -36,6 +36,8 @@ class WebUiChannel(base.Channel):
     """
     def __init__(self) -> None:
         super().__init__("web_ui")
+        self._messages = []
+        self._read_offset = 0
 
     @property
     def id(self) -> None:
@@ -54,7 +56,9 @@ class WebUiChannel(base.Channel):
     async def get_unread_messages(self, chat_id: str) -> list[mdl.ChatMessage]:
         if chat_id != "":
             raise base.ChatIdError("invalid chat_id (use empty string \"\")")
-        return []
+        unread_messages = self._messages[self._read_offset:]
+        self._read_offset = len(self._messages)
+        return unread_messages
 
     def make_outgoing_start_metadata(
         self, chat: mdl.ChatDescriptor
@@ -67,7 +71,11 @@ class WebUiChannel(base.Channel):
             mdl.BasicChatMessageMetadata)
 
     async def send(self, message: msg.AgentMessage) -> None:
-        self._logger.debug(f"Sending {message}: {await message.content}")
+        chat_message = await message.model
+        if len(self._messages) != self._read_offset:
+            raise RuntimeError("can't send if there are unread messages")
+        self._messages.append(chat_message)
+        self._read_offset += 1
 
     async def add_incoming_user_message(
             self, time: we.Instant, content: str) -> None:
@@ -82,6 +90,7 @@ class WebUiChannel(base.Channel):
             chat=mdl.BasicChatDescriptor(channel=self.type, chat_id=""))
         message = mdl.ChatMessage(
             role="user", metadata=metadata, content=content)
+        self._messages.append(message)
         await self._publisher.append(message)
 
 
@@ -98,6 +107,8 @@ class AgentChannel(base.Channel):
         super().__init__("agent")
         self._agent_id = agent_id
         self._agent_repo = agent_repo
+        self._messages = {}
+        self._read_offsets = {}
 
     @property
     def id(self) -> str:
@@ -129,7 +140,11 @@ class AgentChannel(base.Channel):
         # Get the other agent to make sure the ID is in order and the agent
         # exists.
         self._get_agent(chat_id)
-        return []
+        messages = self._messages.setdefault(chat_id, [])
+        read_offset = self._read_offsets.setdefault(chat_id, 0)
+        unread_messages = messages[read_offset:]
+        self._read_offsets[chat_id] = len(messages)
+        return unread_messages
 
     def make_outgoing_start_metadata(
         self, chat: mdl.ChatDescriptor
@@ -150,6 +165,14 @@ class AgentChannel(base.Channel):
             raise RuntimeError(
                 "recipient doesn't have an agent channel to send to")
         assert isinstance(recipient_channel, AgentChannel)
+        chat_message = await message.model
+        messages = self._messages.setdefault(message.metadata.chat.chat_id, [])
+        read_offset = self._read_offsets.setdefault(
+            message.metadata.chat.chat_id, 0)
+        if len(messages) != read_offset:
+            raise RuntimeError("can't send if there are unread messages")
+        messages.append(chat_message)
+        self._read_offsets[message.metadata.chat.chat_id] += 1
         await recipient_channel.add_incoming_agent_message(
             message, self._agent_id)
 
@@ -164,7 +187,10 @@ class AgentChannel(base.Channel):
         """
         metadata = mdl.BasicChatMessageMetadata(
             time=await message.metadata.time.value,
-            chat=mdl.ChatDescriptor(channel=self.type, chat_id=str(sender_id)))
+            chat=mdl.BasicChatDescriptor(
+                channel=self.type, chat_id=str(sender_id)))
         message = mdl.ChatMessage(
             role="user", metadata=metadata, content=await message.content)
+        self._messages.setdefault(message.metadata.chat.chat_id,
+                                  []).append(message)
         await self._publisher.append(message)

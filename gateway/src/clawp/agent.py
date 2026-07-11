@@ -90,6 +90,16 @@ class SessionTransaction:
             raise RuntimeError("transaction is not active")
         return self._session.num_messages
 
+    async def handle_chat_message(self, chat_message: mdl.ChatMessage) -> None:
+        if not self._is_active:
+            raise RuntimeError("transaction is not active")
+        await self._session._handle_chat_message(chat_message)
+
+    async def request_responses(self) -> None:
+        if not self._is_active:
+            raise RuntimeError("transaction is not active")
+        await self._session._request_responses()
+
     async def append_internal_message(
             self, message_class: type[msg.InternalMessage], content: str,
             **kwargs) -> None:
@@ -100,14 +110,10 @@ class SessionTransaction:
 
     async def append_agent_message(
             self, message_parts: util.StreamableList) -> None:
+
         if not self._is_active:
             raise RuntimeError("transaction is not active")
         await self._session._append_agent_message(message_parts)
-
-    async def handle_chat_message(self, chat_message: mdl.ChatMessage) -> None:
-        if not self._is_active:
-            raise RuntimeError("transaction is not active")
-        await self._session._handle_chat_message(chat_message)
 
     def messages(self) -> cl_abc.Generator[msg.Message]:
         """Iterate all messages."""
@@ -195,27 +201,6 @@ class Session:
         """The number of messages in this session."""
         return len(self._messages or [])
 
-    async def _append_internal_message(
-            self, message_class: type[msg.InternalMessage], content: str,
-            **kwargs) -> None:
-        assert issubclass(message_class, msg.InternalMessage)
-        message = message_class(
-            msg.InternalMessageMetadata(
-                time=util.ImmediateValue(we.Instant.now())), content=content,
-            **kwargs)
-        await self._append_message(message)
-
-    async def _append_agent_message(
-            self, message_parts: util.StreamableList) -> None:
-
-        start_metadata, full_metadata_class = (
-            self._message_sender.make_outgoing_start_metadata(
-                self._active_chat))
-        metadata = msg.ChatMessageMetadata.from_start_metadata(
-            start_metadata, full_metadata_class)
-        message = msg.AgentMessage(metadata, message_parts)
-        await self._append_message(message)
-
     async def _handle_chat_message(
             self, chat_message: mdl.ChatMessage) -> None:
         """
@@ -228,7 +213,6 @@ class Session:
             msg.ChatMessageMetadata.from_model(chat_message.metadata),
             content=chat_message.content)
         await self._append_message(message)
-        await self._request_responses()
 
     async def _add_metadata_for_user_message(
             self, user_message: mdl.ChatMessage):
@@ -273,7 +257,7 @@ class Session:
             self._logger.warning(
                 f"Breaking out of request loop after {num_requests} requests.")
 
-    async def _request_response(self):
+    async def _request_response(self) -> bool:
         message, stream_task = await self._request_agent_message()
         # Wait for the message to completely arrive before handling tool calls
         # or sending.
@@ -282,25 +266,8 @@ class Session:
         except Exception:
             self._logger.exception(f"Error streaming {message}.")
         await message.wait_finalized()
-        for error in await message.errors:
-            self._logger.error("Message had error.", exc_info=error)
-        if await message.content:
-            send_task = asyncio.create_task(self._message_sender.send(message))
-        else:
-            self._logger.debug("Not sending message without content.")
-            send_task = asyncio.create_task(asyncio.sleep(0))
-        need_another_request = await self._handle_tool_calls(message)
-        try:
-            async with asyncio.timeout(
-                    self._model_config.message_send_timeout.total("seconds")):
-                await send_task
-        except Exception as e:
-            self._logger.exception(
-                "Error sending message. Informing the agent to allow a retry.")
-            await self._append_internal_message(
-                msg.SystemMessage, content=await
-                file.render_message_send_error(message, e))
-            need_another_request = True
+        need_another_request = await self._process_finalized_agent_message(
+            message)
         return need_another_request
 
     async def _request_agent_message(self):
@@ -316,6 +283,30 @@ class Session:
         await self._append_message(message)
         return message, stream_task
 
+    async def _process_finalized_agent_message(
+            self, message: msg.AgentMessage) -> bool:
+        assert message.finalized()
+        for error in await message.errors:
+            self._logger.error("Message had error.", exc_info=error)
+        if await message.content:
+            send_task = asyncio.create_task(self._message_sender.send(message))
+        else:
+            self._logger.debug("Not sending message without content.")
+            send_task = util.create_done_future(None)
+        need_another_request = await self._handle_tool_calls(message)
+        try:
+            async with asyncio.timeout(
+                    self._model_config.message_send_timeout.total("seconds")):
+                await send_task
+        except Exception as e:
+            self._logger.exception(
+                "Error sending message. Informing the agent to allow a retry.")
+            await self._append_internal_message(
+                msg.SystemMessage, content=await
+                file.render_message_send_error(message, e))
+            need_another_request = True
+        return need_another_request
+
     async def _handle_tool_calls(self, message: msg.AgentMessage) -> bool:
         if not await message.tool_calls:
             return False
@@ -325,17 +316,43 @@ class Session:
                 arguments_dict = json.loads(tool_call.function.arguments)
                 with self._mcp_client.with_session_transaction(
                         self._active_transaction) as tx_client:
-                    result_string = await tx_client.call_tool(
+                    result = await tx_client.call_tool(
                         tool_call.function.name, arguments_dict)
                     await self._append_internal_message(
-                        msg.ToolMessage, content=result_string,
+                        msg.ToolMessage, content=result.content_string,
                         tool_call_id=tool_call.id)
+                    if isinstance(result, tool.SessionOperationToolResult):
+                        # The tool result wants us to call a function on the
+                        # session.
+                        await result.operation(self._active_transaction)
             except Exception as e:
                 await self._append_internal_message(
                     msg.ToolMessage, content="Error in tool call: " + str(e),
                     tool_call_id=tool_call.id)
                 self._logger.exception("Error in tool call.")
         return True
+
+    async def _append_internal_message(
+            self, message_class: type[msg.InternalMessage], content: str,
+            **kwargs) -> None:
+        assert issubclass(message_class, msg.InternalMessage)
+        message = message_class(
+            msg.InternalMessageMetadata(
+                time=util.ImmediateValue(we.Instant.now())), content=content,
+            **kwargs)
+        await self._append_message(message)
+
+    async def _append_agent_message(
+            self, message_parts: util.StreamableList) -> None:
+        start_metadata, full_metadata_class = (
+            self._message_sender.make_outgoing_start_metadata(
+                self._active_chat))
+        metadata = msg.ChatMessageMetadata.from_start_metadata(
+            start_metadata, full_metadata_class)
+        message = msg.AgentMessage(metadata, message_parts)
+        await self._append_message(message)
+        await message.wait_finalized()
+        await self._process_finalized_agent_message(message)
 
     def messages(self) -> cl_abc.Generator[msg.Message]:
         """Iterate all messages."""
@@ -404,8 +421,6 @@ class Agent:
         unread_messages = await self._channel_router.get_unread_messages(chat)
         self._agent_information.active_chat = chat
         tx.active_chat = chat
-        if unread_messages:
-            pass
         return unread_messages
 
     @property
@@ -437,14 +452,14 @@ class Agent:
         await self._mcp_client.__aenter__()
         await self._channel_router.__aenter__()
         async with self._lock:
-            self._read_chat_messages_task = asyncio.create_task(
-                self._read_chat_messages())
+            self._handle_unread_chats_task = asyncio.create_task(
+                self._handle_unread_chats())
             await self._ensure_active_session_locked()
             return self
 
     async def __aexit__(self, *args) -> bool:
         async with self._lock:
-            self._read_chat_messages_task.cancel()
+            self._handle_unread_chats_task.cancel()
             try:
                 async with asyncio.timeout(120):
                     await self._session.__aexit__(*args)
@@ -452,9 +467,9 @@ class Agent:
                 self._logger.exception("Error shutting down session.")
             try:
                 async with asyncio.timeout(20):
-                    await self._read_chat_messages_task
+                    await self._handle_unread_chats_task
             except Exception:
-                self._logger.exception("Error waiting for chat message task.")
+                self._logger.exception("Error waiting for unread chats task.")
         try:
             async with asyncio.timeout(5):
                 await self._channel_router.__aexit__(*args)
@@ -543,37 +558,83 @@ class Agent:
             msg.SystemMessage, await file.render_channel_status(
                 channel, available=channel.type in self.channels))
 
-    async def _read_chat_messages(self) -> None:
-        handle_task = None
-        try:
-            async for message in self._channel_router.incoming_messages():
-                async with self._lock:
-                    handle_task = asyncio.create_task(
-                        self._handle_chat_message_locked(message))
-                    await asyncio.shield(handle_task)
-        except asyncio.CancelledError:
-            if not handle_task:
-                return
+    async def _handle_unread_chats(self) -> None:
+        unread_chats_iter = self._channel_router.unread_message_chats()
+        unread_chats = []
+        acquire_lock_task = None
+        while True:
+            handle_task = util.create_done_future(None)
             try:
-                async with asyncio.timeout(60):
-                    await handle_task
-            except Exception:
-                self._logger.exception(
-                    "Error waiting to process final chat message.")
+                get_chat_task = asyncio.create_task(anext(unread_chats_iter))
+                if not unread_chats:
+                    # Need at least one chat with unread messages.
+                    try:
+                        await get_chat_task
+                    except StopAsyncIteration:
+                        # Generator is closed, we must be shutting down.
+                        return
+                acquire_lock_task = asyncio.create_task(self._lock.acquire())
+                # Wait a bit so we have time to acquire the lock even if we
+                # already have a chat.
+                done, _ = await asyncio.wait(
+                    {get_chat_task, acquire_lock_task}, timeout=10**-3,
+                    return_when=asyncio.ALL_COMPLETED)
+                if get_chat_task in done:
+                    unread_chats.append(get_chat_task.result())
+                else:
+                    get_chat_task.cancel()
+                assert len(unread_chats) > 0
+                if acquire_lock_task not in done:
+                    # We don't have the lock, the agent must be busy. Keep
+                    # reading and adding chats until we get the lock.
+                    continue
+                unread_chat = unread_chats[0]
+                handle_task = asyncio.create_task(
+                    self._handle_unread_chat_locked(unread_chat))
+                await asyncio.shield(handle_task)
+                unread_chats = [c for c in unread_chats if c != unread_chat]
+            except asyncio.CancelledError:
+                try:
+                    async with asyncio.timeout(60):
+                        await handle_task
+                except Exception:
+                    self._logger.exception(
+                        "Error waiting to process final chat message.")
+                return
+            finally:
+                if acquire_lock_task is not None:
+                    acquire_lock_task.cancel()
+                    try:
+                        await acquire_lock_task
+                        # The lock was acquired by us.
+                        self._lock.release()
+                    except asyncio.CancelledError:
+                        # We didn't manage to acquire the lock, no need to
+                        # release.
+                        pass
+                acquire_lock_task = None
 
-    async def _handle_chat_message_locked(
-            self, message: mdl.ChatMessage) -> None:
+    async def _handle_unread_chat_locked(
+            self, chat: mdl.ChatDescriptor) -> None:
         try:
             async with await self._session.transaction() as tx:
-                if message.metadata.chat != self.information.active_chat:
+                if chat != self.information.active_chat:
                     # We've received a message in a chat other than the active
                     # chat. Inject messages into the session that make it look
                     # like the agent switched to that chat in response to it.
-                    await self._fake_agent_switch_message_locked(
-                        message.metadata.chat, tx)
-                await tx.handle_chat_message(message)
+                    # This will also append unread messages to the session.
+                    await self._fake_agent_switch_message_locked(chat, tx)
+                else:
+                    # If we don't switch, we just have to append the messages
+                    # to the session.
+                    messages = (
+                        await self._channel_router.get_unread_messages(chat))
+                    for message in messages:
+                        assert message.metadata.chat == chat
+                        await tx.handle_chat_message(message)
+                await tx.request_responses()
         except Exception:
-            self._logger.exception("Error handling chat message.")
+            self._logger.exception("Error handling unread chat messages.")
 
     async def _fake_agent_switch_message_locked(
             self, chat: mdl.ChatDescriptor, tx: SessionTransaction) -> None:
@@ -582,18 +643,14 @@ class Agent:
             msg.SystemMessage,
             content=f"1 unread message in chat {chat.model_dump_json()}")
         tool_part = msg.AgentMessageToolPart()
+        arguments = chat.model_dump_json(include=("channel", "chat_id"))
         function = msg.ToolCallFunction(
-            name="clawp_switch_chat", arguments=chat.model_dump_json())
+            name="clawp_switch_chat", arguments=arguments)
         await tool_part.append(
             msg.ToolCall(
                 id="call_00_ui1YuJA6eD2P7r4v1DQP8967", function=function))
         await tool_part.finalize()
         await tx.append_agent_message(util.StreamableList([tool_part]))
-        await tx.append_internal_message(
-            msg.ToolMessage,
-            content=f"Switched to chat {chat.model_dump_json()}, showing 1 "
-            "unread message", tool_call_id="call_00_ui1YuJA6eD2P7r4v1DQP8967")
-        await self.switch_active_chat_locked(chat.channel, chat.chat_id, tx)
 
     def messages(
             self) -> cl_abc.Generator[tuple[mdl.MessageOffset, msg.Message]]:

@@ -23,6 +23,13 @@ import itertools as it
 import typing as t
 
 
+def create_done_future(result) -> asyncio.Future:
+    """Create a future that is already done."""
+    future = asyncio.get_running_loop().create_future()
+    future.set_result(result)
+    return future
+
+
 class StreamableList:
     """
     A list that can be streamed asynchronously.
@@ -67,7 +74,7 @@ class StreamableList:
 
         The list must not be finalized, or a ValueError is raised.
         """
-        if self._finalized_event.is_set():
+        if self.finalized():
             raise ValueError("StreamableList has already been finalized")
         self._list.append(item)
         async with self._new_element_condition:
@@ -100,6 +107,10 @@ class StreamableList:
         """
         await self._finalized_wait_task
 
+    def finalized(self) -> bool:
+        """Check whether the list is already finalized."""
+        return self._finalized_event.is_set()
+
     async def stream(self) -> cl_abc.AsyncGenerator:
         """
         Asynchronously stream list elements.
@@ -116,7 +127,7 @@ class StreamableList:
                     yield self._list[i]
                     i += 1
                     continue
-                elif self._finalized_event.is_set():
+                elif self.finalized():
                     return
                 new_element_wait_task = asyncio.create_task(
                     self._wait_for_new_element())

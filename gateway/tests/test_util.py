@@ -63,6 +63,11 @@ class TestStreamableList:
         assert list(ls) == [1]
         assert ls[0] == 1
 
+    async def test_finalized(self, ls):
+        assert not ls.finalized()
+        await ls.finalize()
+        assert ls.finalized()
+
     async def test_append_raises_if_finalized(self, ls):
         await ls.finalize()
         with pytest.raises(ValueError):

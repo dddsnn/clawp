@@ -458,6 +458,10 @@ class AgentMessage(ChatMessage):
         for task in self._deferred_set_tasks or []:
             await task
 
+    def finalized(self) -> bool:
+        """Check whether the message is already finalized."""
+        return self._parts.finalized() and not self._deferred_set_tasks
+
     @property
     def role(self) -> t.Literal["agent"]:
         return "agent"

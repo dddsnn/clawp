@@ -25,7 +25,11 @@ from .. import model as mdl
 from .. import util
 
 
-class ChatIdError(ValueError):
+class ChannelError(Exception):
+    """Base exception for errors in channels."""
+
+
+class ChatIdError(ChannelError, ValueError):
     """Raised when a chat ID is invalid in any way."""
 
 
