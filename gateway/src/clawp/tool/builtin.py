@@ -90,16 +90,6 @@ class ClawpMcpServer(fastmcp.FastMCP):
         except FileNotFoundError as e:
             raise ValueError(f"topic {topic} doesn't exist") from e
 
-    async def list_chats(self, channel_type: str) -> list[mdl.ChatInformation]:
-        """
-        """
-        raise NotImplementedError
-
-    async def get_active_chat(self) -> mdl.ChatInformation:
-        """
-        """
-        raise NotImplementedError
-
     async def switch_chat(
             self, channel: str, chat_id: str) -> fastmcp.tools.ToolResult:
         """
@@ -130,13 +120,6 @@ class ClawpMcpServer(fastmcp.FastMCP):
 
         return self._complex_metadata_registry.make_result(
             content, session_operation=add_unread_messages_to_session)
-
-    async def get_unread_chat_messages(self, channel: str,
-                                       chat_id: str) -> list[mdl.ChatMessage]:
-        """
-
-        """
-        raise NotImplementedError
 
     async def log_memory(self, content: str) -> None:
         """
