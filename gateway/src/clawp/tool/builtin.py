@@ -22,6 +22,7 @@ import typing as t
 import fastmcp
 import fastmcp.client
 import fastmcp.client.transports
+import fastmcp.exceptions
 import fastmcp.server
 import fastmcp.server.providers.proxy
 import fastmcp.tools
@@ -95,16 +96,22 @@ class ClawpMcpServer(fastmcp.FastMCP):
         """
         Switch the active chat.
 
-        Any unread messages in the new chat will be shown immediately.
+        Any unread messages in the new chat will be shown immediately and
+        marked as read.
         """
         try:
             channel_object = self._agent.channels[channel]
         except KeyError:
             raise ValueError(f"no such channel {channel}")
         chat = await channel_object.get_chat_descriptor(chat_id)
-        unread_messages = await self._agent.switch_active_chat_locked(
-            channel, chat_id, self.session_transaction)
+        self._agent.switch_active_chat(chat, self.session_transaction)
         content = f"You are now talking in chat {chat.model_dump_json()}."
+        try:
+            unread_messages = await channel_object.get_unread_messages(chat_id)
+        except Exception as e:
+            raise fastmcp.exceptions.ToolError(
+                f"{content}\n\n But there was an error fetching unread "
+                f"messages: {e}")
         if not unread_messages:
             content += " No unread messages."
         else:

@@ -483,26 +483,19 @@ class Agent:
     def information(self) -> mdl.AgentInformation:
         return self._agent_information
 
-    async def switch_active_chat_locked(
-            self, channel: str, chat_id: str,
-            tx: SessionTransaction) -> list[mdl.ChatMessage]:
+    def switch_active_chat(
+            self, chat: mdl.ChatDescriptor, tx: SessionTransaction) -> None:
         """
         Switch the active chat.
 
         Sets the agent's active chat, so that all outgoing agent messages are
         sent in that new chat. Raises an error if the given chat is equal to
-        the active one or there is anything invalid about the chat descriptor.
-
-        Also gets a list of all unread messages in the new chat (marking them
-        as read in the process) and returns it.
+        the active one.
         """
-        chat = await self._channel_router.get_chat_descriptor(channel, chat_id)
         if self._agent_information.active_chat == chat:
             raise ValueError("new chat is the same as the current one")
-        unread_messages = await self._channel_router.get_unread_messages(chat)
         self._agent_information.active_chat = chat
         tx.active_chat = chat
-        return unread_messages
 
     @property
     def workspace_dir(self) -> pathlib.Path:

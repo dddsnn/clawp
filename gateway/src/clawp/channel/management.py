@@ -166,21 +166,13 @@ class ChannelRouter(base.MessageSender, base.MessageReceiver):
         assert isinstance(web_ui_channel, builtin.WebUiChannel)
         return web_ui_channel
 
-    async def get_chat_descriptor(
-            self, channel: str, chat_id: str) -> mdl.ChatDescriptor:
-        """
-        Get a full descriptor for channel/chat_id.
-
-        Raises NoSuchChannelError is the channel doesn't exist. Raises
-        ChatIdError if the chat isn't valid in any way.
-        """
-        channel = self._get_channel(channel)
-        return await channel.get_chat_descriptor(chat_id)
-
     async def get_unread_messages(
             self, chat: mdl.ChatDescriptor) -> list[mdl.ChatMessage]:
         """
-        Get messages that haven't been shown to the agent yet.
+        Get messages that haven't yet been read.
+
+        As a side effect, this also marks the messages as read (so that another
+        call immediately following will return an empty list).
 
         Raises NoSuchChannelError is the channel doesn't exist. Raises
         ChatIdError if the chat isn't valid in any way.
