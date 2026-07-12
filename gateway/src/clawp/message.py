@@ -162,6 +162,12 @@ class Message(abc.ABC):
 
 
 class InternalMessage(Message):
+    """
+    A Message that only exists internally.
+
+    This is the base class for system messages etc. that are injected directly
+    into an agent's session.
+    """
     def __init__(self, metadata: InternalMessageMetadata) -> None:
         super().__init__(metadata)
 
@@ -181,6 +187,11 @@ class InternalMessage(Message):
 
 
 class ChatMessage(Message):
+    """
+    A Message that arrived via a chat.
+
+    This is the base class for user and agent messages which are sent in chats.
+    """
     def __init__(self, metadata: ChatMessageMetadata) -> None:
         super().__init__(metadata)
 

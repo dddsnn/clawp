@@ -126,7 +126,7 @@ class ClawpMcpServer(fastmcp.FastMCP):
                 tx: "agt.SessionTransaction") -> None:
             for message in unread_messages:
                 assert message.metadata.chat == chat
-                await tx.handle_chat_message(message)
+                await tx.append_chat_message(message)
 
         return self._complex_metadata_registry.make_result(
             content, session_operation=add_unread_messages_to_session)

@@ -34,11 +34,20 @@ class WebUiChannel(base.Channel):
     Web UI channel.
 
     This channel is used for the built-in web UI.
+
+    This channel persists all messages (incoming and outgoing) in a .jsonl
+    file. It also maintains a read offset (the index of the next unread
+    message) in a config object that must be persisted externally.
     """
     _MESSAGES_FILE_NAME = "messages.jsonl"
     _MESSAGES_VERSION = 0
 
     def __init__(self, persistence_info: mdl.WebUiChannelPersistence) -> None:
+        """
+        :param persistence_info: A config object for the persistence. This
+            also contains the read offset, which is updated inside that
+            instance and must be persisted externally.
+        """
         super().__init__("web_ui")
         self._persistence_info = persistence_info
         self._messages: list[mdl.ChatMessage] = []
@@ -157,12 +166,23 @@ class AgentChannel(base.Channel):
 
     This channel can be used by Clawp agents to directly communicate with other
     agents within the system.
+
+    This channel persists all messages (incoming and outgoing) in .jsonl files
+    named after the other agents in the chats (i.e. the file name is the other
+    agent's ID). It also maintains read offsets (the index of the next unread
+    message) for each chat in a config object that must be persisted
+    externally.
     """
     _MESSAGES_VERSION = 0
 
     def __init__(
             self, agent_id: uuid.UUID, agent_repo: "agt.AgentRepository",
             persistence_info: mdl.AgentChannelPersistence) -> None:
+        """
+        :param persistence_info: A config object for the persistence. This
+            also contains the read offsets, which are updated inside that
+            instance and must be persisted externally.
+        """
         super().__init__("agent")
         self._agent_id = agent_id
         self._agent_repo = agent_repo

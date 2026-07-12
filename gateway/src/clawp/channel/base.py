@@ -64,9 +64,13 @@ class Channel(MessageSender, MessageReceiver):
     """
     A communication channel.
 
-    A channel is a way for the agent to communicate with the user. It can
-    iterate over incoming chat messages (from the user/outside), and send
-    messages back.
+    A channel is a way for the agent to communicate with the user or some other
+    party. It can iterate over incoming chat messages (from the user/outside),
+    and send messages back.
+
+    A channel also maintains information on which messages have already been
+    read. Every call to get_unread_messages() will return only those messages
+    never returned by it before. Afterwards, they're marked as read.
     """
     def __init__(self, channel_type: mdl.ChannelType) -> None:
         self._logger = logging.getLogger(type(self).__name__)
@@ -91,7 +95,7 @@ class Channel(MessageSender, MessageReceiver):
         """
         ID for the particular instance of the channel.
 
-        This identifies e.g. the account or username from this this channel
+        This identifies e.g. the account or username from which this channel
         sends. None for channels that have no identity associated with them.
         """
         raise NotImplementedError
@@ -117,5 +121,10 @@ class Channel(MessageSender, MessageReceiver):
 
     @abc.abstractmethod
     async def get_unread_messages(self, chat_id: str) -> list[mdl.ChatMessage]:
-        """Get messages that haven't been shown to the agent yet."""
+        """
+        Get messages that haven't yet been read.
+
+        As a side effect, this also marks the messages as read (so that another
+        call immediately following will return an empty list).
+        """
         raise NotImplementedError

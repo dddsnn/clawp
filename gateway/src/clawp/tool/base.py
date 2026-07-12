@@ -121,6 +121,12 @@ class SessionOperationToolResult(ToolResult):
 
 
 class ClientSessionTransactionContext:
+    """
+    Client proxy setting the session transaction.
+
+    This is just a thin wrapper around a Client that acts as a context manager
+    which sets and unsets a session transaction on the client.
+    """
     def __init__(self, client: "Client", tx: "agt.SessionTransaction") -> None:
         self._client = client
         self._tx = tx
@@ -176,6 +182,12 @@ class Client:
     def with_session_transaction(
             self,
             tx: "agt.SessionTransaction") -> ClientSessionTransactionContext:
+        """
+        Set a session transaction.
+
+        Returns a context manager that sets the session transaction on the
+        client. The context manager also acts as a proxy to the client.
+        """
         return ClientSessionTransactionContext(self, tx)
 
     @property

@@ -179,7 +179,12 @@ class ChannelRouter(base.MessageSender, base.MessageReceiver):
 
     async def get_unread_messages(
             self, chat: mdl.ChatDescriptor) -> list[mdl.ChatMessage]:
-        """Get messages that haven't been shown to the agent yet."""
+        """
+        Get messages that haven't been shown to the agent yet.
+
+        Raises NoSuchChannelError is the channel doesn't exist. Raises
+        ChatIdError if the chat isn't valid in any way.
+        """
         channel = self._get_channel(chat.channel)
         return await channel.get_unread_messages(chat.chat_id)
 
@@ -212,8 +217,8 @@ class ChannelRouter(base.MessageSender, base.MessageReceiver):
         The message's metadata is checked to see which channel the message
         should be sent on.
 
-        If the channel in the metadata doesn't exist, a ChannelUnavailableError
-        is raised. If there is an error in sending the message, a SendError is
+        If the channel in the metadata doesn't exist, a NoSuchChannelError is
+        raised. If there is an error in sending the message, a SendError is
         raised.
         """
         channel = self._get_channel(message.metadata.chat.channel)

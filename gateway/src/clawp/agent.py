@@ -41,7 +41,7 @@ class SessionTransaction:
 
     The transaction is an asynchronous context manager that mutexes access to
     the Session's write operations. It's a thin proxy for the Session's public
-    interface.
+    interface. For documentation on the methods see the Session.
 
     Calling methods is only valid in the entered state. The context manager
     must be used exactly once (or it won't show as completed), and it can't be
@@ -73,12 +73,22 @@ class SessionTransaction:
 
     @property
     def active_chat(self) -> mdl.ChatDescriptor:
+        """
+        Get the active chat of the session.
+
+        The active chat is the one outgoing agent messages are sent on.
+        """
         if not self._is_active:
             raise RuntimeError("transaction is not active")
         return self._session._active_chat
 
     @active_chat.setter
     def active_chat(self, value: mdl.ChatDescriptor) -> None:
+        """
+        Set the active chat of the session.
+
+        Any new agent messages in the session will be sent in the new chat.
+        """
         if not self._is_active:
             raise RuntimeError("transaction is not active")
         self._session._active_chat = value
@@ -90,10 +100,10 @@ class SessionTransaction:
             raise RuntimeError("transaction is not active")
         return self._session.num_messages
 
-    async def handle_chat_message(self, chat_message: mdl.ChatMessage) -> None:
+    async def append_chat_message(self, chat_message: mdl.UserMessage) -> None:
         if not self._is_active:
             raise RuntimeError("transaction is not active")
-        await self._session._handle_chat_message(chat_message)
+        await self._session._append_chat_message(chat_message)
 
     async def request_responses(self) -> None:
         if not self._is_active:
@@ -110,7 +120,6 @@ class SessionTransaction:
 
     async def append_agent_message(
             self, message_parts: util.StreamableList) -> None:
-
         if not self._is_active:
             raise RuntimeError("transaction is not active")
         await self._session._append_agent_message(message_parts)
@@ -201,13 +210,22 @@ class Session:
         """The number of messages in this session."""
         return len(self._messages or [])
 
-    async def _handle_chat_message(
-            self, chat_message: mdl.ChatMessage) -> None:
+    async def _append_chat_message(
+            self, chat_message: mdl.UserMessage) -> None:
         """
-        Add an incoming message to this session.
+        Append a chat message to this session.
+
+        The chat message must be a user message. A system message with metadata
+        will be generated and appended to the session, followed by the message
+        itself.
+
+        If the message is on the agent channel, a small reminder is added below
+        the metadata to not get into an endless loop with the other agent.
+
+        This method only adds messages, it doesn't request a response from the
+        agent.
         """
-        if chat_message.role != "user":
-            raise ValueError("Can only handle chat messages with role 'user'.")
+        assert chat_message.role == "user"
         await self._add_metadata_for_user_message(chat_message)
         message = msg.UserMessage(
             msg.ChatMessageMetadata.from_model(chat_message.metadata),
@@ -215,7 +233,7 @@ class Session:
         await self._append_message(message)
 
     async def _add_metadata_for_user_message(
-            self, user_message: mdl.ChatMessage):
+            self, user_message: mdl.UserMessage):
         message_content = await file.render_message_template(
             "message_metadata.md",
             metadata_json=user_message.metadata.model_dump_json())
@@ -227,7 +245,7 @@ class Session:
         await self._append_internal_message(
             msg.SystemMessage, content=message_content)
 
-    async def _append_message(self, message):
+    async def _append_message(self, message: msg.Message):
         self._messages.append(message)
         # First, publish the message, so clients streaming it can get it before
         # it has fully arrived. Only then append it to the message store, which
@@ -242,6 +260,17 @@ class Session:
                 "be present when reloading from the persistent store.")
 
     async def _request_responses(self) -> None:
+        """
+        Prompt the agent for a continuation.
+
+        Requests an agent message from the API to continue the current state of
+        the session. Any tool calls the agent makes are handled. Makes
+        successive requests as long as necessary to give the agent tool results
+        or report errors in sending a message.
+
+        All agent messages are sent in the session's active chat (though the
+        active chat may change at any point through a tool call by the agent).
+        """
         num_requests = 0
         while num_requests < self._model_config.doom_loop_max_requests:
             try:
@@ -285,6 +314,13 @@ class Session:
 
     async def _process_finalized_agent_message(
             self, message: msg.AgentMessage) -> bool:
+        """
+        Do processing on an agent message once it's fully received.
+
+        Send the message in its chat and handle any tool calls the agent made.
+        Return whether another request is necessary (to inform the agent of
+        tool results or of an error during sending).
+        """
         assert message.finalized()
         for error in await message.errors:
             self._logger.error("Message had error.", exc_info=error)
@@ -335,6 +371,17 @@ class Session:
     async def _append_internal_message(
             self, message_class: type[msg.InternalMessage], content: str,
             **kwargs) -> None:
+        """
+        Append an internal message to this session.
+
+        Internal messages are ones that don't leave the system via a chat (i.e.
+        system/developer and tool messages). Constructs the message from the
+        message class, mandatory content string and any additional kwargs that
+        are given.
+
+        This method only adds a message, it doesn't request a response from the
+        agent.
+        """
         assert issubclass(message_class, msg.InternalMessage)
         message = message_class(
             msg.InternalMessageMetadata(
@@ -344,6 +391,19 @@ class Session:
 
     async def _append_agent_message(
             self, message_parts: util.StreamableList) -> None:
+        """
+        Append an agent message to this session.
+
+        This makes it possible to "impersonate" the agent, i.e. add a message
+        that the next API call can't distinguish from a message sent by the
+        agent.
+
+        The message is sent in the session's active chat. Any tool calls are
+        handled like for an agent message that's actually produced by the API
+        and their results appended to the session. Messages about send errors
+        are also appended as usual. But this method only adds messages, it
+        doesn't request a further response, even if there are tool results.
+        """
         start_metadata, full_metadata_class = (
             self._message_sender.make_outgoing_start_metadata(
                 self._active_chat))
@@ -355,11 +415,22 @@ class Session:
         await self._process_finalized_agent_message(message)
 
     def messages(self) -> cl_abc.Generator[msg.Message]:
-        """Iterate all messages."""
+        """
+        Iterate all messages.
+
+        This iterates over all messages that exist at the time of the call. For
+        a live stream, see subscribe().
+        """
         yield from self._messages
 
     async def subscribe(
             self) -> cl_abc.AsyncGenerator[tuple[int, msg.Message]]:
+        """
+        Subscribe to messages in this session.
+
+        Yields tuples (message_seq, message), where message_seq is the sequence
+        number of message.
+        """
         async for message in self._publisher.subscribe():
             # We append before publishing, so message sequence number is one
             # less than the number of messages.
@@ -415,6 +486,16 @@ class Agent:
     async def switch_active_chat_locked(
             self, channel: str, chat_id: str,
             tx: SessionTransaction) -> list[mdl.ChatMessage]:
+        """
+        Switch the active chat.
+
+        Sets the agent's active chat, so that all outgoing agent messages are
+        sent in that new chat. Raises an error if the given chat is equal to
+        the active one or there is anything invalid about the chat descriptor.
+
+        Also gets a list of all unread messages in the new chat (marking them
+        as read in the process) and returns it.
+        """
         chat = await self._channel_router.get_chat_descriptor(channel, chat_id)
         if self._agent_information.active_chat == chat:
             raise ValueError("new chat is the same as the current one")
@@ -631,7 +712,7 @@ class Agent:
                         await self._channel_router.get_unread_messages(chat))
                     for message in messages:
                         assert message.metadata.chat == chat
-                        await tx.handle_chat_message(message)
+                        await tx.append_chat_message(message)
                 await tx.request_responses()
         except Exception:
             self._logger.exception("Error handling unread chat messages.")
@@ -660,6 +741,8 @@ class Agent:
         Yields all messages across all sessions that exist at the time of the
         call. To get live updates, use subscribe().
 
+        Yields tuples (message_offset, message), where message_offset contains
+        session and message sequence numbers of message.
         """
         session_seq = 0
         for message_seq, message in enumerate(self._session.messages()):
@@ -677,6 +760,8 @@ class Agent:
         in the same order. This includes all message roles, also
         user/system/developer/tool messages.
 
+        Yields tuples (message_offset, message), where message_offset contains
+        session and message sequence numbers of message.
         """
         session_seq = 0
         async for message_seq, message in self._session.subscribe():
@@ -718,7 +803,14 @@ class Agent:
 
 
 class AgentRepository:
-    """A repository of agents."""
+    """
+    A repository of agents.
+
+    The repository contains all agents in the system. It manages the directory
+    containing the individual agent directories, and acts as an asynchronous
+    context manager discovering/starting/stopping agents on
+    __aenter__/__aexit__. It can also hatch new agents.
+    """
     def __init__(
             self, *, base_dir: pathlib.Path, channel_pool: chan.ChannelPool,
             provider: "prov.Provider", config: mdl.GatewayConfig) -> None:
