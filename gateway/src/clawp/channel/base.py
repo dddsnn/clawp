@@ -54,13 +54,7 @@ class MessageSender(abc.ABC):
         raise NotImplementedError
 
 
-class MessageReceiver(abc.ABC):
-    def incoming_messages(self) -> cl_abc.AsyncGenerator[mdl.ChatMessage]:
-        """Iterate over incoming chat messages."""
-        raise NotImplementedError
-
-
-class Channel(MessageSender, MessageReceiver):
+class Channel(MessageSender):
     """
     A communication channel.
 
@@ -126,5 +120,7 @@ class Channel(MessageSender, MessageReceiver):
 
         As a side effect, this also marks the messages as read (so that another
         call immediately following will return an empty list).
+
+        Raises ChatIdError if the chat isn't valid in any way.
         """
         raise NotImplementedError

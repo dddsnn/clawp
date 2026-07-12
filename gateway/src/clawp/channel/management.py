@@ -43,7 +43,7 @@ class SendError(Exception):
     """Raised when a message could not be sent."""
 
 
-class ChannelRouter(base.MessageSender, base.MessageReceiver):
+class ChannelRouter(base.MessageSender):
     """
     A router for all of an agent's channels.
 
@@ -180,7 +180,7 @@ class ChannelRouter(base.MessageSender, base.MessageReceiver):
         channel = self._get_channel(chat.channel)
         return await channel.get_unread_messages(chat.chat_id)
 
-    def _get_channel(self, channel_type: str) -> base.Channel:
+    def _get_channel(self, channel_type: mdl.ChannelType) -> base.Channel:
         try:
             status = self._stati[channel_type]
         except KeyError:
@@ -219,14 +219,10 @@ class ChannelRouter(base.MessageSender, base.MessageReceiver):
         except Exception as e:
             raise SendError(f"error sending message: {e}") from e
 
-    def incoming_messages(self) -> cl_abc.AsyncGenerator[mdl.ChatMessage]:
-        """Iterate over incoming chat messages."""
-        return self._publisher.subscribe()
-
     async def unread_message_chats(
             self) -> cl_abc.AsyncGenerator[mdl.ChatDescriptor]:
         """Iterate over chats with unread messages."""
-        async for message in self.incoming_messages():
+        async for message in self._publisher.subscribe():
             yield message.metadata.chat
 
 

@@ -18,7 +18,6 @@
 from .base import (
     Channel,
     ChatIdError,
-    MessageReceiver,
     MessageSender,
 )
 from .builtin import AgentChannel, WebUiChannel
@@ -37,7 +36,6 @@ __all__ = [
     # base
     "Channel",
     "ChatIdError",
-    "MessageReceiver",
     "MessageSender",
     # builtin
     "AgentChannel",
