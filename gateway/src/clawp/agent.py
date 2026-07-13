@@ -17,6 +17,7 @@
 
 import asyncio
 import collections.abc as cl_abc
+import contextlib
 import dataclasses as dc
 import functools as ft
 import json
@@ -551,14 +552,14 @@ class Agent:
         await self._mcp_client.__aenter__()
         await self._channel_router.__aenter__()
         async with self._lock:
-            self._handle_unread_chats_task = asyncio.create_task(
-                self._handle_unread_chats())
+            self._process_unread_chats_task = asyncio.create_task(
+                self._process_unread_chats())
             await self._ensure_active_session_locked()
             return self
 
     async def __aexit__(self, *args) -> bool:
         async with self._lock:
-            self._handle_unread_chats_task.cancel()
+            self._process_unread_chats_task.cancel()
             try:
                 async with asyncio.timeout(120):
                     await self._session.__aexit__(*args)
@@ -566,7 +567,8 @@ class Agent:
                 self._logger.exception("Error shutting down session.")
             try:
                 async with asyncio.timeout(20):
-                    await self._handle_unread_chats_task
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await self._process_unread_chats_task
             except Exception:
                 self._logger.exception("Error waiting for unread chats task.")
         try:
@@ -658,55 +660,66 @@ class Agent:
             msg.SystemMessage, await file.render_channel_status(
                 channel, available=channel.type in self.channels))
 
-    async def _handle_unread_chats(self) -> None:
+    async def _process_unread_chats(self) -> None:
+        """
+        Infinitely loop over unread chat messages.
+
+        Loops over the channel routers infinite generator of chats with unread
+        messages and processes them appropriately. Waits until there is at
+        least one chat with unread messages, then attempts to acquire the lock
+        and process the messages immediately. If the lock can't be acquired
+        (because the agent is still busy with earlier messages), keeps
+        collecting chats with unread messages until the lock is available. Then
+        processes everything at once.
+
+        Messages are processed in batches on a per-chat basis, in order of
+        arrival of the chat. I.e. all messages of the chat with the earliest
+        unread message are processed, then the next chat with the earliest
+        message. Releases the lock in between processing chats, so new messages
+        may arrive in between.
+
+        If the message to be processed is from the currently active chat it is
+        simply appended to the session. Otherwise, an overview of unread
+        messages per chat is presented to the agent, followed by an artifical
+        tool call to switch chat to read the new message.
+        """
         unread_chats_iter = self._channel_router.unread_message_chats()
         unread_chats: list[mdl.ChatDescriptor] = []
-        acquire_lock_task = None
         while True:
-            handle_task = util.create_done_future(None)
+            acquire_lock_task = None
             try:
-                get_chat_task = asyncio.create_task(anext(unread_chats_iter))
-                if not unread_chats:
-                    # Need at least one chat with unread messages.
-                    try:
+                async with asyncio.TaskGroup() as tg:
+                    # Use eager_start in here to make sure we get a message or
+                    # the lock immediately if available.
+                    get_chat_task = tg.create_task(
+                        anext(unread_chats_iter), eager_start=True)
+                    if not unread_chats:
+                        # Need at least one chat with unread messages.
                         await get_chat_task
-                    except StopAsyncIteration:
-                        # Generator is closed, we must be shutting down.
-                        return
-                acquire_lock_task = asyncio.create_task(self._lock.acquire())
-                # Wait a bit so we have time to acquire the lock even if we
-                # already have a chat.
-                done, _ = await asyncio.wait(
-                    {get_chat_task, acquire_lock_task}, timeout=10**-3,
-                    return_when=asyncio.ALL_COMPLETED)
-                if get_chat_task in done:
-                    unread_chats.append(get_chat_task.result())
-                else:
-                    get_chat_task.cancel()
-                assert len(unread_chats) > 0
-                if acquire_lock_task not in done:
-                    # We don't have the lock, the agent must be busy. Keep
-                    # reading and adding chats until we get the lock.
-                    continue
-                async with await self._session.transaction() as tx:
-                    await self._append_unread_message_overview_locked(
-                        unread_chats, tx)
-                    unread_chat = unread_chats[0]
-                    handle_task = asyncio.create_task(
-                        self._handle_unread_chat_locked(unread_chat, tx))
-                    await asyncio.shield(handle_task)
-                unread_chats = [c for c in unread_chats if c != unread_chat]
-            except asyncio.CancelledError:
-                try:
-                    async with asyncio.timeout(60):
-                        await handle_task
-                except Exception:
-                    self._logger.exception(
-                        "Error waiting to process final chat message.")
-                return
+                    acquire_lock_task = tg.create_task(
+                        self._lock.acquire(), eager_start=True)
+                    done, _ = await asyncio.wait(
+                        {get_chat_task, acquire_lock_task},
+                        return_when=asyncio.FIRST_COMPLETED)
+                    if get_chat_task in done:
+                        unread_chats.append(get_chat_task.result())
+                    else:
+                        get_chat_task.cancel()
+                        assert acquire_lock_task.done()
+                    assert len(unread_chats) > 0
+                    if acquire_lock_task not in done:
+                        # We don't have the lock, the agent must be busy. Keep
+                        # reading and adding chats until we get the lock.
+                        continue
+                    unread_chats = await self._handle_unread_chats_locked(
+                        unread_chats)
+            except ExceptionGroup as e:
+                _, other_exceptions = e.split(StopAsyncIteration)
+                if not other_exceptions:
+                    # The generator is just closed, we must be shutting down.
+                    return
             finally:
                 if acquire_lock_task is not None:
-                    acquire_lock_task.cancel()
                     try:
                         await acquire_lock_task
                         # The lock was acquired by us.
@@ -715,27 +728,42 @@ class Agent:
                         # We didn't manage to acquire the lock, no need to
                         # release.
                         pass
-                acquire_lock_task = None
 
-    async def _append_unread_message_overview_locked(
-            self, unread_chats: list[mdl.ChatDescriptor],
-            tx: SessionTransaction):
+    async def _handle_unread_chats_locked(
+            self, unread_chats: list[mdl.ChatDescriptor]
+    ) -> list[mdl.ChatDescriptor]:
+        """
+        Handle messages from the first of a list of unread chats.
+
+        Gets the first chat from the list and handles all messages for that
+        chat. Switches chat as needed. Returns a list of still unhandled chats,
+        in the same order.
+        """
         assert len(unread_chats) > 0
-        if unread_chats[0] == self.information.active_chat:
-            return
-        message_counts = {}
-        for chat in unread_chats:
-            message_counts.setdefault(chat, 0)
-            message_counts[chat] += 1
-        overview = "\n".join(
-            f"{count} unread message(s) in chat {chat.model_dump_json()}"
-            for chat, count in message_counts.items())
-        await tx.append_internal_message(msg.SystemMessage, content=overview)
+        try:
+            async with await self._session.transaction() as tx:
+                handle_task = asyncio.create_task(
+                    self._handle_first_unread_chat_locked(unread_chats, tx))
+                await asyncio.shield(handle_task)
+            return [c for c in unread_chats if c != unread_chats[0]]
+        except asyncio.CancelledError:
+            try:
+                # Give the shielded task some time to finish cleanly.
+                async with asyncio.timeout(60):
+                    await handle_task
+            except Exception:
+                self._logger.exception(
+                    "Error waiting to process final chat messages.")
+            raise
 
-    async def _handle_unread_chat_locked(
-            self, chat: mdl.ChatDescriptor, tx: SessionTransaction) -> None:
+    async def _handle_first_unread_chat_locked(
+            self, unread_chats: list[mdl.ChatDescriptor],
+            tx: SessionTransaction) -> None:
+        chat = unread_chats[0]
         try:
             if chat != self.information.active_chat:
+                await self._append_unread_message_overview_locked(
+                    unread_chats, tx)
                 # We've received a message in a chat other than the active
                 # chat. Inject messages into the session that make it look
                 # like the agent switched to that chat in response to it.
@@ -752,6 +780,19 @@ class Agent:
             await tx.request_responses()
         except Exception:
             self._logger.exception("Error handling unread chat messages.")
+
+    async def _append_unread_message_overview_locked(
+            self, unread_chats: list[mdl.ChatDescriptor],
+            tx: SessionTransaction):
+        assert unread_chats[0] != self.information.active_chat
+        message_counts = {}
+        for chat in unread_chats:
+            message_counts.setdefault(chat, 0)
+            message_counts[chat] += 1
+        overview = "\n".join(
+            f"{count} unread message(s) in chat {chat.model_dump_json()}"
+            for chat, count in message_counts.items())
+        await tx.append_internal_message(msg.SystemMessage, content=overview)
 
     async def _fake_agent_switch_message_locked(
             self, chat: mdl.ChatDescriptor, tx: SessionTransaction) -> None:
