@@ -15,6 +15,16 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
-from .base import Client, SessionOperationToolResult, ToolResult
+from .base import (
+    Client,
+    ClientSessionTransactionContext,
+    SessionOperationToolResult,
+    ToolResult,
+)
 
-__all__ = ["Client", "ToolResult", "SessionOperationToolResult"]
+__all__ = [
+    # base
+    "Client",
+    "ClientSessionTransactionContext",
+    "ToolResult",
+    "SessionOperationToolResult",]

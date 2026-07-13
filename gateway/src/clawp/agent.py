@@ -349,24 +349,28 @@ class Session:
         for tool_call in await message.tool_calls:
             self._logger.debug(f"Handling tool call {tool_call}.")
             try:
-                arguments_dict = json.loads(tool_call.function.arguments)
                 with self._mcp_client.with_session_transaction(
                         self._active_transaction) as tx_client:
-                    result = await tx_client.call_tool(
-                        tool_call.function.name, arguments_dict)
-                    await self._append_internal_message(
-                        msg.ToolMessage, content=result.content_string,
-                        tool_call_id=tool_call.id)
-                    if isinstance(result, tool.SessionOperationToolResult):
-                        # The tool result wants us to call a function on the
-                        # session.
-                        await result.operation(self._active_transaction)
+                    await self._handle_tool_call(tool_call, tx_client)
             except Exception as e:
                 await self._append_internal_message(
                     msg.ToolMessage, content="Error in tool call: " + str(e),
                     tool_call_id=tool_call.id)
                 self._logger.exception("Error in tool call.")
         return True
+
+    async def _handle_tool_call(
+            self, tool_call: msg.ToolCall,
+            tx_client: tool.ClientSessionTransactionContext) -> None:
+        arguments = json.loads(tool_call.function.arguments)
+        result = await tx_client.call_tool(tool_call.function.name, arguments)
+        await self._append_internal_message(
+            msg.ToolMessage, content=result.content_string,
+            tool_call_id=tool_call.id)
+        if isinstance(result, tool.SessionOperationToolResult):
+            # The tool result wants us to call a function on the
+            # session.
+            await result.operation(self._active_transaction)
 
     async def _append_internal_message(
             self, message_class: type[msg.InternalMessage], content: str,
