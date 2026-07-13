@@ -484,15 +484,15 @@ class Agent:
     sessions are properly opened and closed.
     """
     def __init__(
-            self, agent_information: mdl.AgentInformation, *,
-            config: mdl.GatewayConfig, workspace_dir: pathlib.Path,
-            message_store: store.MessageStore, memory_store: store.MemoryStore,
+            self, agent_state: mdl.AgentState, *, config: mdl.GatewayConfig,
+            workspace_dir: pathlib.Path, message_store: store.MessageStore,
+            memory_store: store.MemoryStore,
             channel_router: chan.ChannelRouter,
             provider: "prov.Provider") -> None:
         self._logger = logging.getLogger(type(self).__name__)
         if not workspace_dir.is_dir():
             raise ValueError("workspace doesn't exist")
-        self._agent_information = agent_information
+        self._agent_state = agent_state
         self._workspace_dir = workspace_dir
         self._message_store = message_store
         self.memory_store = memory_store
@@ -506,8 +506,8 @@ class Agent:
         self._lock = asyncio.Lock()
 
     @property
-    def information(self) -> mdl.AgentInformation:
-        return self._agent_information
+    def state(self) -> mdl.AgentState:
+        return self._agent_state
 
     def switch_active_chat(
             self, chat: mdl.ChatDescriptor, tx: SessionTransaction) -> None:
@@ -518,9 +518,9 @@ class Agent:
         sent in that new chat. Raises an error if the given chat is equal to
         the active one.
         """
-        if self._agent_information.active_chat == chat:
+        if self._agent_state.active_chat == chat:
             raise ValueError("new chat is the same as the current one")
-        self._agent_information.active_chat = chat
+        self._agent_state.active_chat = chat
         tx.active_chat = chat
 
     @property
@@ -545,7 +545,7 @@ class Agent:
         return self._channel_router.web_ui_channel
 
     def __str__(self) -> str:
-        return f"{type(self).__name__} {self.information.id}"
+        return f"{type(self).__name__} {self.state.id}"
 
     async def __aenter__(self) -> t.Self:
         await self._message_store.__aenter__()
@@ -593,7 +593,7 @@ class Agent:
             session_seq)
         return self._session_factory(
             session_seq, message_store=message_store,
-            active_chat=self.information.active_chat)
+            active_chat=self.state.active_chat)
 
     async def _ensure_active_session_locked(self):
         active_session_seq = self._message_store.get_active_session_seq()
@@ -625,7 +625,7 @@ class Agent:
         # Tell the agent about their workspace and personality files.
         await tx.append_internal_message(
             msg.SystemMessage, await file.render_workspace_info(self))
-        for pf in self.information.personality.personality_files:
+        for pf in self.state.personality.personality_files:
             await tx.append_internal_message(
                 msg.SystemMessage, await
                 file.render_file_content(self.workspace_dir, pf.path))
@@ -762,7 +762,7 @@ class Agent:
             tx: SessionTransaction) -> None:
         chat = unread_chats[0]
         try:
-            if chat != self.information.active_chat:
+            if chat != self.state.active_chat:
                 await self._append_unread_message_overview_locked(
                     unread_chats, tx)
                 # We've received a message in a chat other than the active
@@ -785,7 +785,7 @@ class Agent:
     async def _append_unread_message_overview_locked(
             self, unread_chats: list[mdl.ChatDescriptor],
             tx: SessionTransaction):
-        assert unread_chats[0] != self.information.active_chat
+        assert unread_chats[0] != self.state.active_chat
         message_counts = {}
         for chat in unread_chats:
             message_counts.setdefault(chat, 0)
@@ -845,11 +845,11 @@ class Agent:
         agent.
         """
         async with await self._session.transaction() as tx, self._lock:
-            if channel.type in self.information.claimed_channels:
+            if channel.type in self.state.claimed_channels:
                 raise ValueError(
                     f"agent already has a channel of type {channel.type}")
             await self._channel_router.add_channel(channel)
-            self.information.claimed_channels[channel.type] = channel.id
+            self.state.claimed_channels[channel.type] = channel.id
             await self._add_channel_status_message_locked(channel, tx)
 
     async def remove_channel(self, channel_type: mdl.ChannelType) -> None:
@@ -861,12 +861,12 @@ class Agent:
         async with await self._session.transaction() as tx, self._lock:
             try:
                 channel = self.channels[channel_type]
-                assert channel_type in self.information.claimed_channels
+                assert channel_type in self.state.claimed_channels
             except (KeyError, AssertionError):
                 raise ValueError(
                     f"agent has no channel of type {channel_type}")
             await self._channel_router.remove_channel(channel_type)
-            del self.information.claimed_channels[channel_type]
+            del self.state.claimed_channels[channel_type]
             await self._add_channel_status_message_locked(channel, tx)
 
 
@@ -908,7 +908,7 @@ class AgentRepository:
         for agent in self._discover_agents():
             self._logger.info(f"Starting {agent}.")
             try:
-                self._agents[agent.information.id] = await agent.__aenter__()
+                self._agents[agent.state.id] = await agent.__aenter__()
             except Exception:
                 self._logger.exception(f"Error starting {agent}.")
                 raise
@@ -919,9 +919,9 @@ class AgentRepository:
         self._running = False
         await self._stop_agents()
         for agent in self._agents.values():
-            agent_base_dir = self._agent_base_dir(agent.information.id)
-            self._agent_information_file(agent_base_dir).write_text(
-                agent.information.model_dump_json())
+            agent_base_dir = self._agent_base_dir(agent.state.id)
+            self._agent_state_file(agent_base_dir).write_text(
+                agent.state.model_dump_json())
         self._agents.clear()
         return False
 
@@ -930,7 +930,7 @@ class AgentRepository:
             asyncio.create_task(a.__aexit__(None, None, None))
             for a in self._agents.values()}
         if not stop_tasks:
-            stop_tasks.add(asyncio.create_task(asyncio.sleep(0)))
+            stop_tasks.add(util.create_done_future(None))
         done, pending = await asyncio.wait(stop_tasks, timeout=120)
         for task in pending:
             self._logger.warning("Agent shutdown timed out.")
@@ -955,7 +955,7 @@ class AgentRepository:
                     f"Ignoring invalid agent directory {d}.")
 
     def _instantiate_agent(self, dir: pathlib.Path) -> Agent:
-        agent_information = self._load_agent_information(dir)
+        agent_state = self._load_agent_state(dir)
         workspace_dir = self._workspace_dir(dir)
         if not self._workspace_dir(dir).is_dir():
             raise ValueError(f"missing workspace directory {workspace_dir}")
@@ -968,47 +968,44 @@ class AgentRepository:
             raise ValueError(f"missing memory store {memory_store_dir}")
         memory_store = store.JsonlMemoryStore(memory_store_dir)
         channels = []
-        for ch_type, ch_id in agent_information.claimed_channels.items():
+        for ch_type, ch_id in agent_state.claimed_channels.items():
             try:
                 channel_status = self._channel_pool.acquire(ch_type, ch_id)
                 channels.append(channel_status.channel)
             except chan.ChannelError as e:
                 self._logger.warning(
-                    f"Agent {agent_information.id} claims channel "
+                    f"Agent {agent_state.id} claims channel "
                     f"{ch_type}:{ch_id}, but it's not available: {e}.")
         # Add the builtin web_ui and agent channels.
-        channels.append(chan.WebUiChannel(agent_information.web_ui_channel))
+        channels.append(chan.WebUiChannel(agent_state.web_ui_channel))
         channels.append(
-            chan.AgentChannel(
-                agent_information.id, self, agent_information.agent_channel))
+            chan.AgentChannel(agent_state.id, self, agent_state.agent_channel))
         return Agent(
-            agent_information, config=self._config,
-            workspace_dir=workspace_dir, message_store=message_store,
-            memory_store=memory_store,
+            agent_state, config=self._config, workspace_dir=workspace_dir,
+            message_store=message_store, memory_store=memory_store,
             channel_router=chan.ChannelRouter(channels),
             provider=self._provider)
 
-    def _load_agent_information(
-            self, agent_base_dir: pathlib.Path) -> mdl.AgentInformation:
+    def _load_agent_state(
+            self, agent_base_dir: pathlib.Path) -> mdl.AgentState:
         try:
             agent_id = uuid.UUID(agent_base_dir.name)
         except ValueError as e:
             raise ValueError("invalid agent ID in directory name") from e
-        agent_information_file = self._agent_information_file(agent_base_dir)
+        agent_state_file = self._agent_state_file(agent_base_dir)
         try:
-            agent_information = mdl.AgentInformation.model_validate_json(
-                agent_information_file.read_bytes())
+            agent_state = mdl.AgentState.model_validate_json(
+                agent_state_file.read_bytes())
         except Exception as e:
-            raise ValueError("invalid agent information file") from e
-        if agent_information.id != agent_id:
+            raise ValueError("invalid agent state file") from e
+        if agent_state.id != agent_id:
             raise ValueError(
-                f"agent ID in information file ({agent_information.id}) "
-                f"doesn't match the on in the directory name ({agent_id})")
-        return agent_information
+                f"agent ID in state file ({agent_state.id}) doesn't match the "
+                f"one in the directory name ({agent_id})")
+        return agent_state
 
-    def _agent_information_file(
-            self, agent_base_dir: pathlib.Path) -> pathlib.Path:
-        return agent_base_dir / "agent_information.json"
+    def _agent_state_file(self, agent_base_dir: pathlib.Path) -> pathlib.Path:
+        return agent_base_dir / "agent_state.json"
 
     def _workspace_dir(self, agent_base_dir: pathlib.Path) -> pathlib.Path:
         return agent_base_dir / "workspace"
@@ -1029,11 +1026,11 @@ class AgentRepository:
         agent = self._instantiate_agent(agent_base_dir)
         self._logger.info(f"Starting new {agent}.")
         try:
-            self._agents[agent.information.id] = await agent.__aenter__()
+            self._agents[agent.state.id] = await agent.__aenter__()
         except Exception:
             self._logger.exception(f"Error starting new {agent}.")
             raise
-        return self._agents[agent.information.id]
+        return self._agents[agent.state.id]
 
     async def _initialize_agent_files(self, agent_id, personality_name):
         try:
@@ -1048,7 +1045,7 @@ class AgentRepository:
         self._logger.info(f"Setting up files for new agent {agent_id}.")
         agent_base_dir = self._base_dir / str(agent_id)
         agent_base_dir.mkdir(parents=True, exist_ok=True)
-        agent_information = mdl.AgentInformation(
+        agent_state = mdl.AgentState(
             id=agent_id,
             personality=personality_with_contents.get_personality(),
             active_chat=mdl.BasicChatDescriptor(channel="web_ui", chat_id=""),
@@ -1057,10 +1054,9 @@ class AgentRepository:
             agent_channel=mdl.AgentChannelPersistence(
                 messages_dir=agent_base_dir / "agent_channel"),
         )
-        self._agent_information_file(agent_base_dir).write_text(
-            agent_information.model_dump_json())
-        self._logger.info(
-            f"Created new agent information {agent_information}.")
+        self._agent_state_file(agent_base_dir).write_text(
+            agent_state.model_dump_json())
+        self._logger.info(f"Created new agent state {agent_state}.")
         self._message_store_dir(agent_base_dir).mkdir(
             parents=True, exist_ok=True)
         self._memory_store_dir(agent_base_dir).mkdir(

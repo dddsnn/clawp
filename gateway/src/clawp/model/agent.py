@@ -67,7 +67,7 @@ class AgentChannelPersistence(base.BaseModel):
     read_offsets: dict[uuid.UUID, int] = pyd.Field(default_factory=dict)
 
 
-class AgentInformation(base.BaseModel):
+class AgentState(base.BaseModel):
     id: uuid.UUID
     personality: AgentPersonality
     claimed_channels: dict[chan.ChannelType, str] = (

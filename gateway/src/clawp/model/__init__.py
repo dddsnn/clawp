@@ -17,9 +17,9 @@
 
 from .agent import (
     AgentChannelPersistence,
-    AgentInformation,
     AgentPersonality,
     AgentPersonalityWithFileContents,
+    AgentState,
     WebUiChannelPersistence,
 )
 from .api import ErrorResponse
@@ -31,7 +31,6 @@ from .channel import (
     ChannelStatus,
     ChannelType,
     ChatDescriptor,
-    ChatInformation,
     MatrixChannelStatus,
     MatrixChatDescriptor,
     WebUiChannelStatus,
@@ -101,9 +100,9 @@ from .tool import ShellResult
 __all__ = [
     # agent
     "AgentChannelPersistence",
-    "AgentInformation",
     "AgentPersonality",
     "AgentPersonalityWithFileContents",
+    "AgentState",
     "WebUiChannelPersistence",
     # api
     "ErrorResponse",
@@ -117,7 +116,6 @@ __all__ = [
     "ChannelStatus",
     "ChannelType",
     "ChatDescriptor",
-    "ChatInformation",
     "MatrixChannelStatus",
     "MatrixChatDescriptor",
     "WebUiChannelStatus",

@@ -119,7 +119,7 @@ async def render_workspace_info(agent: "agt.Agent") -> str:
     """
     personality_files_description = "\n".join([
         f"- {pf.path}: {pf.description}"
-        for pf in agent.information.personality.personality_files])
+        for pf in agent.state.personality.personality_files])
     return await render_message_template(
         "system_information/workspace.md", workspace_dir=agent.workspace_dir,
         personality_files=personality_files_description)

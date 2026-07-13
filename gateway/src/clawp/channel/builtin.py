@@ -298,11 +298,10 @@ class AgentChannel(base.Channel):
         # Get the other agent to make sure the ID is in order and the agent
         # exists.
         peer_agent = self._get_agent(chat_id)
-        messages = self._messages.setdefault(peer_agent.information.id, [])
-        read_offset = self._get_read_offset(
-            peer_agent.information.id, default=0)
+        messages = self._messages.setdefault(peer_agent.state.id, [])
+        read_offset = self._get_read_offset(peer_agent.state.id, default=0)
         unread_messages = messages[read_offset:]
-        self._set_read_offset(peer_agent.information.id, len(messages))
+        self._set_read_offset(peer_agent.state.id, len(messages))
         return unread_messages
 
     def make_outgoing_start_metadata(
@@ -325,13 +324,12 @@ class AgentChannel(base.Channel):
                 "recipient doesn't have an agent channel to send to")
         assert isinstance(recipient_channel, AgentChannel)
         chat_message = await message.model
-        messages = self._messages.setdefault(recipient.information.id, [])
-        read_offset = self._get_read_offset(
-            recipient.information.id, default=0)
+        messages = self._messages.setdefault(recipient.state.id, [])
+        read_offset = self._get_read_offset(recipient.state.id, default=0)
         if len(messages) != read_offset:
             raise base.ChannelError("can't send if there are unread messages")
-        await self._append_message(recipient.information.id, chat_message)
-        self._set_read_offset(recipient.information.id, len(messages))
+        await self._append_message(recipient.state.id, chat_message)
+        self._set_read_offset(recipient.state.id, len(messages))
         await recipient_channel.add_incoming_agent_message(
             message, self._agent_id)
 

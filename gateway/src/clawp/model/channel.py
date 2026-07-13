@@ -49,11 +49,6 @@ class MatrixChatDescriptor(BasicChatDescriptor):
 
 ChatDescriptor = BasicChatDescriptor | MatrixChatDescriptor
 
-
-class ChatInformation(base.BaseModel):
-    chat: pyd.SerializeAsAny[ChatDescriptor]
-
-
 ChannelConfig = t.Annotated[cfg.MatrixAccountConfig,
                             pyd.Field(discriminator="type")]
 

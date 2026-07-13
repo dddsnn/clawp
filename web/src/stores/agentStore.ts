@@ -18,10 +18,10 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 import { fetchAgents as fetchAgentsApi } from '../services/api';
-import type { AgentInformation } from '../types/api';
+import type { AgentState } from '../types/api';
 
 export const useAgentStore = defineStore('agent', () => {
-  const agents = ref<AgentInformation[]>([]);
+  const agents = ref<AgentState[]>([]);
   const selectedAgentId = ref<string | null>(null);
   const agentsLoading = ref(false);
   const agentsError = ref<string | null>(null);
@@ -42,7 +42,7 @@ export const useAgentStore = defineStore('agent', () => {
     }
   }
 
-  function addAgent(agent: AgentInformation) {
+  function addAgent(agent: AgentState) {
     const exists = agents.value.some(existingAgent => existingAgent.id === agent.id);
     if (exists) {
       console.warn(`Not adding agent with ID ${agent.id} which already exists.`)
