@@ -88,8 +88,9 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
         don't persist across calls. You may specify environment variables to
         set first. PATH and HOME are set automatically and can't be changed.
 
-        HOME is set to your workspace directory, so you can use ~ for paths
-        relative to it (e.g. ~/file_in_my_workspace).
+        HOME is set to your workspace directory (the same one you can access
+        with your filesystem tools), so you can use ~ for paths relative to it
+        (e.g. ~/file_in_my_workspace).
         """
         env = env or {}
         if "PATH" in env or "HOME" in env:
