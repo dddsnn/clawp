@@ -619,10 +619,6 @@ class Agent:
             self, tx: SessionTransaction) -> None:
         async for message in self._onboarding_messages():
             await tx.append_internal_message(msg.DeveloperMessage, message)
-        # Tell the agent that this is a new session.
-        await tx.append_internal_message(
-            msg.SystemMessage, await file.render_message_template(
-                "system_information/session_initialization.md"))
         # Tell the agent about available channels.
         for channel in self._channel_router.channels.values():
             await self._add_channel_status_message_locked(channel, tx)
@@ -633,6 +629,11 @@ class Agent:
             await tx.append_internal_message(
                 msg.SystemMessage, await
                 file.render_file_content(self.workspace_dir, pf.path))
+        # Tell the agent that this is a new session.
+        await tx.append_internal_message(
+            msg.SystemMessage, await file.render_message_template(
+                "system_information/session_initialization.md",
+                active_chat=tx.active_chat.model_dump_json()))
 
     async def _onboarding_messages(self) -> cl_abc.AsyncGenerator[str]:
         """
