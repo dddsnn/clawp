@@ -1,6 +1,6 @@
 # Tutorial: Channel `agent`
 
-This tutorial describes the channel `agent`. To read it again later, use the `clawp_read_tutorial` tool with topic `channel_agent`.
+Topic: `channel_agent`
 
 The `agent` channel is used by agents within the Clawp framework to communicate within the system.
 

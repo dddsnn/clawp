@@ -1,6 +1,6 @@
 # Tutorial: Channel `web_ui`
 
-This tutorial describes the channel `web_ui`. To read it again later, use the `clawp_read_tutorial` tool with topic `channel_web_ui`.
+Topic: `channel_web_ui`
 
 The `web_ui` channel is the built-in communication channel of the framework's web UI. Incoming messages on this channel have been entered in the chat in the web UI. You can assume that only an authorized user has access to it.
 

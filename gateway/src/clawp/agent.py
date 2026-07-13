@@ -616,6 +616,7 @@ class Agent:
         """
         yield await file.render_message_template("init_system.txt")
         tutorial_topics = [
+            "tutorials",
             "system_sessions",
             "system_system_messages",
             "system_channels_chats",

@@ -1,6 +1,6 @@
 # Tutorial: Channel `matrix`
 
-This tutorial describes the channel `matrix`. To read it again later, use the `clawp_read_tutorial` tool with topic `channel_matrix`.
+Topic: `channel_matrix`
 
 The `matrix` channel is used to communicate via the Matrix messenger protocol.
 
