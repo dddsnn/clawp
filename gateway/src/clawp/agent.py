@@ -235,13 +235,13 @@ class Session:
     async def _add_metadata_for_user_message(
             self, user_message: mdl.UserMessage):
         message_content = await file.render_message_template(
-            "message_metadata.md",
+            "message_metadata.txt",
             metadata_json=user_message.metadata.model_dump_json())
         if user_message.metadata.chat.channel == "agent":
-            # This message comes from another agent, remind the agent on how to
-            # end the conversation.
+            # This message will be sent to at least one other agent, remind the
+            # agent on how to end the conversation.
             message_content += await file.render_message_template(
-                "fragments/agent_to_agent_comm_reminder.md")
+                "fragments/agent_to_agent_comm_reminder.txt")
         await self._append_internal_message(
             msg.SystemMessage, content=message_content)
 
@@ -614,7 +614,7 @@ class Agent:
         Go through all tutorial messages in a sensible order for agent
         onboarding.
         """
-        yield await file.render_message_template("init_system.md")
+        yield await file.render_message_template("init_system.txt")
         tutorial_topics = [
             "system_sessions",
             "system_system_messages",

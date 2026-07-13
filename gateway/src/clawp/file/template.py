@@ -81,10 +81,12 @@ async def render_channel_status(
     if available:
         channel_status = await channel.status
         return await render_message_template(
-            "channel_status_available.md", channel_type=channel.type,
+            "system_information/channel_status_available.md",
+            channel_type=channel.type,
             status_json=channel_status.model_dump_json())
     return await render_message_template(
-        "channel_status_unavailable.md", channel_type=channel.type)
+        "system_information/channel_status_unavailable.md",
+        channel_type=channel.type)
 
 
 async def render_file_content(
@@ -105,7 +107,7 @@ async def render_file_content(
     if not content:
         content = "<file is empty>"
     return await render_message_template(
-        "file_content.md", file_path=relative_file_path, content=content)
+        "file_content.txt", file_path=relative_file_path, content=content)
 
 
 async def render_workspace_info(agent: "agt.Agent") -> str:
@@ -127,6 +129,5 @@ async def render_message_send_error(
         message: "msg.AgentMessage", exc: Exception) -> str:
     """Render a message informing the agent about a message send error."""
     return await render_message_template(
-        "system_information/send_error.md",
-        chat=message.metadata.chat.model_dump_json(),
+        "send_error.txt", chat=message.metadata.chat.model_dump_json(),
         traceback="".join(traceback.format_exception(exc, limit=10)))
