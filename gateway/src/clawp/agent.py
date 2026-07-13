@@ -562,15 +562,15 @@ class Agent:
             self._process_unread_chats_task.cancel()
             try:
                 async with asyncio.timeout(120):
-                    await self._session.__aexit__(*args)
-            except Exception:
-                self._logger.exception("Error shutting down session.")
-            try:
-                async with asyncio.timeout(20):
                     with contextlib.suppress(asyncio.CancelledError):
                         await self._process_unread_chats_task
             except Exception:
                 self._logger.exception("Error waiting for unread chats task.")
+            try:
+                async with asyncio.timeout(20):
+                    await self._session.__aexit__(*args)
+            except Exception:
+                self._logger.exception("Error shutting down session.")
         try:
             async with asyncio.timeout(5):
                 await self._channel_router.__aexit__(*args)
