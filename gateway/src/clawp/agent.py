@@ -660,7 +660,7 @@ class Agent:
 
     async def _handle_unread_chats(self) -> None:
         unread_chats_iter = self._channel_router.unread_message_chats()
-        unread_chats = []
+        unread_chats: list[mdl.ChatDescriptor] = []
         acquire_lock_task = None
         while True:
             handle_task = util.create_done_future(None)
@@ -688,10 +688,13 @@ class Agent:
                     # We don't have the lock, the agent must be busy. Keep
                     # reading and adding chats until we get the lock.
                     continue
-                unread_chat = unread_chats[0]
-                handle_task = asyncio.create_task(
-                    self._handle_unread_chat_locked(unread_chat))
-                await asyncio.shield(handle_task)
+                async with await self._session.transaction() as tx:
+                    await self._append_unread_message_overview_locked(
+                        unread_chats, tx)
+                    unread_chat = unread_chats[0]
+                    handle_task = asyncio.create_task(
+                        self._handle_unread_chat_locked(unread_chat, tx))
+                    await asyncio.shield(handle_task)
                 unread_chats = [c for c in unread_chats if c != unread_chat]
             except asyncio.CancelledError:
                 try:
@@ -714,34 +717,45 @@ class Agent:
                         pass
                 acquire_lock_task = None
 
+    async def _append_unread_message_overview_locked(
+            self, unread_chats: list[mdl.ChatDescriptor],
+            tx: SessionTransaction):
+        assert len(unread_chats) > 0
+        if unread_chats[0] == self.information.active_chat:
+            return
+        message_counts = {}
+        for chat in unread_chats:
+            message_counts.setdefault(chat, 0)
+            message_counts[chat] += 1
+        overview = "\n".join(
+            f"{count} unread message(s) in chat {chat.model_dump_json()}"
+            for chat, count in message_counts.items())
+        await tx.append_internal_message(msg.SystemMessage, content=overview)
+
     async def _handle_unread_chat_locked(
-            self, chat: mdl.ChatDescriptor) -> None:
+            self, chat: mdl.ChatDescriptor, tx: SessionTransaction) -> None:
         try:
-            async with await self._session.transaction() as tx:
-                if chat != self.information.active_chat:
-                    # We've received a message in a chat other than the active
-                    # chat. Inject messages into the session that make it look
-                    # like the agent switched to that chat in response to it.
-                    # This will also append unread messages to the session.
-                    await self._fake_agent_switch_message_locked(chat, tx)
-                else:
-                    # If we don't switch, we just have to append the messages
-                    # to the session.
-                    messages = (
-                        await self._channel_router.get_unread_messages(chat))
-                    for message in messages:
-                        assert message.metadata.chat == chat
-                        await tx.append_chat_message(message)
-                await tx.request_responses()
+            if chat != self.information.active_chat:
+                # We've received a message in a chat other than the active
+                # chat. Inject messages into the session that make it look
+                # like the agent switched to that chat in response to it.
+                # This will also append unread messages to the session.
+                await self._fake_agent_switch_message_locked(chat, tx)
+            else:
+                # If we don't switch, we just have to append the messages
+                # to the session.
+                messages = (
+                    await self._channel_router.get_unread_messages(chat))
+                for message in messages:
+                    assert message.metadata.chat == chat
+                    await tx.append_chat_message(message)
+            await tx.request_responses()
         except Exception:
             self._logger.exception("Error handling unread chat messages.")
 
     async def _fake_agent_switch_message_locked(
             self, chat: mdl.ChatDescriptor, tx: SessionTransaction) -> None:
         assert self.information.active_chat != chat
-        await tx.append_internal_message(
-            msg.SystemMessage,
-            content=f"1 unread message in chat {chat.model_dump_json()}")
         tool_part = msg.AgentMessageToolPart()
         arguments = chat.model_dump_json(include=("channel", "chat_id"))
         function = msg.ToolCallFunction(
