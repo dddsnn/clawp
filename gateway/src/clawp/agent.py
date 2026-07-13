@@ -17,6 +17,7 @@
 
 import asyncio
 import collections.abc as cl_abc
+import dataclasses as dc
 import functools as ft
 import json
 import logging
@@ -33,6 +34,18 @@ from . import model as mdl
 
 if t.TYPE_CHECKING:
     from . import provider as prov
+
+
+@dc.dataclass
+class MessageInSession:
+    message: msg.Message
+    message_offset: mdl.MessageOffset
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.message, msg.Message):
+            raise ValueError("invalid message")
+        if not isinstance(self.message_offset, mdl.MessageOffset):
+            raise ValueError("invalid message offset")
 
 
 class SessionTransaction:
@@ -124,13 +137,12 @@ class SessionTransaction:
             raise RuntimeError("transaction is not active")
         await self._session._append_agent_message(message_parts)
 
-    def messages(self) -> cl_abc.Generator[msg.Message]:
-        """Iterate all messages."""
+    def messages(self) -> cl_abc.Generator[MessageInSession]:
         if not self._is_active:
             raise RuntimeError("transaction is not active")
-        yield from self._session.messages()
+        return self._session.messages()
 
-    def subscribe(self) -> cl_abc.AsyncGenerator[tuple[int, msg.Message]]:
+    def subscribe(self) -> cl_abc.AsyncGenerator[MessageInSession]:
         if not self._is_active:
             raise RuntimeError("transaction is not active")
         return self._session.subscribe()
@@ -418,29 +430,38 @@ class Session:
         await message.wait_finalized()
         await self._process_finalized_agent_message(message)
 
-    def messages(self) -> cl_abc.Generator[msg.Message]:
+    def messages(self) -> cl_abc.Generator[MessageInSession]:
         """
         Iterate all messages.
 
         This iterates over all messages that exist at the time of the call. For
         a live stream, see subscribe().
-        """
-        yield from self._messages
 
-    async def subscribe(
-            self) -> cl_abc.AsyncGenerator[tuple[int, msg.Message]]:
+        Yields messages in the context of the session, i.e. with session and
+        message sequence numbers.
+        """
+        for message_seq, message in enumerate(self._messages):
+            message_offset = mdl.MessageOffset(
+                session_seq=self._session_seq, message_seq=message_seq)
+            yield MessageInSession(
+                message=message, message_offset=message_offset)
+
+    async def subscribe(self) -> cl_abc.AsyncGenerator[MessageInSession]:
         """
         Subscribe to messages in this session.
 
-        Yields tuples (message_seq, message), where message_seq is the sequence
-        number of message.
+        Yields messages in the context of the session, i.e. with session and
+        message sequence numbers.
         """
         async for message in self._publisher.subscribe():
             # We append before publishing, so message sequence number is one
             # less than the number of messages.
             message_seq = len(self._messages) - 1
             assert message_seq >= 0
-            yield message_seq, message
+            message_offset = mdl.MessageOffset(
+                session_seq=self._session_seq, message_seq=message_seq)
+            yield MessageInSession(
+                message=message, message_offset=message_offset)
 
 
 class Agent:
@@ -731,26 +752,19 @@ class Agent:
         await tool_part.finalize()
         await tx.append_agent_message(util.StreamableList([tool_part]))
 
-    def messages(
-            self) -> cl_abc.Generator[tuple[mdl.MessageOffset, msg.Message]]:
+    def messages(self) -> cl_abc.Generator[MessageInSession]:
         """
         Iterate all of this agent's messages.
 
         Yields all messages across all sessions that exist at the time of the
         call. To get live updates, use subscribe().
 
-        Yields tuples (message_offset, message), where message_offset contains
-        session and message sequence numbers of message.
+        Yields messages in the context of their session, i.e. with session and
+        message sequence numbers.
         """
-        session_seq = 0
-        for message_seq, message in enumerate(self._session.messages()):
-            message_offset = mdl.MessageOffset(
-                session_seq=session_seq, message_seq=message_seq)
-            yield message_offset, message
+        return self._session.messages()
 
-    async def subscribe(
-            self
-    ) -> cl_abc.AsyncGenerator[tuple[mdl.MessageOffset, msg.Message]]:
+    def subscribe(self) -> cl_abc.AsyncGenerator[MessageInSession]:
         """
         Subscribe to the this agent's messages.
 
@@ -758,14 +772,10 @@ class Agent:
         in the same order. This includes all message roles, also
         user/system/developer/tool messages.
 
-        Yields tuples (message_offset, message), where message_offset contains
-        session and message sequence numbers of message.
+        Yields messages in the context of their session, i.e. with session and
+        message sequence numbers.
         """
-        session_seq = 0
-        async for message_seq, message in self._session.subscribe():
-            message_offset = mdl.MessageOffset(
-                session_seq=session_seq, message_seq=message_seq)
-            yield message_offset, message
+        return self._session.subscribe()
 
     async def add_channel(self, channel: chan.Channel) -> None:
         """

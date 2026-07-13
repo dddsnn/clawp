@@ -19,6 +19,7 @@ import asyncio
 import collections.abc as cl_abc
 import enum
 import logging
+import typing as t
 
 import fastapi
 import fastapi.exceptions as fa_exc
@@ -28,6 +29,9 @@ from .. import file
 from .. import message as msg
 from .. import model as mdl
 from . import dependency as dep
+
+if t.TYPE_CHECKING:
+    from .. import agent as agt
 
 logger = logging.getLogger(__name__)
 
@@ -86,14 +90,14 @@ async def get_messages(
     less than the given one).
     """
     result = []
-    for message_offset, message in agent.messages():
-        if message_offset.message_seq >= lt_message_seq:
+    for message_in_session in agent.messages():
+        if message_in_session.message_offset.message_seq >= lt_message_seq:
             break
-        if await message.metadata.time.value >= ge_time:
+        if await message_in_session.message.metadata.time.value >= ge_time:
             result.append(
                 mdl.MessageInSession(
-                    message=await message.model,
-                    message_offset=message_offset))
+                    message=await message_in_session.message.model,
+                    message_offset=message_in_session.message_offset))
     return result
 
 
@@ -161,11 +165,10 @@ async def websocket_stream(
 
 async def _send_websocket(
         websocket: fastapi.WebSocket,
-        message_iter: cl_abc.AsyncIterable[msg.Message]) -> None:
+        message_iter: cl_abc.AsyncIterable["agt.MessageInSession"]) -> None:
     try:
-        async for message_offset, message in message_iter:
-            async for chunk in _generate_message_chunks(message_offset,
-                                                        message):
+        async for message_in_session in message_iter:
+            async for chunk in _generate_message_chunks(message_in_session):
                 # For some reason, we have to schedule the send as a task and
                 # then immediately await that task. If we just await the send,
                 # this loop will sometimes block until the full message content
@@ -190,19 +193,20 @@ async def _try_close_websocket(
 
 
 async def _generate_message_chunks(
-        message_offset: mdl.MessageOffset,
-        message: msg.Message) -> cl_abc.AsyncGenerator[mdl.WebsocketChunk]:
-    if not isinstance(message, msg.AgentMessage):
+    message_in_session: "agt.MessageInSession"
+) -> cl_abc.AsyncGenerator[mdl.WebsocketChunk]:
+    if not isinstance(message_in_session.message, msg.AgentMessage):
         yield mdl.WebsocketChunkFullMessage(
             payload=mdl.MessageInSession(
-                message=await message.model, message_offset=message_offset))
+                message=await message_in_session.message.model,
+                message_offset=message_in_session.message_offset))
         return
     # At this point, it's a streaming agent message.
     yield mdl.WebsocketChunkAgentMessageMarker(
         payload=mdl.StreamingMessageMarkerMessageStart(
-            metadata=message.metadata.start_model,
-            message_offset=message_offset))
-    async for message_part in message.stream_parts():
+            metadata=message_in_session.message.metadata.start_model,
+            message_offset=message_in_session.message_offset))
+    async for message_part in message_in_session.message.stream_parts():
         yield mdl.WebsocketChunkAgentMessageMarker(
             payload=mdl.StreamingMessageMarkerPartStart(
                 part_type=message_part.type))
@@ -218,7 +222,7 @@ async def _generate_message_chunks(
         yield mdl.WebsocketChunkAgentMessageMarker(
             payload=mdl.StreamingMessageMarkerPartEnd())
     end_metadata = mdl.EndMessageMetadata(
-        time=await message.metadata.time.value)
+        time=await message_in_session.message.metadata.time.value)
     yield mdl.WebsocketChunkAgentMessageMarker(
         payload=mdl.StreamingMessageMarkerMessageEnd(metadata=end_metadata))
 
