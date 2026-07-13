@@ -796,14 +796,18 @@ class Agent:
 
     async def _fake_agent_switch_message_locked(
             self, chat: mdl.ChatDescriptor, tx: SessionTransaction) -> None:
-        assert self.information.active_chat != chat
+        """
+        Insert a chat switch tool call on behalf of the agent.
+
+        Append an agent message with empty reasoning and content, containing
+        just a tool call to switch to the given chat.
+        """
         tool_part = msg.AgentMessageToolPart()
-        arguments = chat.model_dump_json(include=("channel", "chat_id"))
         function = msg.ToolCallFunction(
-            name="clawp_switch_chat", arguments=arguments)
-        await tool_part.append(
-            msg.ToolCall(
-                id="call_00_ui1YuJA6eD2P7r4v1DQP8967", function=function))
+            name="clawp_switch_chat",
+            arguments=chat.model_dump_json(include=("channel", "chat_id")))
+        # A random ID will be generated automatically.
+        await tool_part.append(msg.ToolCall(function=function))
         await tool_part.finalize()
         await tx.append_agent_message(util.StreamableList([tool_part]))
 

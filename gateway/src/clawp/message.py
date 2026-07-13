@@ -20,6 +20,8 @@ import asyncio
 import collections.abc as cl_abc
 import dataclasses as dc
 import logging
+import random
+import string
 import typing as t
 
 import whenever as we
@@ -317,7 +319,13 @@ class ToolCallFunction:
 @dc.dataclass
 class ToolCall:
     """A tool call requested by the agent."""
-    id: str
+    @staticmethod
+    def _generate_random_call_id():
+        random_string = "".join(
+            random.choices(string.ascii_letters + string.digits, k=24))
+        return "call_" + random_string
+
+    id: str = dc.field(default_factory=_generate_random_call_id)
     function: ToolCallFunction = dc.field(default_factory=ToolCallFunction)
 
     @property
