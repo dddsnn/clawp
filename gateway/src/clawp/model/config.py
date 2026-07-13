@@ -21,13 +21,42 @@ import pathlib
 import typing as t
 
 import pydantic as pyd
-import pydantic_settings as pyd_set
 import whenever as we
 
-from . import base
+
+class BaseSecretValue(pyd.BaseModel):
+    type: str
+
+    @property
+    @abc.abstractmethod
+    def value(self) -> str:
+        raise NotImplementedError
 
 
-class Account(base.BaseModel, abc.ABC):
+class EnvironmentSecretValue(BaseSecretValue):
+    type: t.Literal["environment"] = "environment"
+    variable_name: str
+    _value: t.Optional[str] = pyd.PrivateAttr(default=None)
+
+    @pyd.model_validator(mode="after")
+    def resolve_value(self) -> t.Self:
+        try:
+            self._value = os.environ[self.variable_name]
+        except KeyError:
+            ValueError(
+                f"environment variable {self.variable_name} doesn't exist")
+        return self
+
+    @property
+    def value(self) -> str:
+        assert self._value is not None
+        return self._value
+
+
+SecretValue = EnvironmentSecretValue
+
+
+class Account(pyd.BaseModel, abc.ABC):
     type: t.Literal["matrix"]
 
     @pyd.computed_field
@@ -37,12 +66,7 @@ class Account(base.BaseModel, abc.ABC):
         raise NotImplementedError
 
 
-class BaseSettings(pyd_set.BaseSettings):
-    model_config = pyd_set.SettingsConfigDict(
-        env_prefix="CLAWP_", env_prefix_target="alias")
-
-
-class ModelConfig(BaseSettings):
+class ModelConfig(pyd.BaseModel):
     name: str
     doom_loop_max_requests: int
     message_send_timeout: we.TimeDelta
@@ -56,18 +80,16 @@ class ModelConfig(BaseSettings):
         return self
 
 
-class OpenRouterConfig(BaseSettings):
-    api_key: str = pyd.Field(alias="OPENROUTER_API_KEY")
+class OpenRouterConfig(pyd.BaseModel):
+    api_key: SecretValue
     model: ModelConfig
 
 
-class MatrixAccountConfig(BaseSettings, Account):
+class MatrixAccountConfig(Account):
     type: t.Literal["matrix"] = "matrix"
     homeserver: str
     username: str
-    # Default this to None, it will be loaded from env by MatrixConfig.
-    password: str = pyd.Field(
-        default=None, validate_default=False, exclude=True)
+    password: SecretValue
     device_id: str
 
     @property
@@ -75,86 +97,42 @@ class MatrixAccountConfig(BaseSettings, Account):
         return self.username
 
 
-class MatrixConfig(BaseSettings):
+class MatrixConfig(pyd.BaseModel):
     # Default this to None, it will be set relative to the gateway's store_dir.
     store_dir: pathlib.Path = pyd.Field(default=None, validate_default=False)
     accounts: list[MatrixAccountConfig]
 
-    @pyd.model_validator(mode="before")
-    @classmethod
-    def load_passwords_from_env(cls, data: t.Any) -> t.Any:
-        try:
-            assert isinstance(data, dict)
-            accounts = data["accounts"]
-            assert isinstance(accounts, list)
-            assert all(
-                isinstance(a, (dict, MatrixAccountConfig)) for a in accounts)
-        except (AssertionError, KeyError):
-            raise ValueError("invalid accounts format")
-        # For each account, look for CLAWP_MATRIX_PASSWORD_N in the
-        # environment.
-        for i, account in enumerate(accounts):
-            if isinstance(account, dict):
 
-                def get_password():
-                    return account.get("password")
-
-                def set_password(password):
-                    account["password"] = password
-
-            else:
-                assert isinstance(account, MatrixAccountConfig)
-
-                def get_password():
-                    return getattr(account, "password", None)
-
-                def set_password(password):
-                    account.password = password
-
-            if get_password() is not None:
-                # A password has been specified in the dict, prefer that over
-                # an env variable.
-                continue
-            try:
-                env_password = os.environ[f"CLAWP_MATRIX_PASSWORD_{i}"]
-            except KeyError:
-                # No password in environment, it must be in the dict already or
-                # fail validation.
-                continue
-            set_password(env_password)
-        return data
-
-
-class ChannelsConfig(BaseSettings):
+class ChannelsConfig(pyd.BaseModel):
     matrix: MatrixConfig
 
 
-class ApiConfig(BaseSettings):
+class ApiConfig(pyd.BaseModel):
     host: pyd.IPvAnyAddress
     port: int
     log_level: t.Literal["critical", "error", "warning", "info", "debug",
                          "trace"]
 
 
-class ShellSshConfig(BaseSettings):
+class ShellSshConfig(pyd.BaseModel):
     host: str
     port: int
     username: str
     key_filename: pathlib.Path
 
 
-class ShellConfig(BaseSettings):
+class ShellConfig(pyd.BaseModel):
     ssh: ShellSshConfig
-    # Value of the PATH variable in the shell.
     path: str
+    """Value of the PATH variable in the shell."""
 
 
-class ToolConfig(BaseSettings):
+class ToolConfig(pyd.BaseModel):
     client_timeout: we.TimeDelta
     shell: ShellConfig
 
 
-class GatewayConfig(BaseSettings):
+class GatewayConfig(pyd.BaseModel):
     files_base_dir: pathlib.Path
     """
     The base directory for all of the gateway's files.
@@ -185,6 +163,6 @@ class GatewayConfig(BaseSettings):
         return self
 
 
-class Config(BaseSettings):
+class Config(pyd.BaseModel):
     config_version: t.Literal[0]
     gateway: GatewayConfig

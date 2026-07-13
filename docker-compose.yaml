@@ -66,7 +66,7 @@ services:
         read_only: true
     environment:
       - "CLAWP_OPENROUTER_API_KEY"
-      - "CLAWP_MATRIX_PASSWORD_0"
+      - "CLAWP_MATRIX_PASSWORD"
     ports:
       - "8000:8000"
     depends_on:

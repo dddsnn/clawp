@@ -39,6 +39,7 @@ from .config import (
     ApiConfig,
     ChannelsConfig,
     Config,
+    EnvironmentSecretValue,
     GatewayConfig,
     MatrixAccountConfig,
     MatrixConfig,
@@ -121,8 +122,9 @@ __all__ = [
     "WebUiChannelStatus",
     # config
     "ApiConfig",
-    "Config",
     "ChannelsConfig",
+    "Config",
+    "EnvironmentSecretValue",
     "GatewayConfig",
     "MatrixAccountConfig",
     "MatrixConfig",

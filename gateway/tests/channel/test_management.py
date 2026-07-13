@@ -16,6 +16,7 @@
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 import dataclasses as dc
+import os
 import pathlib
 
 import pytest
@@ -54,12 +55,15 @@ class MockChannel:
 class TestChannelPool:
     def make_channels_config(
             self, matrix_usernames: list[str]) -> mdl.ChannelsConfig:
-        matrix_accounts = [
-            mdl.MatrixAccountConfig(
-                homeserver=f"homeserver_{username}", username=username,
-                password=f"password_{username}",
-                device_id=f"device_id_{username}")
-            for username in matrix_usernames]
+        matrix_accounts = []
+        for username in matrix_usernames:
+            os.environ[f"PW_{username}"] = f"password_{username}"
+            matrix_accounts.append(
+                mdl.MatrixAccountConfig(
+                    homeserver=f"homeserver_{username}", username=username,
+                    password=mdl.EnvironmentSecretValue(
+                        variable_name=f"PW_{username}"),
+                    device_id=f"device_id_{username}"))
         return mdl.ChannelsConfig(
             matrix=mdl.MatrixConfig(
                 store_dir=pathlib.Path("store/dir"), accounts=matrix_accounts))

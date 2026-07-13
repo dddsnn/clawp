@@ -94,7 +94,7 @@ class OpenrouterProvider(Provider):
     def __init__(self, config: mdl.OpenRouterConfig):
         self._config = config
         self._openrouter_client = openrouter.OpenRouter(
-            api_key=self._config.api_key)
+            api_key=self._config.api_key.value)
 
     async def __aenter__(self):
         await self._openrouter_client.__aenter__()

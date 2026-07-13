@@ -78,8 +78,7 @@ uv --project gateway run pytest gateway
 ### Configuration
 
 Clawp is mostly configured via a configuration file. See `config.yaml.example`.
-Some values (secrets) can also be supplied as environment variables, these are
-marked with comments in the example file.
+Some values (secrets) are specified as references to environment variables.
 
 ### Tools
 

@@ -60,7 +60,7 @@ class MatrixChannel(base.Channel):
 
     async def __aenter__(self) -> t.Self:
         await super().__aenter__()
-        await self._client.login(self._config.password)
+        await self._client.login(self._config.password.value)
         self._client.load_store()
         self._sync_forever_task = asyncio.create_task(
             self._client.sync_forever())
