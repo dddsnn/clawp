@@ -30,21 +30,22 @@ class BasicChatDescriptor(base.BaseModel):
     channel: t.Literal["agent", "web_ui"]
     chat_id: str
 
+    def __eq__(self, other: any) -> bool:
+        if not isinstance(other, BasicChatDescriptor):
+            return False
+        # channel/chat_id uniquely identify a chat, everything else is
+        # optional.
+        self_dict = self.model_dump(include={"channel", "chat_id"})
+        other_dict = other.model_dump(include={"channel", "chat_id"})
+        return self_dict == other_dict
+
+    def __hash__(self) -> int:
+        return hash((self.channel, self.chat_id))
+
 
 class MatrixChatDescriptor(BasicChatDescriptor):
     channel: t.Literal["matrix"] = "matrix"
     room_name: t.Optional[str]
-
-    def __eq__(self, other: any) -> bool:
-        # channel/chat_id are enough for equality, room_name is optional.
-        if not isinstance(other, ChatDescriptor):
-            return NotImplemented
-        self_dict = self.model_dump(exclude={"room_name"})
-        other_dict = other.model_dump(exclude={"room_name"})
-        return self_dict == other_dict
-
-    def __hash__(self) -> int:
-        return hash((self.channel, self.room_name))
 
 
 ChatDescriptor = BasicChatDescriptor | MatrixChatDescriptor
