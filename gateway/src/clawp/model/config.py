@@ -43,7 +43,7 @@ class EnvironmentSecretValue(BaseSecretValue):
         try:
             self._value = os.environ[self.variable_name]
         except KeyError:
-            ValueError(
+            raise ValueError(
                 f"environment variable {self.variable_name} doesn't exist")
         return self
 
@@ -53,7 +53,27 @@ class EnvironmentSecretValue(BaseSecretValue):
         return self._value
 
 
-SecretValue = EnvironmentSecretValue
+class FileSecretValue(BaseSecretValue):
+    type: t.Literal["file"] = "file"
+    path: pathlib.Path
+    _value: t.Optional[str] = pyd.PrivateAttr(default=None)
+
+    @pyd.model_validator(mode="after")
+    def resolve_value(self) -> t.Self:
+        try:
+            with self.path.open() as f:
+                self._value = f.read()
+        except Exception as e:
+            raise ValueError(f"error reading secret file {self.path}") from e
+        return self
+
+    @property
+    def value(self) -> str:
+        assert self._value is not None
+        return self._value
+
+
+SecretValue = EnvironmentSecretValue | FileSecretValue
 
 
 class Account(pyd.BaseModel, abc.ABC):
