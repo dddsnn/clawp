@@ -22,7 +22,6 @@ import uuid
 import pydantic as pyd
 
 from . import base
-from . import channel as chan
 
 
 class AgentPersonalityFile(base.BaseModel):
@@ -55,28 +54,7 @@ class AgentPersonalityWithFileContents(AgentPersonality):
             name=self.name, personality_files=self.personality_files)
 
 
-class WebUiChannelPersistence(base.BaseModel):
-    """Persistent state for the built-in web_ui channel."""
-    messages_dir: pathlib.Path
-    read_offset: int = 0
-
-
-class AgentChannelPersistence(base.BaseModel):
-    """Persistent state for the built-in agent channel."""
-    messages_dir: pathlib.Path
-    read_offsets: dict[uuid.UUID, int] = pyd.Field(default_factory=dict)
-
-
-class AgentState(base.BaseModel):
+class AgentInformation(base.BaseModel):
+    """Immutable agent information."""
     id: uuid.UUID
     personality: AgentPersonality
-    claimed_channels: dict[chan.ChannelType, str] = (
-        pyd.Field(default_factory=dict))
-    """
-    Channels claimed by the agent.
-
-    A mapping of channel type to channel ID.
-    """
-    active_chat: chan.ChatDescriptor
-    web_ui_channel: WebUiChannelPersistence
-    agent_channel: AgentChannelPersistence

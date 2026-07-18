@@ -54,15 +54,16 @@ class WebsocketCloseCode(enum.IntEnum):
 
 
 @router.get("")
-async def list_agents(agent_repo: dep.AgentRepository) -> list[mdl.AgentState]:
+async def list_agents(
+        agent_repo: dep.AgentRepository) -> list[mdl.AgentInformation]:
     """Get a list of agents."""
-    return [agent.state for agent in agent_repo.iter_agents()]
+    return [agent.information for agent in agent_repo.iter_agents()]
 
 
 @router.get("/hatch")
 async def hatch_new_agent(
         agent_repo: dep.AgentRepository,
-        personality_name: str) -> mdl.AgentState:
+        personality_name: str) -> mdl.AgentInformation:
     """
     Hatch a new agent.
 
@@ -74,7 +75,7 @@ async def hatch_new_agent(
         raise fa_exc.HTTPException(
             status_code=404,
             detail=f"No personality named {personality_name}.")
-    return agent.state
+    return agent.information
 
 
 @router.get("/{agent_id}/messages")

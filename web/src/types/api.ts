@@ -264,11 +264,11 @@ export const UserInputMessageSchema = z.object({
 
 // --- Agent Types ---
 
-export const AgentStateSchema = z.object({
+export const AgentInformationSchema = z.object({
   id: z.string().uuid(),
 });
 
-export type AgentState = z.infer<typeof AgentStateSchema>;
+export type AgentInformation = z.infer<typeof AgentInformationSchema>;
 
 export const AgentPersonalityFileSchema = z.object({
   path: z.string(),

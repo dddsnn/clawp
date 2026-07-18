@@ -44,7 +44,7 @@ async def list_channels(
             channel_key = (
                 channel_status.channel.type, channel_status.channel.id)
             assigned_to_agent = channel_assignments[channel_key]
-            assigned_to_agent_id = assigned_to_agent.state.id
+            assigned_to_agent_id = assigned_to_agent.information.id
         except KeyError:
             assigned_to_agent_id = None
         infos.append(
@@ -120,7 +120,7 @@ async def assign_channel(
         id=channel_status.channel.id,
         config=channel_status.config,
         status=await channel_status.channel.status,
-        assigned_to_agent=agent.state.id,
+        assigned_to_agent=agent.information.id,
     )
 
 

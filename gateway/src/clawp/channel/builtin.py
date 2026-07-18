@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+import pathlib
 import typing as t
 import uuid
 
@@ -42,18 +43,19 @@ class WebUiChannel(base.Channel):
     _MESSAGES_FILE_NAME = "messages.jsonl"
     _MESSAGES_VERSION = 0
 
-    def __init__(self, persistence_info: mdl.WebUiChannelPersistence) -> None:
+    def __init__(
+            self, messages_dir: pathlib.Path,
+            state: mdl.WebUiChannelState) -> None:
         """
-        :param persistence_info: A config object for the persistence. This
-            also contains the read offset, which is updated inside that
-            instance and must be persisted externally.
+        :param state: A config object storing persistent state. This contains
+            the read offset, which is updated inside that instance and must be
+            persisted externally.
         """
         super().__init__("web_ui")
-        self._persistence_info = persistence_info
+        self._state = state
         self._messages: list[mdl.ChatMessage] = []
         self._messages_io = store.JsonlIO(
-            self._persistence_info.messages_dir / self._MESSAGES_FILE_NAME,
-            mdl.MessageTypeAdapter)
+            messages_dir / self._MESSAGES_FILE_NAME, mdl.MessageTypeAdapter)
 
     async def __aenter__(self) -> t.Self:
         await super().__aenter__()
@@ -71,11 +73,11 @@ class WebUiChannel(base.Channel):
 
     @property
     def _read_offset(self) -> int:
-        return self._persistence_info.read_offset
+        return self._state.read_offset
 
     @_read_offset.setter
     def _read_offset(self, value: int) -> None:
-        self._persistence_info.read_offset = value
+        self._state.read_offset = value
 
     async def _load_messages_from_disk(self) -> None:
         try:
@@ -177,16 +179,17 @@ class AgentChannel(base.Channel):
 
     def __init__(
             self, agent_id: uuid.UUID, agent_repo: "agt.AgentRepository",
-            persistence_info: mdl.AgentChannelPersistence) -> None:
+            messages_dir: pathlib.Path, state: mdl.AgentChannelState) -> None:
         """
-        :param persistence_info: A config object for the persistence. This
-            also contains the read offsets, which are updated inside that
-            instance and must be persisted externally.
+        :param state: A config object storing persistent state. This contains
+            the read offsets, which are updated inside that instance and must
+            be persisted externally.
         """
         super().__init__("agent")
         self._agent_id = agent_id
         self._agent_repo = agent_repo
-        self._persistence_info = persistence_info
+        self._messages_dir = messages_dir
+        self._state = state
         self._messages: dict[uuid.UUID, list[mdl.ChatMessage]] = {}
         self._chat_ios: dict[uuid.UUID, store.JsonlIO] = {}
 
@@ -202,7 +205,7 @@ class AgentChannel(base.Channel):
         return await super().__aexit__(*args)
 
     def _messages_path(self, peer_agent_id: uuid.UUID):
-        return self._persistence_info.messages_dir / f"{peer_agent_id}.jsonl"
+        return self._messages_dir / f"{peer_agent_id}.jsonl"
 
     def _io_for_chat(self, peer_agent_id: uuid.UUID) -> store.JsonlIO:
         try:
@@ -214,10 +217,9 @@ class AgentChannel(base.Channel):
             return io
 
     async def _load_messages_from_disk(self) -> None:
-        messages_dir = self._persistence_info.messages_dir
-        if not messages_dir.exists():
+        if not self._messages_dir.exists():
             return
-        for path in messages_dir.iterdir():
+        for path in self._messages_dir.iterdir():
             if not path.is_file() or path.suffix != ".jsonl":
                 continue
             try:
@@ -244,7 +246,7 @@ class AgentChannel(base.Channel):
     def _get_read_offset(
             self, peer_agent_id: uuid.UUID, *, default: int) -> int:
         try:
-            return self._persistence_info.read_offsets[peer_agent_id]
+            return self._state.read_offsets[peer_agent_id]
         except KeyError:
             return default
 
@@ -253,7 +255,7 @@ class AgentChannel(base.Channel):
         messages = self._messages.setdefault(peer_agent_id, [])
         if not 0 <= read_offset <= len(messages):
             raise ValueError("new offset is not in valid range")
-        self._persistence_info.read_offsets[peer_agent_id] = read_offset
+        self._state.read_offsets[peer_agent_id] = read_offset
 
     async def _append_message(
             self, peer_agent_id: uuid.UUID, message: mdl.ChatMessage) -> None:
@@ -298,10 +300,11 @@ class AgentChannel(base.Channel):
         # Get the other agent to make sure the ID is in order and the agent
         # exists.
         peer_agent = self._get_agent(chat_id)
-        messages = self._messages.setdefault(peer_agent.state.id, [])
-        read_offset = self._get_read_offset(peer_agent.state.id, default=0)
+        messages = self._messages.setdefault(peer_agent.information.id, [])
+        read_offset = self._get_read_offset(
+            peer_agent.information.id, default=0)
         unread_messages = messages[read_offset:]
-        self._set_read_offset(peer_agent.state.id, len(messages))
+        self._set_read_offset(peer_agent.information.id, len(messages))
         return unread_messages
 
     def make_outgoing_start_metadata(
@@ -324,12 +327,13 @@ class AgentChannel(base.Channel):
                 "recipient doesn't have an agent channel to send to")
         assert isinstance(recipient_channel, AgentChannel)
         chat_message = await message.model
-        messages = self._messages.setdefault(recipient.state.id, [])
-        read_offset = self._get_read_offset(recipient.state.id, default=0)
+        messages = self._messages.setdefault(recipient.information.id, [])
+        read_offset = self._get_read_offset(
+            recipient.information.id, default=0)
         if len(messages) != read_offset:
             raise base.ChannelError("can't send if there are unread messages")
-        await self._append_message(recipient.state.id, chat_message)
-        self._set_read_offset(recipient.state.id, len(messages))
+        await self._append_message(recipient.information.id, chat_message)
+        self._set_read_offset(recipient.information.id, len(messages))
         await recipient_channel.add_incoming_agent_message(
             message, self._agent_id)
 

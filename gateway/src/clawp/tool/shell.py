@@ -113,8 +113,8 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
         # redirection).
         escaped_command = shlex.quote(command)
         wrapped_command = "command_wrapper.bash {} {} {} {}".format(
-            self._config.files_base_dir.absolute(), self._agent.state.id, cwd,
-            escaped_command)
+            self._config.files_base_dir.absolute(), self._agent.information.id,
+            cwd, escaped_command)
         result = self._conn.run(
             wrapped_command, shell="/bin/bash", env=env, replace_env=True,
             warn=True)

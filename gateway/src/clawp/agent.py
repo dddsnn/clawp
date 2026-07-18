@@ -484,7 +484,8 @@ class Agent:
     sessions are properly opened and closed.
     """
     def __init__(
-            self, agent_state: mdl.AgentState, *, config: mdl.GatewayConfig,
+            self, agent_information: mdl.AgentInformation,
+            agent_state: mdl.AgentState, *, config: mdl.GatewayConfig,
             workspace_dir: pathlib.Path, message_store: store.MessageStore,
             memory_store: store.MemoryStore,
             channel_router: chan.ChannelRouter,
@@ -492,6 +493,7 @@ class Agent:
         self._logger = logging.getLogger(type(self).__name__)
         if not workspace_dir.is_dir():
             raise ValueError("workspace doesn't exist")
+        self._agent_information = agent_information
         self._agent_state = agent_state
         self._workspace_dir = workspace_dir
         self._message_store = message_store
@@ -504,6 +506,10 @@ class Agent:
             mcp_client=self._mcp_client)
         self._session = None
         self._lock = asyncio.Lock()
+
+    @property
+    def information(self) -> mdl.AgentInformation:
+        return self._agent_information
 
     @property
     def state(self) -> mdl.AgentState:
@@ -545,7 +551,7 @@ class Agent:
         return self._channel_router.web_ui_channel
 
     def __str__(self) -> str:
-        return f"{type(self).__name__} {self.state.id}"
+        return f"{type(self).__name__} {self.information.id}"
 
     async def __aenter__(self) -> t.Self:
         await self._message_store.__aenter__()
@@ -625,7 +631,7 @@ class Agent:
         # Tell the agent about their workspace and personality files.
         await tx.append_internal_message(
             msg.SystemMessage, await file.render_workspace_info(self))
-        for pf in self.state.personality.personality_files:
+        for pf in self.information.personality.personality_files:
             await tx.append_internal_message(
                 msg.SystemMessage, await
                 file.render_file_content(self.workspace_dir, pf.path))
@@ -908,7 +914,7 @@ class AgentRepository:
         for agent in self._discover_agents():
             self._logger.info(f"Starting {agent}.")
             try:
-                self._agents[agent.state.id] = await agent.__aenter__()
+                self._agents[agent.information.id] = await agent.__aenter__()
             except Exception:
                 self._logger.exception(f"Error starting {agent}.")
                 raise
@@ -919,7 +925,7 @@ class AgentRepository:
         self._running = False
         await self._stop_agents()
         for agent in self._agents.values():
-            agent_base_dir = self._agent_base_dir(agent.state.id)
+            agent_base_dir = self._agent_base_dir(agent.information.id)
             self._agent_state_file(agent_base_dir).write_text(
                 agent.state.model_dump_json())
         self._agents.clear()
@@ -955,7 +961,7 @@ class AgentRepository:
                     f"Ignoring invalid agent directory {d}.")
 
     def _instantiate_agent(self, dir: pathlib.Path) -> Agent:
-        agent_state = self._load_agent_state(dir)
+        agent_information, agent_state = self._load_agent_files(dir)
         workspace_dir = self._workspace_dir(dir)
         if not self._workspace_dir(dir).is_dir():
             raise ValueError(f"missing workspace directory {workspace_dir}")
@@ -974,35 +980,52 @@ class AgentRepository:
                 channels.append(channel_status.channel)
             except chan.ChannelError as e:
                 self._logger.warning(
-                    f"Agent {agent_state.id} claims channel "
+                    f"Agent {agent_information.id} claims channel "
                     f"{ch_type}:{ch_id}, but it's not available: {e}.")
         # Add the builtin web_ui and agent channels.
-        channels.append(chan.WebUiChannel(agent_state.web_ui_channel))
         channels.append(
-            chan.AgentChannel(agent_state.id, self, agent_state.agent_channel))
+            chan.WebUiChannel(
+                self._web_ui_channel_state_dir(dir),
+                agent_state.web_ui_channel))
+        channels.append(
+            chan.AgentChannel(
+                agent_information.id, self, self._agent_channel_state_dir(dir),
+                agent_state.agent_channel))
         return Agent(
-            agent_state, config=self._config, workspace_dir=workspace_dir,
-            message_store=message_store, memory_store=memory_store,
+            agent_information, agent_state, config=self._config,
+            workspace_dir=workspace_dir, message_store=message_store,
+            memory_store=memory_store,
             channel_router=chan.ChannelRouter(channels),
             provider=self._provider)
 
-    def _load_agent_state(
-            self, agent_base_dir: pathlib.Path) -> mdl.AgentState:
+    def _load_agent_files(
+        self, agent_base_dir: pathlib.Path
+    ) -> tuple[mdl.AgentInformation, mdl.AgentState]:
         try:
             agent_id = uuid.UUID(agent_base_dir.name)
         except ValueError as e:
             raise ValueError("invalid agent ID in directory name") from e
+        agent_information_file = self._agent_information_file(agent_base_dir)
+        try:
+            agent_information = mdl.AgentInformation.model_validate_json(
+                agent_information_file.read_bytes())
+        except Exception as e:
+            raise ValueError("invalid agent information file") from e
         agent_state_file = self._agent_state_file(agent_base_dir)
         try:
             agent_state = mdl.AgentState.model_validate_json(
                 agent_state_file.read_bytes())
         except Exception as e:
             raise ValueError("invalid agent state file") from e
-        if agent_state.id != agent_id:
+        if agent_information.id != agent_id:
             raise ValueError(
-                f"agent ID in state file ({agent_state.id}) doesn't match the "
-                f"one in the directory name ({agent_id})")
-        return agent_state
+                f"agent ID in information file ({agent_information.id}) "
+                f"doesn't match the one in the directory name ({agent_id})")
+        return agent_information, agent_state
+
+    def _agent_information_file(
+            self, agent_base_dir: pathlib.Path) -> pathlib.Path:
+        return agent_base_dir / "agent_information.json"
 
     def _agent_state_file(self, agent_base_dir: pathlib.Path) -> pathlib.Path:
         return agent_base_dir / "agent_state.json"
@@ -1016,6 +1039,14 @@ class AgentRepository:
     def _memory_store_dir(self, agent_base_dir: pathlib.Path) -> pathlib.Path:
         return agent_base_dir / "memory_store"
 
+    def _web_ui_channel_state_dir(
+            self, agent_base_dir: pathlib.Path) -> pathlib.Path:
+        return agent_base_dir / "web_ui_channel"
+
+    def _agent_channel_state_dir(
+            self, agent_base_dir: pathlib.Path) -> pathlib.Path:
+        return agent_base_dir / "agent_channel"
+
     async def hatch_agent(self, personality_name: str) -> Agent:
         """Hatch a new agent."""
         if not self._running:
@@ -1026,11 +1057,11 @@ class AgentRepository:
         agent = self._instantiate_agent(agent_base_dir)
         self._logger.info(f"Starting new {agent}.")
         try:
-            self._agents[agent.state.id] = await agent.__aenter__()
+            self._agents[agent.information.id] = await agent.__aenter__()
         except Exception:
             self._logger.exception(f"Error starting new {agent}.")
             raise
-        return self._agents[agent.state.id]
+        return self._agents[agent.information.id]
 
     async def _initialize_agent_files(self, agent_id, personality_name):
         try:
@@ -1049,10 +1080,8 @@ class AgentRepository:
             id=agent_id,
             personality=personality_with_contents.get_personality(),
             active_chat=mdl.BasicChatDescriptor(channel="web_ui", chat_id=""),
-            web_ui_channel=mdl.WebUiChannelPersistence(
-                messages_dir=agent_base_dir / "web_ui_channel"),
-            agent_channel=mdl.AgentChannelPersistence(
-                messages_dir=agent_base_dir / "agent_channel"),
+            web_ui_channel=mdl.WebUiChannelState(),
+            agent_channel=mdl.AgentChannelState(),
         )
         self._agent_state_file(agent_base_dir).write_text(
             agent_state.model_dump_json())

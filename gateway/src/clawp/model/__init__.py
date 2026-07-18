@@ -16,11 +16,9 @@
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 from .agent import (
-    AgentChannelPersistence,
+    AgentInformation,
     AgentPersonality,
     AgentPersonalityWithFileContents,
-    AgentState,
-    WebUiChannelPersistence,
 )
 from .api import ErrorResponse
 from .base import BaseModel, Iso8601Millis
@@ -96,15 +94,18 @@ from .message import (
     WebsocketChunkAgentMessageMarker,
     WebsocketChunkFullMessage,
 )
+from .state import (
+    AgentChannelState,
+    AgentState,
+    WebUiChannelState,
+)
 from .tool import ShellResult
 
 __all__ = [
     # agent
-    "AgentChannelPersistence",
+    "AgentInformation",
     "AgentPersonality",
     "AgentPersonalityWithFileContents",
-    "AgentState",
-    "WebUiChannelPersistence",
     # api
     "ErrorResponse",
     # base
@@ -180,5 +181,9 @@ __all__ = [
     "WebsocketChunkAgentMessageFragment",
     "WebsocketChunkAgentMessageMarker",
     "WebsocketChunkFullMessage",
+    # state
+    "AgentChannelState",
+    "AgentState",
+    "WebUiChannelState",
     # tool
     "ShellResult",]
