@@ -18,6 +18,16 @@ gateway:
     port: 8000
     log_level: "info"
   channels:
+    github:
+      accounts:
+        - app_id: 1234
+          installation_id: 5678
+          # The private key is specified as a path to the key file.
+          private_key:
+            type: "file"
+            path: "path/to/key.pem"
+          organization: "my-org"
+          poll_interval: "PT1M" # Optional.
     matrix:
       accounts:
         - homeserver: "https://matrix.org"

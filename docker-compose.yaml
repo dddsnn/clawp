@@ -58,6 +58,7 @@ services:
     volumes:
       - "./config.yaml:/app/config.yaml"
       - "clawp-data:/app/clawp_files/"
+      - "./.secrets:/app/.secrets:ro"
       - type: "volume"
         source: "sandbox-ssh-keys"
         volume:
