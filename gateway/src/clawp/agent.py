@@ -781,6 +781,14 @@ class Agent:
                 # to the session.
                 messages = (
                     await self._channel_router.get_unread_messages(chat))
+                if not messages:
+                    # This can happen if a chat gets multiple messages at once:
+                    # We'll get the first unread chat from the channel router,
+                    # then process all of its unread messages here. But the
+                    # channel router still yields the chat again for the other
+                    # messages, calling this again, but without unread
+                    # messages.
+                    return
                 for message in messages:
                     assert message.metadata.chat == chat
                     await tx.append_chat_message(message)
