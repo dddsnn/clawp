@@ -29,6 +29,8 @@ from .channel import (
     ChannelStatus,
     ChannelType,
     ChatDescriptor,
+    GithubChannelStatus,
+    GithubChatDescriptor,
     MatrixChannelStatus,
     MatrixChatDescriptor,
     WebUiChannelStatus,
@@ -39,6 +41,8 @@ from .config import (
     Config,
     EnvironmentSecretValue,
     GatewayConfig,
+    GithubAccountConfig,
+    GithubConfig,
     MatrixAccountConfig,
     MatrixConfig,
     ModelConfig,
@@ -61,6 +65,9 @@ from .message import (
     ChatMessageRole,
     DeveloperMessage,
     EndMessageMetadata,
+    GithubChatMessage,
+    GithubChatMessageMetadata,
+    GithubStartMessageMetadata,
     InternalMessageMetadata,
     InternalMessageRole,
     MatrixChatMessage,
@@ -97,6 +104,8 @@ from .message import (
 from .state import (
     AgentChannelState,
     AgentState,
+    GatewayState,
+    GithubChannelState,
     WebUiChannelState,
 )
 from .tool import ShellResult
@@ -117,6 +126,8 @@ __all__ = [
     "ChannelInformation",
     "ChannelStatus",
     "ChannelType",
+    "GithubChannelStatus",
+    "GithubChatDescriptor",
     "ChatDescriptor",
     "MatrixChannelStatus",
     "MatrixChatDescriptor",
@@ -127,6 +138,8 @@ __all__ = [
     "Config",
     "EnvironmentSecretValue",
     "GatewayConfig",
+    "GithubAccountConfig",
+    "GithubConfig",
     "MatrixAccountConfig",
     "MatrixConfig",
     "ModelConfig",
@@ -149,6 +162,9 @@ __all__ = [
     "ChatMessageRole",
     "DeveloperMessage",
     "EndMessageMetadata",
+    "GithubChatMessage",
+    "GithubChatMessageMetadata",
+    "GithubStartMessageMetadata",
     "InternalMessageMetadata",
     "InternalMessageRole",
     "MatrixChatMessage",
@@ -184,6 +200,8 @@ __all__ = [
     # state
     "AgentChannelState",
     "AgentState",
+    "GatewayState",
+    "GithubChannelState",
     "WebUiChannelState",
     # tool
     "ShellResult",]

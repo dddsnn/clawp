@@ -30,6 +30,7 @@ from . import channel as chan
 from . import config as cfg
 from . import model as mdl
 from . import provider as prov
+from . import state as st
 
 _log_fmt = "%(asctime)s|%(module)s|%(name)s|%(levelname)s: %(message)s"
 _loggers_with_only_info_level = [
@@ -64,16 +65,18 @@ async def main(config: mdl.GatewayConfig):
     shutdown_event = asyncio.Event()
     asyncio.get_running_loop().add_signal_handler(
         signal.SIGTERM, shutdown, shutdown_event)
-    channel_pool = chan.ChannelPool(config.channels)
+    state_manager = st.GatewayStateManager(config.files_base_dir)
     openrouter_provider = prov.OpenrouterProvider(config.openrouter)
-    agent_repo = agt.AgentRepository(
-        base_dir=config.agents_base_dir, channel_pool=channel_pool,
-        provider=openrouter_provider, config=config)
-    clawp_api = api.Api(config.api, agent_repo, channel_pool)
     async with contextlib.AsyncExitStack() as stack:
+        await stack.enter_async_context(state_manager)
+        channel_pool = chan.ChannelPool(config.channels, state_manager.state)
         await stack.enter_async_context(openrouter_provider)
-        await stack.enter_async_context(agent_repo)
-        await stack.enter_async_context(clawp_api)
+        agent_repo = await stack.enter_async_context(
+            agt.AgentRepository(
+                base_dir=config.agents_base_dir, channel_pool=channel_pool,
+                provider=openrouter_provider, config=config))
+        await stack.enter_async_context(
+            api.Api(config.api, agent_repo, channel_pool))
         await shutdown_event.wait()
 
 

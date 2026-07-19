@@ -29,6 +29,13 @@ export const AgentChatDescriptorSchema = BaseChatDescriptorSchema.extend({
   chat_id: z.string().uuid(),
 });
 
+export const GithubChatDescriptorSchema = BaseChatDescriptorSchema.extend({
+  channel: z.literal('github'),
+  repo_full_name: z.string(),
+  issue_type: z.literal('issue', 'pr'),
+  issue_number: z.int(),
+});
+
 export const MatrixChatDescriptorSchema = BaseChatDescriptorSchema.extend({
   channel: z.literal('matrix'),
   room_name: z.string().nullable(),
@@ -41,6 +48,7 @@ export const WebUiChatDescriptorSchema = BaseChatDescriptorSchema.extend({
 
 export type ChatDescriptor =
 | z.infer<typeof AgentChatDescriptorSchema>
+| z.infer<typeof GithubChatDescriptorSchema>
 | z.infer<typeof MatrixChatDescriptorSchema>
 | z.infer<typeof WebUiChatDescriptorSchema>;
 
@@ -56,6 +64,11 @@ export const BasicStartMessageMetadataSchema = z.object({
 });
 export type BasicStartMessageMetadata = z.infer<typeof BasicStartMessageMetadataSchema>;
 
+export const GithubStartMessageMetadataSchema = z.object({
+  chat: GithubChatDescriptorSchema,
+});
+export type GithubStartMessageMetadata = z.infer<typeof GithubStartMessageMetadataSchema>;
+
 export const MatrixStartMessageMetadataSchema = z.object({
   chat: MatrixChatDescriptorSchema,
   sender_id: z.string(),
@@ -65,9 +78,13 @@ export type MatrixStartMessageMetadata = z.infer<typeof MatrixStartMessageMetada
 
 export const StartMessageMetadataSchema: z.ZodType<StartMessageMetadata> = z.lazy(() => z.union([
   MatrixStartMessageMetadataSchema,
+  GithubStartMessageMetadataSchema,
   BasicStartMessageMetadataSchema,
 ]));
-export type StartMessageMetadata = BasicStartMessageMetadata | MatrixStartMessageMetadata;
+export type StartMessageMetadata =
+  | BasicStartMessageMetadata
+  | GithubStartMessageMetadata
+  | MatrixStartMessageMetadata;
 
 export const EndMessageMetadataSchema = z.object({
   time: Iso8601Schema,
@@ -79,12 +96,16 @@ export type InternalMessageMetadata = z.infer<typeof InternalMessageMetadataSche
 export const BasicChatMessageMetadataSchema = BasicStartMessageMetadataSchema.merge(EndMessageMetadataSchema);
 export type BasicChatMessageMetadata = z.infer<typeof BasicChatMessageMetadataSchema>;
 
+export const GithubChatMessageMetadataSchema = GithubStartMessageMetadataSchema.merge(EndMessageMetadataSchema);
+export type GithubChatMessageMetadata = z.infer<typeof GithubChatMessageMetadataSchema>;
+
 export const MatrixChatMessageMetadataSchema = MatrixStartMessageMetadataSchema.merge(EndMessageMetadataSchema);
 export type MatrixChatMessageMetadata = z.infer<typeof MatrixChatMessageMetadataSchema>;
 
 export const ChatMessageMetadataSchema: z.ZodType<ChatMessageMetadata> = z.lazy(() => z.union([
-  MatrixChatMessageMetadataSchema,
   BasicChatMessageMetadataSchema,
+  GithubChatMessageMetadataSchema,
+  MatrixChatMessageMetadataSchema,
 ]));
 export type ChatMessageMetadata = BasicChatMessageMetadata | MatrixChatMessageMetadata;
 
@@ -287,6 +308,14 @@ export const AgentPersonalityWithFileContentsSchema = AgentPersonalitySchema.ext
 export type AgentPersonality = z.infer<typeof AgentPersonalitySchema>;
 export type AgentPersonalityWithFileContents = z.infer<typeof AgentPersonalityWithFileContentsSchema>;
 
+export const GithubAccountConfigSchema = z.object({
+  type: z.literal('github').default('github'),
+  app_id: z.int(),
+  installation_id: z.int(),
+  organization: z.string(),
+  id: z.string(),
+});
+
 export const MatrixAccountConfigSchema = z.object({
   type: z.literal('matrix').default('matrix'),
   homeserver: z.string(),
@@ -295,33 +324,38 @@ export const MatrixAccountConfigSchema = z.object({
   id: z.string(),
 });
 
-export const MatrixChannelStatusSchema = z.object({
-  type: z.literal('matrix').default('matrix'),
+export const BaseChannelStatusSchema = z.object({
+  type: z.literal('github').default('github'),
   available: z.boolean(),
-  username: z.string(),
 });
 
-export const WebUiChannelStatusSchema = z.object({
-  type: z.literal('web_ui').default('web_ui'),
-  available: z.boolean(),
+export const GithubChannelStatusSchema = BaseChannelStatusSchema.extend({
+  type: z.literal('github').default('github'),
+  app_id: z.int(),
+  installation_id: z.int(),
+  login: z.string(),
+});
+
+export const MatrixChannelStatusSchema = BaseChannelStatusSchema.extend({
+  type: z.literal('matrix').default('matrix'),
 });
 
 export const ChannelStatusSchema = z.discriminatedUnion('type', [
+  GithubChannelStatusSchema,
   MatrixChannelStatusSchema,
-  WebUiChannelStatusSchema,
 ]);
 
-export const ChannelConfigSchema = z.union([
+export const ChannelConfigSchema = z.discriminatedUnion('type', [
+  GithubAccountConfigSchema,
   MatrixAccountConfigSchema,
-  z.object({ type: z.literal('web_ui') }).passthrough(),
 ]);
 
 export const ChannelInformationSchema = z.object({
-  type: z.enum(['matrix', 'web_ui']),
+  type: z.enum(['github', 'matrix']),
   id: z.string().nullable(),
   config: ChannelConfigSchema,
   status: ChannelStatusSchema,
-  assigned_to_agent: z.string().uuid().nullable(),
+  assigned_to_agent: z.uuid().nullable(),
 });
 
 export type ChannelInformation = z.infer<typeof ChannelInformationSchema>;

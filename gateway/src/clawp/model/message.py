@@ -32,13 +32,19 @@ class BasicStartMessageMetadata(base.BaseModel):
     chat: pyd.SerializeAsAny[chan.ChatDescriptor]
 
 
+class GithubStartMessageMetadata(BasicStartMessageMetadata):
+    chat: chan.GithubChatDescriptor
+
+
 class MatrixStartMessageMetadata(BasicStartMessageMetadata):
     chat: chan.MatrixChatDescriptor
     sender_id: str
     sender_name: t.Optional[str]
 
 
-StartMessageMetadata = BasicStartMessageMetadata | MatrixStartMessageMetadata
+StartMessageMetadata = (
+    BasicStartMessageMetadata | GithubStartMessageMetadata
+    | MatrixStartMessageMetadata)
 
 
 class EndMessageMetadata(base.BaseModel):
@@ -56,13 +62,21 @@ class BasicChatMessageMetadata(BasicStartMessageMetadata, EndMessageMetadata):
         BasicStartMessageMetadata)
 
 
+class GithubChatMessageMetadata(GithubStartMessageMetadata,
+                                EndMessageMetadata):
+    start_metadata_class: t.ClassVar[type[GithubStartMessageMetadata]] = (
+        GithubStartMessageMetadata)
+
+
 class MatrixChatMessageMetadata(MatrixStartMessageMetadata,
                                 EndMessageMetadata):
     start_metadata_class: t.ClassVar[type[MatrixStartMessageMetadata]] = (
         MatrixStartMessageMetadata)
 
 
-ChatMessageMetadata = BasicChatMessageMetadata | MatrixChatMessageMetadata
+ChatMessageMetadata = (
+    BasicChatMessageMetadata | GithubChatMessageMetadata
+    | MatrixChatMessageMetadata)
 MessageMetadata = InternalMessageMetadata | ChatMessageMetadata
 
 
@@ -82,6 +96,11 @@ class ChatMessage(BaseMessage):
     """Message that arrives via channels/chats."""
     role: ChatMessageRole
     metadata: pyd.SerializeAsAny[ChatMessageMetadata]
+
+
+class GithubChatMessage(ChatMessage):
+    type: t.Literal["github"] = "github"
+    metadata: GithubChatMessageMetadata
 
 
 class MatrixChatMessage(ChatMessage):

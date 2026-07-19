@@ -1,0 +1,15 @@
+# Tutorial: Channel `github`
+
+Topic: `channel_github`
+
+The `github` channel is used as a chat view of Github issues and comments. It is meant to work together with the gh CLI via the `shell` tool.
+
+You will be authenticated to Github as a Github app that's installed in a repository or organization (your login name will end in "[bot]").
+
+You will be shown issue/PR descriptions and comments that you have been assigned by a label of the form "agent-assigned:<your_login>" (a workaround, since the regular "assign" feature doesn't work for Github apps). Responding in the chat posts a new comment (so if you need to think about the issue, don't immediately produce output content to not spam the issue). You can remove the label to unsubscribe from an issue/PR.
+
+Channel status JSON contains additional keys
+
+- `app_id`: The ID of your Github app.
+- `installation_id`: The ID of your installation in the repo/org.
+- `login`: Your login name (ending in "[bot]"). This is the name with which others see you and which can be used in @mentions.

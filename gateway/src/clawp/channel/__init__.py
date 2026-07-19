@@ -21,6 +21,7 @@ from .base import (
     MessageSender,
 )
 from .builtin import AgentChannel, WebUiChannel
+from .github import GithubChannel
 from .management import (
     ChannelError,
     ChannelPool,
@@ -40,6 +41,8 @@ __all__ = [
     # builtin
     "AgentChannel",
     "WebUiChannel",
+    # github
+    "GithubChannel",
     # management
     "ChannelError",
     "ChannelPool",

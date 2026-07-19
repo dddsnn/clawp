@@ -24,7 +24,7 @@ import typing as t
 from .. import message as msg
 from .. import model as mdl
 from .. import util
-from . import base, builtin, matrix
+from . import base, builtin, github, matrix
 
 
 class ChannelError(Exception):
@@ -240,8 +240,33 @@ class ChannelPool:
     Creates channels from the channels config, and makes them available. Each
     channel can only be acquired once at a time.
     """
-    def __init__(self, config: mdl.ChannelsConfig) -> None:
-        self._channels = {"matrix": self._make_matrix_channels(config.matrix)}
+    def __init__(
+            self, config: mdl.ChannelsConfig,
+            gateway_state: mdl.GatewayState) -> None:
+        self._logger = logging.getLogger(type(self).__name__)
+        self._gateway_state = gateway_state
+        self._channels = {
+            "github": self._make_github_channels(config.github),
+            "matrix": self._make_matrix_channels(config.matrix)}
+
+    def _make_github_channels(
+            self, config: mdl.GithubConfig) -> dict[str, github.GithubChannel]:
+        channels = {}
+        for account in config.accounts:
+            try:
+                channel_state = self._gateway_state.github_channels[
+                    account.installation_id]
+            except KeyError:
+                self._logger.info(
+                    f"Github account {account} has no channel state yet, "
+                    "creating a new one.")
+                channel_state = self._gateway_state.github_channels.setdefault(
+                    account.installation_id, mdl.GithubChannelState())
+            channel_status = PoolChannelStatus(
+                channel=github.GithubChannel(
+                    config=account, state=channel_state), config=account)
+            channels[account.id] = channel_status
+        return channels
 
     def _make_matrix_channels(
             self, config: mdl.MatrixConfig) -> dict[str, matrix.MatrixChannel]:

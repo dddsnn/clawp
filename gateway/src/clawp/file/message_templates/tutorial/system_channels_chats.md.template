@@ -4,7 +4,7 @@ Topic: `system_channels_chats`
 
 ## Channels
 
-The system will supply you with different ways of communicating with the user or even other people. E.g., these could be the framework's built-in web UI, a direct messaging service or email. These ways of communicating are called channels. The system will inform you which channels are available to you.
+The system will supply you with different ways of communicating with the user or even other people. E.g., these could be the framework's built-in web UI, a direct messaging service or email. These ways of communicating are called channels. The system will inform you which channels are available to you along with a channel status JSON containing at least the keys `type` (type of the channel) and `available` (boolean).
 
 ## Chats
 

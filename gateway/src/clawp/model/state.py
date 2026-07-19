@@ -33,6 +33,14 @@ class AgentChannelState(base.BaseModel):
     read_offsets: dict[uuid.UUID, int] = pyd.Field(default_factory=dict)
 
 
+class GithubChannelState(base.BaseModel):
+    """Persistent state for the Github channel."""
+    last_read_event_ids: dict[str, int] = pyd.Field(default_factory=dict)
+    """
+    Highest event ID that has already been shown to the recipient.
+    """
+
+
 class AgentState(base.BaseModel):
     """Mutable agent state."""
     claimed_channels: dict[chan.ChannelType, str] = (
@@ -45,3 +53,10 @@ class AgentState(base.BaseModel):
     active_chat: chan.ChatDescriptor
     web_ui_channel: WebUiChannelState
     agent_channel: AgentChannelState
+
+
+class GatewayState(base.BaseModel):
+    """Mutable state of the entire gateway."""
+    github_channels: dict[int, GithubChannelState] = pyd.Field(
+        default_factory=dict)
+    """State of Github accounts."""

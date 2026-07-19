@@ -77,7 +77,7 @@ SecretValue = EnvironmentSecretValue | FileSecretValue
 
 
 class Account(pyd.BaseModel, abc.ABC):
-    type: t.Literal["matrix"]
+    type: t.Literal["github", "matrix"]
 
     @pyd.computed_field
     @property
@@ -105,6 +105,27 @@ class OpenRouterConfig(pyd.BaseModel):
     model: ModelConfig
 
 
+class GithubAccountConfig(Account):
+    type: t.Literal["github"] = "github"
+    app_id: int
+    installation_id: int
+    private_key: SecretValue
+    organization: str
+    poll_interval: we.TimeDelta = we.TimeDelta(minutes=1)
+    """
+    Interval with which the API is polled.
+
+    This can be overridden by Github's X-Poll-Interval header.
+    """
+    @property
+    def id(self) -> str:
+        return f"{self.app_id}:{self.installation_id}"
+
+
+class GithubConfig(pyd.BaseModel):
+    accounts: list[GithubAccountConfig]
+
+
 class MatrixAccountConfig(Account):
     type: t.Literal["matrix"] = "matrix"
     homeserver: str
@@ -124,6 +145,7 @@ class MatrixConfig(pyd.BaseModel):
 
 
 class ChannelsConfig(pyd.BaseModel):
+    github: GithubConfig
     matrix: MatrixConfig
 
 
