@@ -35,7 +35,7 @@ from . import state as st
 _log_fmt = "%(asctime)s|%(module)s|%(name)s|%(levelname)s: %(message)s"
 _loggers_with_only_info_level = [
     "fabric", "httpcore", "invoke", "mcp.server.lowlevel.server", "nio",
-    "paramiko.transport", "peewee"]
+    "paramiko.transport", "peewee", "urllib3.connectionpool"]
 logging.config.dictConfig({
     "version": 1,
     "formatters": {"simple": {"format": _log_fmt}},
