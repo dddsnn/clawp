@@ -34,6 +34,7 @@ class BasicStartMessageMetadata(base.BaseModel):
 
 class GithubStartMessageMetadata(BasicStartMessageMetadata):
     chat: chan.GithubChatDescriptor
+    comment_type: t.Literal["description", "comment"]
 
 
 class MatrixStartMessageMetadata(BasicStartMessageMetadata):

@@ -22,7 +22,6 @@ import typing as t
 
 import github
 import github.Issue as gh_iss
-import github.IssueComment as gh_comm
 import pydantic as pyd
 import whenever as we
 
@@ -164,8 +163,10 @@ class GithubChannel(base.Channel):
     ) -> tuple[mdl.GithubStartMessageMetadata,
                type[mdl.GithubChatMessageMetadata]]:
         assert isinstance(chat, mdl.GithubChatDescriptor)
+        # comment_type is comment, since sending a message only works when the
+        # issue already exists (so it can't be the description).
         return (
-            mdl.GithubStartMessageMetadata(chat=chat),
+            mdl.GithubStartMessageMetadata(chat=chat, comment_type="comment"),
             mdl.GithubChatMessageMetadata)
 
     async def send(self, message: msg.AgentMessage) -> None:
@@ -238,47 +239,43 @@ class GithubChannel(base.Channel):
     def _messages_from_assignment(
             self, repo_full_name: str,
             issue_event: gh_iss.IssueEvent) -> list[mdl.GithubChatMessage]:
-        content = (
+        label_message_content = (
             f"You were assigned issue #{issue_event.issue.number} by "
             f"{issue_event.actor.login} (they added the "
             f"{issue_event.label.name} label).")
         if issue_event.issue.comments > 0:
-            content += (
+            label_message_content += (
                 f"\n\n Showing {issue_event.issue.comments} existing messages "
                 "in the issue.")
-        chat = mdl.GithubChatDescriptor(
-            channel="github",
-            chat_id=mdl.GithubChatDescriptor.create_chat_id(
-                "issue", repo_full_name, issue_event.issue.number),
-            issue_type="issue",
-            repo_full_name=repo_full_name,
-            issue_number=issue_event.issue.number,
-        )
-        messages = [
-            mdl.GithubChatMessage(
-                role="user",
-                metadata=mdl.GithubChatMessageMetadata(
-                    time=we.Instant(issue_event.created_at), chat=chat),
-                content=content)]
+        messages = []
+        messages.append(
+            self._make_message(
+                "issue", repo_full_name, issue_event.issue.number, "comment",
+                issue_event.created_at, label_message_content))
+        description_content = issue_event.issue.body
+        if not description_content:
+            description_content = "No description provided."
+        messages.append(
+            self._make_message(
+                "issue", repo_full_name, issue_event.issue.number,
+                "description", issue_event.created_at, description_content))
         if issue_event.issue.comments:
             for comment in issue_event.issue.get_comments():
                 messages.append(
-                    self._message_from_issue_comment(
-                        repo_full_name, issue_event.issue, comment))
+                    self._make_message(
+                        "issue", repo_full_name, issue_event.issue.number,
+                        "comment", comment.created_at, comment.body))
         return messages
 
-    def _message_from_issue_comment(
-            self, repo_full_name: str, issue: gh_iss.Issue,
-            comment: gh_comm.IssueComment) -> mdl.GithubChatMessage:
+    def _make_message(
+            self, issue_type, repo_full_name, issue_number, comment_type,
+            created_at, content) -> mdl.GithubChatMessage:
         chat = mdl.GithubChatDescriptor(
-            channel="github",
-            chat_id=mdl.GithubChatDescriptor.create_chat_id(
-                "issue", repo_full_name, issue.number),
-            issue_type="issue",
-            repo_full_name=repo_full_name,
-            issue_number=issue.number,
-        )
+            channel="github", chat_id=mdl.GithubChatDescriptor.create_chat_id(
+                issue_type, repo_full_name,
+                issue_number), issue_type=issue_type,
+            repo_full_name=repo_full_name, issue_number=issue_number)
         return mdl.GithubChatMessage(
             role="user", metadata=mdl.GithubChatMessageMetadata(
-                time=we.Instant(comment.created_at), chat=chat),
-            content=comment.body)
+                time=we.Instant(created_at), chat=chat,
+                comment_type=comment_type), content=content)

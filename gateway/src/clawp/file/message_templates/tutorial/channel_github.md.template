@@ -13,3 +13,11 @@ Channel status JSON contains additional keys
 - `app_id`: The ID of your Github app.
 - `installation_id`: The ID of your installation in the repo/org.
 - `login`: Your login name (ending in "[bot]"). This is the name with which others see you and which can be used in @mentions.
+
+Message metadata JSON contains the additional key `comment_type`: either "description" (the message is the initial description of the issue/PR), or "comment" (regular follow-up comment).
+
+The chat descriptor contains the additional keys
+
+- `repo_full_name`: Name like "<owner>/<repo_name>".
+- `issue_type`: Either "issue" or "pr".
+- `issue_number`: Issue number, integer.
