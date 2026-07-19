@@ -1075,10 +1075,17 @@ class AgentRepository:
                 f"can't use personality {personality_name}") from e
         self._logger.info(f"Setting up files for new agent {agent_id}.")
         agent_base_dir = self._base_dir / str(agent_id)
+        if agent_base_dir.exists():
+            raise ValueError(
+                f"agent base directory {agent_base_dir} already exists")
         agent_base_dir.mkdir(parents=True, exist_ok=True)
-        agent_state = mdl.AgentState(
+        agent_information = mdl.AgentInformation(
             id=agent_id,
             personality=personality_with_contents.get_personality(),
+        )
+        self._agent_information_file(agent_base_dir).write_text(
+            agent_information.model_dump_json())
+        agent_state = mdl.AgentState(
             active_chat=mdl.BasicChatDescriptor(channel="web_ui", chat_id=""),
             web_ui_channel=mdl.WebUiChannelState(),
             agent_channel=mdl.AgentChannelState(),
