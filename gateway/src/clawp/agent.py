@@ -777,6 +777,13 @@ class Agent:
             tx: SessionTransaction) -> None:
         chat = unread_chats[0]
         try:
+            if await self._channel_router.num_unread_messages(chat) == 0:
+                # This can happen if a chat gets multiple messages at once:
+                # We'll get the first unread chat from the channel router, then
+                # process all of its unread messages here. But the channel
+                # router still yields the chat again for the other messages,
+                # calling this again, but without unread messages.
+                return
             if chat != self.state.active_chat:
                 await self._append_unread_message_overview_locked(
                     unread_chats, tx)
@@ -790,14 +797,7 @@ class Agent:
                 # to the session.
                 incoming_messages = (
                     await self._channel_router.get_unread_messages(chat))
-                if not incoming_messages:
-                    # This can happen if a chat gets multiple messages at once:
-                    # We'll get the first unread chat from the channel router,
-                    # then process all of its unread messages here. But the
-                    # channel router still yields the chat again for the other
-                    # messages, calling this again, but without unread
-                    # messages.
-                    return
+                assert len(incoming_messages) > 0
                 for incoming_message in incoming_messages:
                     assert incoming_message.chat == chat
                     await tx.append_incoming_message(incoming_message)

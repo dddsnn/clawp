@@ -118,14 +118,20 @@ class WebUiChannel(base.Channel):
 
     async def get_chat_descriptor(
             self, chat_id: str) -> mdl.BasicChatDescriptor:
+        self._assert_valid_chat_id(chat_id)
+        return mdl.BasicChatDescriptor(channel=self.type, chat_id=chat_id)
+
+    def _assert_valid_chat_id(self, chat_id: str) -> None:
         if chat_id != "":
             raise base.ChatIdError("invalid chat_id (use empty string \"\")")
-        return mdl.BasicChatDescriptor(channel=self.type, chat_id=chat_id)
+
+    async def num_unread_messages(self, chat_id: str) -> int:
+        self._assert_valid_chat_id(chat_id)
+        return len(self._messages) - self._read_offset
 
     async def get_unread_messages(self,
                                   chat_id: str) -> list[base.IncomingMessage]:
-        if chat_id != "":
-            raise base.ChatIdError("invalid chat_id (use empty string \"\")")
+        self._assert_valid_chat_id(chat_id)
         unread_messages = self._messages[self._read_offset:]
         self._read_offset = len(self._messages)
         return [self._make_incoming_message(m) for m in unread_messages]
@@ -305,10 +311,15 @@ class AgentChannel(base.Channel):
         except KeyError:
             raise base.ChatIdError(f"no agent with ID {agent_id} exists")
 
+    async def num_unread_messages(self, chat_id: str) -> int:
+        peer_agent = self._get_agent(chat_id)
+        messages = self._messages.setdefault(peer_agent.information.id, [])
+        read_offset = self._get_read_offset(
+            peer_agent.information.id, default=0)
+        return len(messages) - read_offset
+
     async def get_unread_messages(self,
                                   chat_id: str) -> list[base.IncomingMessage]:
-        # Get the other agent to make sure the ID is in order and the agent
-        # exists.
         peer_agent = self._get_agent(chat_id)
         messages = self._messages.setdefault(peer_agent.information.id, [])
         read_offset = self._get_read_offset(

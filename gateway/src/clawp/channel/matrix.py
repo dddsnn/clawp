@@ -98,6 +98,12 @@ class MatrixChannel(base.Channel):
             self, chat_id: str) -> mdl.MatrixChatDescriptor:
         return mdl.MatrixChatDescriptor(chat_id=chat_id, room_name=None)
 
+    async def num_unread_messages(self, chat_id: str) -> int:
+        try:
+            return len(self._unread_message_events[chat_id])
+        except KeyError:
+            raise base.ChatIdError(f"no room {chat_id}")
+
     async def get_unread_messages(self,
                                   chat_id: str) -> list[base.IncomingMessage]:
         try:

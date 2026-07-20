@@ -121,6 +121,18 @@ class Channel(MessageSender):
         return self._publisher.subscribe()
 
     @abc.abstractmethod
+    async def num_unread_messages(self, chat_id: str) -> int:
+        """
+        Get the number of available unread messages.
+
+        The next call to get_unread_messages() will return at least this many
+        messages.
+
+        Raises ChatIdError if the chat isn't valid in any way.
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
     async def get_unread_messages(self, chat_id: str) -> list[IncomingMessage]:
         """
         Get messages that haven't yet been read.

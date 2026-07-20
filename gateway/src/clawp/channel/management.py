@@ -166,6 +166,19 @@ class ChannelRouter(base.MessageSender):
         assert isinstance(web_ui_channel, builtin.WebUiChannel)
         return web_ui_channel
 
+    async def num_unread_messages(self, chat: mdl.ChatDescriptor) -> int:
+        """
+        Get the number of available unread messages.
+
+        The next call to get_unread_messages() will return at least this many
+        messages.
+
+        Raises NoSuchChannelError is the channel doesn't exist. Raises
+        ChatIdError if the chat isn't valid in any way.
+        """
+        channel = self._get_channel(chat.channel)
+        return await channel.num_unread_messages(chat.chat_id)
+
     async def get_unread_messages(
             self, chat: mdl.ChatDescriptor) -> list[base.IncomingMessage]:
         """

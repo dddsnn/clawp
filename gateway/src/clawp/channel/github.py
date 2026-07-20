@@ -153,9 +153,16 @@ class GithubChannel(base.Channel):
         except (ValueError, pyd.ValidationError) as e:
             raise base.ChatIdError("invalid chat ID") from e
 
+    async def num_unread_messages(self, chat_id: str) -> int:
+        chat = await self.get_chat_descriptor(chat_id)
+        try:
+            return len(self._incoming_messages[chat.chat_id])
+        except KeyError:
+            return 0
+
     async def get_unread_messages(self,
                                   chat_id: str) -> list[IncomingGithubMessage]:
-        chat = mdl.GithubChatDescriptor.from_chat_id(chat_id)
+        chat = await self.get_chat_descriptor(chat_id)
         try:
             incoming_messages = self._incoming_messages[chat.chat_id]
         except KeyError:
