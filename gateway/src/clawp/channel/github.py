@@ -24,6 +24,7 @@ import typing as t
 
 import github
 import github.Issue as gh_iss
+import github.Repository as gh_repo
 import pydantic as pyd
 import whenever as we
 
@@ -33,14 +34,16 @@ from . import base
 
 
 class GithubAppClient:
-    """Small wrapper around PyGithub Github App authentication."""
+    """Github client authenticating as a Github app."""
     def __init__(self, config: mdl.GithubAccountConfig) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._config = config
         app_auth = github.Auth.AppAuth(
             app_id=self._config.app_id,
             private_key=self._config.private_key.value)
-        self._integration = github.GithubIntegration(auth=app_auth)
+        # Use lazy=False to not accidentally block the event loop when we
+        # access a property and cause a request to be sent.
+        self._integration = github.GithubIntegration(auth=app_auth, lazy=False)
         self._login = None
 
     async def __aenter__(self) -> t.Self:
@@ -72,25 +75,42 @@ class GithubAppClient:
         assert self._login is not None
         return self._login
 
-    def get_installation_github(self) -> github.Github:
+    def get_github(self) -> github.Github:
+        """Get a Github instance for the app's installation."""
         return self._integration.get_github_for_installation(
             self._config.installation_id)
 
-    def get_installation_token(self) -> str:
-        return self._integration.get_access_token(
-            self._config.installation_id).token
+    async def get_installation_token(self) -> str:
+        """
+        Get an authorization token for the app.
 
-    def list_installation_repositories(self) -> list[str]:
+        This token can be used with the gh CLI (GH_TOKEN).
+        """
+        authorization = await asyncio.to_thread(
+            self._integration.get_access_token, self._config.installation_id)
+        return authorization.token
+
+    async def list_installation_repositories(self) -> list[gh_repo.Repository]:
+        """
+        List the installation's repositories.
+
+        Lists all repositories belonging to the configured organization that
+        the app's installation has access to.
+        """
+        return await asyncio.to_thread(
+            self._list_installation_repositories_sync)
+
+    def _list_installation_repositories_sync(self) -> list[gh_repo.Repository]:
         installation = self._integration.get_app_installation(
             self._config.installation_id)
-        repos = []
+        repos: list[gh_repo.Repository] = []
         for repo in installation.get_repos():
             if not repo.organization.login == self._config.organization:
                 self._logger.debug(
                     f"Ignoring installation repo {repo} which is not owned by "
                     f"{self._config.organization}.")
                 continue
-            repos.append(repo.full_name)
+            repos.append(repo)
         return repos
 
 
@@ -102,6 +122,16 @@ class IncomingGithubMessage(base.IncomingMessage):
 
 
 class GithubChannel(base.Channel):
+    """
+    Github channel.
+
+    This channel presents Github issues and pull requests as chats, in which
+    comments are messages. Agents are presented with issue/PR comments if they
+    are assigned to them with a label named agent-assigned:<agent_login>, where
+    <agent_login> is the agent's login name (ending in [bot]).
+
+    Uses polling of the Github API.
+    """
     def __init__(
             self, config: mdl.GithubAccountConfig,
             state: mdl.GithubChannelState) -> None:
@@ -146,6 +176,11 @@ class GithubChannel(base.Channel):
                 installation_id=self._config.installation_id,
                 login=self._client.login)
 
+    @property
+    def agent_assigned_label(self) -> str:
+        """The issue label meaning this agent is assigned."""
+        return f"agent-assigned:{self._client.login}"
+
     async def get_chat_descriptor(
             self, chat_id: str) -> mdl.GithubChatDescriptor:
         try:
@@ -168,9 +203,8 @@ class GithubChannel(base.Channel):
         except KeyError:
             # No messages at all for this chat_id.
             return []
-
-        self._state.last_read_event_ids[
-            chat.repo_full_name] = incoming_messages[-1].event_id
+        self._state.last_read_event_ids[chat.repo_full_name] = (
+            incoming_messages[-1].event_id)
         # Mark as read by deleting the local copy.
         del self._incoming_messages[chat.chat_id]
         return incoming_messages
@@ -189,15 +223,15 @@ class GithubChannel(base.Channel):
     async def send(self, message: msg.AgentMessage) -> None:
         chat = message.metadata.chat
         assert isinstance(chat, mdl.GithubChatDescriptor)
-        body = await message.content
+        await asyncio.to_thread(
+            self._create_comment, chat, await message.content)
 
-        def _create_comment():
-            gh = self._client.get_installation_github()
-            repo = gh.get_repo(chat.repo_full_name)
-            issue = repo.get_issue(chat.issue_number)
-            return issue.create_comment(body)
-
-        await asyncio.to_thread(_create_comment)
+    def _create_comment(
+            self, chat: mdl.GithubChatDescriptor, comment_body: str):
+        gh = self._client.get_github()
+        repo = gh.get_repo(chat.repo_full_name)
+        issue = repo.get_issue(chat.issue_number)
+        return issue.create_comment(comment_body)
 
     async def _poll_forever(self) -> None:
         while True:
@@ -210,57 +244,57 @@ class GithubChannel(base.Channel):
             await asyncio.sleep(self._config.poll_interval.total("seconds"))
 
     async def _poll_once(self) -> None:
-        repositories = await asyncio.to_thread(
-            self._client.list_installation_repositories)
-        for repo_full_name in repositories:
+        repositories = await self._client.list_installation_repositories()
+        for repo in repositories:
             try:
-                await self._poll_repo(repo_full_name)
+                await self._poll_repo(repo)
             except asyncio.CancelledError:
                 raise
             except Exception:
                 self._logger.exception(
-                    f"Error while polling repository {repo_full_name}.")
+                    f"Error while polling repository {repo.full_name}.")
 
-    async def _poll_repo(self, repo_full_name: str) -> None:
+    async def _poll_repo(self, repo: gh_repo.Repository) -> None:
         new_events = await asyncio.to_thread(
-            self._collect_new_repo_issue_events, repo_full_name)
+            self._collect_new_repo_issue_events, repo)
         if not new_events:
             return
-        for event in reversed(new_events):
-            await self._process_event(repo_full_name, event)
-            self._state.last_read_event_ids[repo_full_name] = event.id
+        for event in new_events:
+            await self._process_event(repo, event)
+            self._state.last_read_event_ids[repo.full_name] = event.id
 
     def _collect_new_repo_issue_events(
-            self, repo_full_name: str) -> list[gh_iss.IssueEvent]:
-        read_event_id = self._state.last_read_event_ids.get(repo_full_name)
-        gh = self._client.get_installation_github()
-        repo = gh.get_repo(repo_full_name)
+            self, repo: gh_repo.Repository) -> list[gh_iss.IssueEvent]:
+        read_event_id = self._state.last_read_event_ids.get(repo.full_name)
         new_issue_events: list[gh_iss.IssueEvent] = []
-        for event in repo.get_issues_events():
-            if event.id == read_event_id:
+        for issue_event in repo.get_issues_events():
+            # The issue events are sorted newest-first, so collect them until
+            # we come across the first event we've already seen.
+            if issue_event.id == read_event_id:
                 break
-            new_issue_events.append(event)
-            return new_issue_events
+            new_issue_events.append(issue_event)
+        # Reverse so we're returning oldest events first.
+        return reversed(new_issue_events)
 
     async def _process_event(
-            self, repo_full_name: str, issue_event: gh_iss.IssueEvent) -> None:
-        actor_login = getattr(issue_event.actor, "login", "")
-        if actor_login == self._client.login:
+            self, repo: gh_repo.Repository,
+            issue_event: gh_iss.IssueEvent) -> None:
+        if issue_event.actor.login == self._client.login:
             # Avoid loops by ignoring our own events.
             return
         messages: list[IncomingGithubMessage] = []
         if issue_event.event == "labeled":
-            if issue_event.label.name != f"agent-assigned:{self._client.login}":
+            if issue_event.label.name != self.agent_assigned_label:
                 return
-            messages += self._incoming_messages_from_assignment(
-                repo_full_name, issue_event)
+            messages += await asyncio.to_thread(
+                self._incoming_messages_from_assignment, repo, issue_event)
         for message in messages:
             self._incoming_messages.setdefault(message.chat.chat_id,
                                                []).append(message)
             await self._publisher.append(message)
 
     def _incoming_messages_from_assignment(
-            self, repo_full_name: str,
+            self, repo: gh_repo.Repository,
             issue_event: gh_iss.IssueEvent) -> list[IncomingGithubMessage]:
         label_message_content = (
             f"You were assigned issue #{issue_event.issue.number} by "
@@ -273,26 +307,26 @@ class GithubChannel(base.Channel):
         messages: list[IncomingGithubMessage] = []
         messages.append(
             self._make_system_message(
-                issue_event, repo_full_name, label_message_content))
+                issue_event, repo, label_message_content))
         description_content = issue_event.issue.body
         if not description_content:
             description_content = "No description provided."
         messages.append(
             self._make_user_message(
-                issue_event, repo_full_name, "description",
-                issue_event.created_at, description_content))
+                issue_event, repo, "description", issue_event.created_at,
+                description_content))
         if issue_event.issue.comments:
             for comment in issue_event.issue.get_comments():
                 messages.append(
                     self._make_user_message(
-                        issue_event, repo_full_name, "comment",
-                        comment.created_at, comment.body))
+                        issue_event, repo, "comment", comment.created_at,
+                        comment.body))
         return messages
 
     def _make_system_message(
-            self, issue_event: gh_iss.IssueEvent, repo_full_name: str,
+            self, issue_event: gh_iss.IssueEvent, repo: gh_repo.Repository,
             content: str) -> IncomingGithubMessage:
-        chat = self._make_chat_descriptor(issue_event, repo_full_name)
+        chat = self._make_chat_descriptor(issue_event, repo)
         system_message = mdl.SystemMessage(
             metadata=mdl.InternalMessageMetadata(
                 time=we.Instant(issue_event.created_at)), content=content)
@@ -301,18 +335,18 @@ class GithubChannel(base.Channel):
 
     def _make_chat_descriptor(
             self, issue_event: gh_iss.IssueEvent,
-            repo_full_name: str) -> mdl.GithubChatDescriptor:
+            repo: gh_repo.Repository) -> mdl.GithubChatDescriptor:
         return mdl.GithubChatDescriptor(
             channel="github", chat_id=mdl.GithubChatDescriptor.create_chat_id(
-                "issue", repo_full_name, issue_event.issue.number),
-            issue_type="issue", repo_full_name=repo_full_name,
+                "issue", repo.full_name, issue_event.issue.number),
+            issue_type="issue", repo_full_name=repo.full_name,
             issue_number=issue_event.issue.number)
 
     def _make_user_message(
-            self, issue_event: gh_iss.IssueEvent, repo_full_name: str,
+            self, issue_event: gh_iss.IssueEvent, repo: gh_repo.Repository,
             comment_type: t.Literal["description", "comment"],
             created_at: dt.datetime, content: str) -> IncomingGithubMessage:
-        chat = self._make_chat_descriptor(issue_event, repo_full_name)
+        chat = self._make_chat_descriptor(issue_event, repo)
         user_message = mdl.GithubChatMessage(
             role="user", metadata=mdl.GithubChatMessageMetadata(
                 time=we.Instant(created_at), chat=chat,
