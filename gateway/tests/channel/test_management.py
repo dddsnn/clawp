@@ -66,59 +66,63 @@ class TestChannelPool:
                     device_id=f"device_id_{username}"))
         return mdl.ChannelsConfig(
             matrix=mdl.MatrixConfig(
-                store_dir=pathlib.Path("store/dir"), accounts=matrix_accounts))
+                store_dir=pathlib.Path("store/dir"), accounts=matrix_accounts),
+            github=mdl.GithubConfig(accounts=[]))
+
+    def _make_pool(self, config):
+        return chan.ChannelPool(config, mdl.GatewayState())
 
     async def test_acquire_raises_with_no_channels(self):
-        pool = chan.ChannelPool(self.make_channels_config([]))
+        pool = self._make_pool(self.make_channels_config([]))
         with pytest.raises(chan.NoSuchChannelError):
             pool.acquire("matrix", "id1")
 
     async def test_acquire_raises_with_no_matching_channel_id(self):
-        pool = chan.ChannelPool(self.make_channels_config(["id1", "id3"]))
+        pool = self._make_pool(self.make_channels_config(["id1", "id3"]))
         with pytest.raises(chan.NoSuchChannelError):
             pool.acquire("matrix", "id2")
 
     async def test_acquire_raises_with_no_matching_channel_type(self):
-        pool = chan.ChannelPool(self.make_channels_config(["id1", "id3"]))
+        pool = self._make_pool(self.make_channels_config(["id1", "id3"]))
         with pytest.raises(chan.NoSuchChannelError):
             pool.acquire("not_matrix", "id1")
 
     async def test_acquire_returns_available_channel(self):
         config = self.make_channels_config(["id1"])
-        pool = chan.ChannelPool(config)
+        pool = self._make_pool(config)
         assert_that(
             pool.acquire("matrix", "id1"),
             matrix_channel_matching_config(config.matrix, "id1"))
 
     async def test_acquire_raises_if_channel_has_been_acquired(self):
         config = self.make_channels_config(["id1"])
-        pool = chan.ChannelPool(config)
+        pool = self._make_pool(config)
         pool.acquire("matrix", "id1")
         with pytest.raises(chan.ChannelStateError):
             pool.acquire("matrix", "id1")
 
     async def test_acquire_release_acquire(self):
         config = self.make_channels_config(["id1"])
-        pool = chan.ChannelPool(config)
+        pool = self._make_pool(config)
         channel_status = pool.acquire("matrix", "id1")
         pool.release(channel_status.channel)
         assert pool.acquire("matrix", "id1")
 
     async def test_release_raises_with_no_matching_channel_id(self):
         config = self.make_channels_config(["id1"])
-        pool = chan.ChannelPool(config)
+        pool = self._make_pool(config)
         with pytest.raises(chan.NoSuchChannelError):
             pool.release(MockChannel("matrix", "id2"))
 
     async def test_release_raises_with_no_matching_channel_type(self):
         config = self.make_channels_config(["id1"])
-        pool = chan.ChannelPool(config)
+        pool = self._make_pool(config)
         with pytest.raises(chan.NoSuchChannelError):
             pool.release(MockChannel("not_matrix", "id2"))
 
     async def test_release_raises_if_channel_had_not_been_acquired(self):
         config = self.make_channels_config(["id1"])
-        pool = chan.ChannelPool(config)
+        pool = self._make_pool(config)
         channel_status = pool.acquire("matrix", "id1")
         pool.release(channel_status.channel)
         with pytest.raises(chan.ChannelStateError):
@@ -126,7 +130,7 @@ class TestChannelPool:
 
     async def test_iter(self):
         channels_config = self.make_channels_config(["id1", "id2"])
-        pool = chan.ChannelPool(channels_config)
+        pool = self._make_pool(channels_config)
         matrix_accounts = channels_config.matrix.accounts
         expected_stati = [
             has_properties(
@@ -136,7 +140,7 @@ class TestChannelPool:
 
     async def test_iter_shows_channels_acquired(self):
         channels_config = self.make_channels_config(["id1", "id2"])
-        pool = chan.ChannelPool(channels_config)
+        pool = self._make_pool(channels_config)
         matrix_accounts = channels_config.matrix.accounts
         pool.acquire("matrix", "id1")
         expected_stati = [
