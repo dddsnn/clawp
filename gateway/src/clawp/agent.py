@@ -734,6 +734,9 @@ class Agent:
                 if not other_exceptions:
                     # The generator is just closed, we must be shutting down.
                     return
+                self._logger.exception(
+                    "Error processing unread chats (current unread_chats "
+                    f"{unread_chats}).")
             finally:
                 if acquire_lock_task is not None:
                     try:
