@@ -17,6 +17,8 @@
 
 import asyncio
 import contextlib
+import dataclasses as dc
+import datetime as dt
 import logging
 import typing as t
 
@@ -92,6 +94,13 @@ class GithubAppClient:
         return repos
 
 
+@dc.dataclass
+class IncomingGithubMessage(base.IncomingMessage):
+    chat: mdl.GithubChatDescriptor
+    message: mdl.GithubChatMessage | mdl.SystemMessage
+    event_id: int
+
+
 class GithubChannel(base.Channel):
     def __init__(
             self, config: mdl.GithubAccountConfig,
@@ -100,7 +109,7 @@ class GithubChannel(base.Channel):
         self._config = config
         self._state = state
         self._client = GithubAppClient(self._config)
-        self._messages: dict[str, list[tuple[int, mdl.GithubChatMessage]]] = {}
+        self._incoming_messages: dict[str, list[IncomingGithubMessage]] = {}
         self._poll_task: asyncio.Task | None = None
 
     async def __aenter__(self) -> t.Self:
@@ -145,18 +154,19 @@ class GithubChannel(base.Channel):
             raise base.ChatIdError("invalid chat ID") from e
 
     async def get_unread_messages(self,
-                                  chat_id: str) -> list[mdl.GithubChatMessage]:
+                                  chat_id: str) -> list[IncomingGithubMessage]:
         chat = mdl.GithubChatDescriptor.from_chat_id(chat_id)
         try:
-            messages = self._messages[chat.chat_id]
+            incoming_messages = self._incoming_messages[chat.chat_id]
         except KeyError:
             # No messages at all for this chat_id.
             return []
 
-        self._state.last_read_event_ids[chat.repo_full_name] = messages[-1][0]
+        self._state.last_read_event_ids[
+            chat.repo_full_name] = incoming_messages[-1].event_id
         # Mark as read by deleting the local copy.
-        del self._messages[chat.chat_id]
-        return [m for _, m in messages]
+        del self._incoming_messages[chat.chat_id]
+        return incoming_messages
 
     def make_outgoing_start_metadata(
         self, chat: mdl.GithubChatDescriptor
@@ -225,57 +235,74 @@ class GithubChannel(base.Channel):
         if actor_login == self._client.login:
             # Avoid loops by ignoring our own events.
             return
-        messages = []
+        messages: list[IncomingGithubMessage] = []
         if issue_event.event == "labeled":
-            if issue_event.label.name != f"agent-assigned:{ self._client.login}":
+            if issue_event.label.name != f"agent-assigned:{self._client.login}":
                 return
-            messages += self._messages_from_assignment(
+            messages += self._incoming_messages_from_assignment(
                 repo_full_name, issue_event)
         for message in messages:
-            self._messages.setdefault(message.metadata.chat.chat_id,
-                                      []).append((issue_event.id, message))
+            self._incoming_messages.setdefault(message.chat.chat_id,
+                                               []).append(message)
             await self._publisher.append(message)
 
-    def _messages_from_assignment(
+    def _incoming_messages_from_assignment(
             self, repo_full_name: str,
-            issue_event: gh_iss.IssueEvent) -> list[mdl.GithubChatMessage]:
+            issue_event: gh_iss.IssueEvent) -> list[IncomingGithubMessage]:
         label_message_content = (
             f"You were assigned issue #{issue_event.issue.number} by "
             f"{issue_event.actor.login} (they added the "
             f"{issue_event.label.name} label).")
         if issue_event.issue.comments > 0:
             label_message_content += (
-                f"\n\n Showing {issue_event.issue.comments} existing messages "
-                "in the issue.")
-        messages = []
+                f"\n\n Showing {issue_event.issue.comments} existing "
+                "message(s) in the issue.")
+        messages: list[IncomingGithubMessage] = []
         messages.append(
-            self._make_message(
-                "issue", repo_full_name, issue_event.issue.number, "comment",
-                issue_event.created_at, label_message_content))
+            self._make_system_message(
+                issue_event, repo_full_name, label_message_content))
         description_content = issue_event.issue.body
         if not description_content:
             description_content = "No description provided."
         messages.append(
-            self._make_message(
-                "issue", repo_full_name, issue_event.issue.number,
-                "description", issue_event.created_at, description_content))
+            self._make_user_message(
+                issue_event, repo_full_name, "description",
+                issue_event.created_at, description_content))
         if issue_event.issue.comments:
             for comment in issue_event.issue.get_comments():
                 messages.append(
-                    self._make_message(
-                        "issue", repo_full_name, issue_event.issue.number,
-                        "comment", comment.created_at, comment.body))
+                    self._make_user_message(
+                        issue_event, repo_full_name, "comment",
+                        comment.created_at, comment.body))
         return messages
 
-    def _make_message(
-            self, issue_type, repo_full_name, issue_number, comment_type,
-            created_at, content) -> mdl.GithubChatMessage:
-        chat = mdl.GithubChatDescriptor(
+    def _make_system_message(
+            self, issue_event: gh_iss.IssueEvent, repo_full_name: str,
+            content: str) -> IncomingGithubMessage:
+        chat = self._make_chat_descriptor(issue_event, repo_full_name)
+        system_message = mdl.SystemMessage(
+            metadata=mdl.InternalMessageMetadata(
+                time=we.Instant(issue_event.created_at)), content=content)
+        return IncomingGithubMessage(
+            chat=chat, message=system_message, event_id=issue_event.id)
+
+    def _make_chat_descriptor(
+            self, issue_event: gh_iss.IssueEvent,
+            repo_full_name: str) -> mdl.GithubChatDescriptor:
+        return mdl.GithubChatDescriptor(
             channel="github", chat_id=mdl.GithubChatDescriptor.create_chat_id(
-                issue_type, repo_full_name,
-                issue_number), issue_type=issue_type,
-            repo_full_name=repo_full_name, issue_number=issue_number)
-        return mdl.GithubChatMessage(
+                "issue", repo_full_name, issue_event.issue.number),
+            issue_type="issue", repo_full_name=repo_full_name,
+            issue_number=issue_event.issue.number)
+
+    def _make_user_message(
+            self, issue_event: gh_iss.IssueEvent, repo_full_name: str,
+            comment_type: t.Literal["description", "comment"],
+            created_at: dt.datetime, content: str) -> IncomingGithubMessage:
+        chat = self._make_chat_descriptor(issue_event, repo_full_name)
+        user_message = mdl.GithubChatMessage(
             role="user", metadata=mdl.GithubChatMessageMetadata(
                 time=we.Instant(created_at), chat=chat,
                 comment_type=comment_type), content=content)
+        return IncomingGithubMessage(
+            chat=chat, message=user_message, event_id=issue_event.id)

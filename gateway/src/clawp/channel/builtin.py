@@ -53,7 +53,7 @@ class WebUiChannel(base.Channel):
         """
         super().__init__("web_ui")
         self._state = state
-        self._messages: list[mdl.ChatMessage] = []
+        self._messages: list[mdl.UserMessage | mdl.AgentMessage] = []
         self._messages_io = store.JsonlIO(
             messages_dir / self._MESSAGES_FILE_NAME, mdl.MessageTypeAdapter)
 
@@ -84,12 +84,12 @@ class WebUiChannel(base.Channel):
             models = [model async for model in self._messages_io.read_all()]
         except FileNotFoundError:
             models = []
-        messages: list[mdl.ChatMessage] = []
+        messages: list[mdl.UserMessage | mdl.AgentMessage] = []
         for model in models:
-            if not isinstance(model, mdl.ChatMessage):
+            if not isinstance(model, (mdl.UserMessage, mdl.AgentMessage)):
                 raise base.ChannelError(
-                    "web_ui channel file contains "
-                    f"non-chat message {type(model)}")
+                    f"web_ui channel file contains message type {type(model)} "
+                    "(only user and agent messages allowed)")
             if (model.metadata.chat.channel != "web_ui"
                     or model.metadata.chat.chat_id != ""):
                 raise base.ChannelError(
@@ -97,7 +97,8 @@ class WebUiChannel(base.Channel):
             messages.append(model)
         self._messages = messages
 
-    async def _append_message(self, message: mdl.ChatMessage) -> None:
+    async def _append_message(
+            self, message: mdl.UserMessage | mdl.AgentMessage) -> None:
         self._messages.append(message)
         try:
             await self._messages_io.append(message)
@@ -121,12 +122,19 @@ class WebUiChannel(base.Channel):
             raise base.ChatIdError("invalid chat_id (use empty string \"\")")
         return mdl.BasicChatDescriptor(channel=self.type, chat_id=chat_id)
 
-    async def get_unread_messages(self, chat_id: str) -> list[mdl.ChatMessage]:
+    async def get_unread_messages(self,
+                                  chat_id: str) -> list[base.IncomingMessage]:
         if chat_id != "":
             raise base.ChatIdError("invalid chat_id (use empty string \"\")")
         unread_messages = self._messages[self._read_offset:]
         self._read_offset = len(self._messages)
-        return unread_messages
+        return [self._make_incoming_message(m) for m in unread_messages]
+
+    def _make_incoming_message(
+            self, message: mdl.UserMessage | mdl.AgentMessage
+    ) -> base.IncomingMessage:
+        return base.IncomingMessage(
+            chat=message.metadata.chat, message=message)
 
     def make_outgoing_start_metadata(
         self, chat: mdl.ChatDescriptor
@@ -153,13 +161,11 @@ class WebUiChannel(base.Channel):
         The message will appear has having arrived on the channel and will be
         delivered to the agent.
         """
-        metadata = mdl.BasicChatMessageMetadata(
-            time=time,
-            chat=mdl.BasicChatDescriptor(channel=self.type, chat_id=""))
-        message = mdl.ChatMessage(
-            role="user", metadata=metadata, content=content)
+        chat = mdl.BasicChatDescriptor(channel=self.type, chat_id="")
+        metadata = mdl.BasicChatMessageMetadata(time=time, chat=chat)
+        message = mdl.UserMessage(metadata=metadata, content=content)
         await self._append_message(message)
-        await self._publisher.append(message)
+        await self._publisher.append(self._make_incoming_message(message))
 
 
 class AgentChannel(base.Channel):
@@ -190,7 +196,8 @@ class AgentChannel(base.Channel):
         self._agent_repo = agent_repo
         self._messages_dir = messages_dir
         self._state = state
-        self._messages: dict[uuid.UUID, list[mdl.ChatMessage]] = {}
+        self._messages: dict[uuid.UUID,
+                             list[mdl.UserMessage | mdl.AgentMessage]] = {}
         self._chat_ios: dict[uuid.UUID, store.JsonlIO] = {}
 
     async def __aenter__(self) -> t.Self:
@@ -230,12 +237,13 @@ class AgentChannel(base.Channel):
                 continue
             io = self._io_for_chat(peer_agent_id)
             models = [model async for model in io.read_all()]
-            chat_messages: list[mdl.ChatMessage] = []
+            chat_messages: list[mdl.UserMessage | mdl.AgentMessage] = []
             for model in models:
-                if not isinstance(model, mdl.ChatMessage):
+                if not isinstance(model, (mdl.UserMessage, mdl.AgentMessage)):
                     raise base.ChannelError(
-                        "agent channel file contains "
-                        f"non-chat message {type(model)}")
+                        "agent channel file contains message of type "
+                        f"{type(model)} (only user and agent messages allowed)"
+                    )
                 if (model.metadata.chat.channel != "agent"
                         or model.metadata.chat.chat_id != str(peer_agent_id)):
                     raise base.ChannelError(
@@ -258,7 +266,8 @@ class AgentChannel(base.Channel):
         self._state.read_offsets[peer_agent_id] = read_offset
 
     async def _append_message(
-            self, peer_agent_id: uuid.UUID, message: mdl.ChatMessage) -> None:
+            self, peer_agent_id: uuid.UUID,
+            message: mdl.UserMessage | mdl.AgentMessage) -> None:
         self._messages.setdefault(peer_agent_id, []).append(message)
         io = self._io_for_chat(peer_agent_id)
         try:
@@ -296,7 +305,8 @@ class AgentChannel(base.Channel):
         except KeyError:
             raise base.ChatIdError(f"no agent with ID {agent_id} exists")
 
-    async def get_unread_messages(self, chat_id: str) -> list[mdl.ChatMessage]:
+    async def get_unread_messages(self,
+                                  chat_id: str) -> list[base.IncomingMessage]:
         # Get the other agent to make sure the ID is in order and the agent
         # exists.
         peer_agent = self._get_agent(chat_id)
@@ -305,7 +315,13 @@ class AgentChannel(base.Channel):
             peer_agent.information.id, default=0)
         unread_messages = messages[read_offset:]
         self._set_read_offset(peer_agent.information.id, len(messages))
-        return unread_messages
+        return [self._make_incoming_message(m) for m in unread_messages]
+
+    def _make_incoming_message(
+            self, message: mdl.UserMessage | mdl.AgentMessage
+    ) -> base.IncomingMessage:
+        return base.IncomingMessage(
+            chat=message.metadata.chat, message=message)
 
     def make_outgoing_start_metadata(
         self, chat: mdl.ChatDescriptor
@@ -346,11 +362,11 @@ class AgentChannel(base.Channel):
         message. That message will appear has having arrived on the channel and
         will be delivered to the agent.
         """
+        chat = mdl.BasicChatDescriptor(
+            channel=self.type, chat_id=str(sender_id))
         metadata = mdl.BasicChatMessageMetadata(
-            time=await message.metadata.time.value,
-            chat=mdl.BasicChatDescriptor(
-                channel=self.type, chat_id=str(sender_id)))
-        message = mdl.ChatMessage(
-            role="user", metadata=metadata, content=await message.content)
+            time=await message.metadata.time.value, chat=chat)
+        message = mdl.UserMessage(
+            metadata=metadata, content=await message.content)
         await self._append_message(sender_id, message)
-        await self._publisher.append(message)
+        await self._publisher.append(self._make_incoming_message(message))

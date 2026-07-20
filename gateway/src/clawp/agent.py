@@ -114,10 +114,11 @@ class SessionTransaction:
             raise RuntimeError("transaction is not active")
         return self._session.num_messages
 
-    async def append_chat_message(self, chat_message: mdl.UserMessage) -> None:
+    async def append_incoming_message(
+            self, incoming_message: chan.IncomingMessage) -> None:
         if not self._is_active:
             raise RuntimeError("transaction is not active")
-        await self._session._append_chat_message(chat_message)
+        await self._session._append_incoming_message(incoming_message)
 
     async def request_responses(self) -> None:
         if not self._is_active:
@@ -223,14 +224,14 @@ class Session:
         """The number of messages in this session."""
         return len(self._messages or [])
 
-    async def _append_chat_message(
-            self, chat_message: mdl.UserMessage) -> None:
+    async def _append_incoming_message(
+            self, incoming_message: chan.IncomingMessage) -> None:
         """
-        Append a chat message to this session.
+        Append an incoming message to this session.
 
-        The chat message must be a user message. A system message with metadata
-        will be generated and appended to the session, followed by the message
-        itself.
+        The message must be a user message or a system message. For user
+        messages, a system message with metadata will be generated and added to
+        the session first. System messages are appended as-is.
 
         If the message is on the agent channel, a small reminder is added below
         the metadata to not get into an endless loop with the other agent.
@@ -238,11 +239,18 @@ class Session:
         This method only adds messages, it doesn't request a response from the
         agent.
         """
-        assert chat_message.role == "user"
-        await self._add_metadata_for_user_message(chat_message)
-        message = msg.UserMessage(
-            msg.ChatMessageMetadata.from_model(chat_message.metadata),
-            content=chat_message.content)
+        message = incoming_message.message
+        if message.role == "user":
+            assert isinstance(message, mdl.ChatMessage)
+            await self._add_metadata_for_user_message(message)
+            message = msg.UserMessage(
+                msg.ChatMessageMetadata.from_model(message.metadata),
+                content=message.content)
+        else:
+            assert isinstance(message, mdl.SystemMessage)
+            message = msg.SystemMessage(
+                msg.InternalMessageMetadata(time=message.metadata.time),
+                content=message.content)
         await self._append_message(message)
 
     async def _add_metadata_for_user_message(
@@ -780,9 +788,9 @@ class Agent:
             else:
                 # If we don't switch, we just have to append the messages
                 # to the session.
-                messages = (
+                incoming_messages = (
                     await self._channel_router.get_unread_messages(chat))
-                if not messages:
+                if not incoming_messages:
                     # This can happen if a chat gets multiple messages at once:
                     # We'll get the first unread chat from the channel router,
                     # then process all of its unread messages here. But the
@@ -790,9 +798,9 @@ class Agent:
                     # messages, calling this again, but without unread
                     # messages.
                     return
-                for message in messages:
-                    assert message.metadata.chat == chat
-                    await tx.append_chat_message(message)
+                for incoming_message in incoming_messages:
+                    assert incoming_message.chat == chat
+                    await tx.append_incoming_message(incoming_message)
             await tx.request_responses()
         except Exception:
             self._logger.exception("Error handling unread chat messages.")

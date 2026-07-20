@@ -39,7 +39,7 @@ class MatrixChannel(base.Channel):
     class RoomMessageEvent:
         room: nio.MatrixRoom
         event: nio.RoomMessageText
-        message: mdl.MatrixChatMessage
+        incoming_message: base.IncomingMessage
 
     def __init__(
             self, store_dir: pathlib.Path,
@@ -99,7 +99,7 @@ class MatrixChannel(base.Channel):
         return mdl.MatrixChatDescriptor(chat_id=chat_id, room_name=None)
 
     async def get_unread_messages(self,
-                                  chat_id: str) -> list[mdl.MatrixChatMessage]:
+                                  chat_id: str) -> list[base.IncomingMessage]:
         try:
             room_message_events = self._unread_message_events[chat_id]
         except KeyError:
@@ -113,7 +113,7 @@ class MatrixChannel(base.Channel):
         if isinstance(resp, nio.RoomReadMarkersError):
             raise base.ChannelError(f"error in updating read marker: {resp}")
         self._unread_message_events[chat_id] = []
-        return [rme.message for rme in room_message_events]
+        return [rme.incoming_message for rme in room_message_events]
 
     def make_outgoing_start_metadata(
         self, chat: mdl.MatrixChatDescriptor
@@ -141,7 +141,7 @@ class MatrixChannel(base.Channel):
         room_message_event = self._make_room_message_event(room, event)
         self._unread_message_events.setdefault(room.room_id,
                                                []).append(room_message_event)
-        await self._publisher.append(room_message_event.message)
+        await self._publisher.append(room_message_event.incoming_message)
 
     def _make_room_message_event(
             self, room: nio.MatrixRoom,
@@ -155,4 +155,7 @@ class MatrixChannel(base.Channel):
         )
         message = mdl.MatrixChatMessage(
             role="user", metadata=metadata, content=event.body)
-        return self.RoomMessageEvent(room=room, event=event, message=message)
+        incoming_message = base.IncomingMessage(
+            chat=message.metadata.chat, message=message)
+        return self.RoomMessageEvent(
+            room=room, event=event, incoming_message=incoming_message)
