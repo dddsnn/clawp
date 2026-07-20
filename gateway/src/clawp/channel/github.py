@@ -206,14 +206,20 @@ class GithubChannel(base.Channel):
             except asyncio.CancelledError:
                 raise
             except Exception:
-                self._logger.exception("Error while polling Github events.")
+                self._logger.exception("Error while polling Github.")
             await asyncio.sleep(self._config.poll_interval.total("seconds"))
 
     async def _poll_once(self) -> None:
         repositories = await asyncio.to_thread(
             self._client.list_installation_repositories)
         for repo_full_name in repositories:
-            await self._poll_repo(repo_full_name)
+            try:
+                await self._poll_repo(repo_full_name)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                self._logger.exception(
+                    f"Error while polling repository {repo_full_name}.")
 
     async def _poll_repo(self, repo_full_name: str) -> None:
         new_events = await asyncio.to_thread(
