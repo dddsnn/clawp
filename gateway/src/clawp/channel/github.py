@@ -20,6 +20,7 @@ import contextlib
 import dataclasses as dc
 import datetime as dt
 import logging
+import operator as op
 import typing as t
 
 import github
@@ -255,15 +256,12 @@ class GithubChannel(base.Channel):
                     f"Error while polling repository {repo.full_name}.")
 
     async def _poll_repo(self, repo: gh_repo.Repository) -> None:
-        new_events = await asyncio.to_thread(
-            self._collect_new_repo_issue_events, repo)
+        new_events = await asyncio.to_thread(self._get_new_issue_events, repo)
         if not new_events:
             return
-        for event in new_events:
-            await self._process_event(repo, event)
-            self._state.last_read_event_ids[repo.full_name] = event.id
+        await self._process_events(repo, new_events)
 
-    def _collect_new_repo_issue_events(
+    def _get_new_issue_events(
             self, repo: gh_repo.Repository) -> list[gh_iss.IssueEvent]:
         read_event_id = self._state.last_read_event_ids.get(repo.full_name)
         new_issue_events: list[gh_iss.IssueEvent] = []
@@ -273,29 +271,96 @@ class GithubChannel(base.Channel):
             if issue_event.id == read_event_id:
                 break
             new_issue_events.append(issue_event)
-        # Reverse so we're returning oldest events first.
-        return reversed(new_issue_events)
+        # Sort by creation timestamp so we're returning oldest events first.
+        new_issue_events.sort(key=op.attrgetter("created_at"))
+        return new_issue_events
 
-    async def _process_event(
+    async def _process_events(
             self, repo: gh_repo.Repository,
-            issue_event: gh_iss.IssueEvent) -> None:
-        if issue_event.actor.login == self._client.login:
-            # Avoid loops by ignoring our own events.
-            return
-        messages: list[IncomingGithubMessage] = []
-        if issue_event.event == "labeled":
-            if issue_event.label.name != self.agent_assigned_label:
-                return
-            messages += await asyncio.to_thread(
-                self._incoming_messages_from_assignment, repo, issue_event)
-        for message in messages:
-            self._incoming_messages.setdefault(message.chat.chat_id,
-                                               []).append(message)
-            await self._publisher.append(message)
+            issue_events: list[gh_iss.IssueEvent]) -> None:
+        issue_stati = await asyncio.to_thread(
+            self._issue_state_changes, issue_events)
+        self._logger.info(f"got issue stati {issue_stati}")
+        for issue_event in issue_events:
+            messages: list[IncomingGithubMessage] = []
+            try:
+                assigned, event_id = issue_stati[issue_event.issue.number]
+                if issue_event.id == event_id:
+                    # This is the event of assignment state change.
+                    messages += await asyncio.to_thread(
+                        self._incoming_messages_for_assignment_change, repo,
+                        issue_event, assigned)
+                elif assigned:
+                    messages += await asyncio.to_thread(
+                        self._incoming_messages_for_event, repo, issue_event)
+            finally:
+                self._state.last_read_event_ids[repo.full_name] = (
+                    issue_event.id)
+            for message in messages:
+                self._incoming_messages.setdefault(message.chat.chat_id,
+                                                   []).append(message)
+                await self._publisher.append(message)
 
-    def _incoming_messages_from_assignment(
-            self, repo: gh_repo.Repository,
-            issue_event: gh_iss.IssueEvent) -> list[IncomingGithubMessage]:
+    def _issue_state_changes(
+        self, issue_events: list[gh_iss.IssueEvent]
+    ) -> dict[int, tuple[bool, bool, int
+                         | None]]:
+        """
+        Determine assignment/unassignment state and change.
+
+        Goes through the list of issue events and determines based on the label
+        whether the issue is currently assigned, and if the state changed in
+        the events. If an issues state changes multiple times such that its end
+        state ends up as the start state, it is listed as not changed.
+
+        Returns a dict mapping each issue number to a tuple (assigned,
+        event_id), where event_id is the ID of the last event in which the
+        state changed. If it is None, this means the state hasn't changed.
+        """
+        stati = {}
+        for issue_event in issue_events:
+            try:
+                assigned, event_id = stati[issue_event.issue.number]
+            except KeyError:
+                assigned = any(
+                    label.name == self.agent_assigned_label
+                    for label in issue_event.issue.labels)
+                event_id = None
+            label_added = (
+                issue_event.event == "labeled"
+                and issue_event.label.name == self.agent_assigned_label)
+            label_removed = (
+                issue_event.event == "unlabeled"
+                and issue_event.label.name == self.agent_assigned_label)
+            assert not (label_added and label_removed)
+            if (assigned and label_added) or (not assigned and label_removed):
+                event_id = issue_event.id
+            elif assigned and label_removed:
+                self._logger.debug(
+                    f"Issue {issue_event.issue.number} is currently assigned, "
+                    "but found label removed. Must have been added/removed "
+                    "multiple times.")
+                event_id = None
+            elif not assigned and label_added:
+                self._logger.debug(
+                    f"Issue {issue_event.issue.number} is currently not "
+                    "assigned, but found label added. Must have been "
+                    "added/removed multiple times.")
+                event_id = None
+            stati[issue_event.issue.number] = (assigned, event_id)
+        return stati
+
+    def _incoming_messages_for_assignment_change(
+            self, repo: gh_repo.Repository, issue_event: gh_iss.IssueEvent,
+            assigned: bool) -> list[IncomingGithubMessage]:
+        if not assigned:
+            content = (
+                f"You were unassigned from issue #{issue_event.issue.number} "
+                f"by {issue_event.actor.login} (they removed the "
+                f"{issue_event.label.name} label). You will receive no "
+                "further messages from this issue. There is no need to "
+                "acknowledge this.")
+            return [self._make_system_message(issue_event, repo, content)]
         label_message_content = (
             f"You were assigned issue #{issue_event.issue.number} by "
             f"{issue_event.actor.login} (they added the "
@@ -353,3 +418,9 @@ class GithubChannel(base.Channel):
                 comment_type=comment_type), content=content)
         return IncomingGithubMessage(
             chat=chat, message=user_message, event_id=issue_event.id)
+
+    def _incoming_messages_for_event(
+            self, repo: gh_repo.Repository,
+            issue_event: gh_iss.IssueEvent) -> list[IncomingGithubMessage]:
+        assert issue_event.event not in ["labeled", "unlabeled"]
+        return []
