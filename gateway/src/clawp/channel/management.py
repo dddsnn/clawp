@@ -180,7 +180,7 @@ class ChannelRouter(base.MessageSender):
         return await channel.num_unread_messages(chat.chat_id)
 
     async def get_unread_messages(
-            self, chat: mdl.ChatDescriptor) -> list[base.IncomingMessage]:
+            self, chat: mdl.ChatDescriptor) -> list[mdl.IncomingMessage]:
         """
         Get messages that haven't yet been read.
 
@@ -236,7 +236,7 @@ class ChannelRouter(base.MessageSender):
             self) -> cl_abc.AsyncGenerator[mdl.ChatDescriptor]:
         """Iterate over chats with unread messages."""
         async for message in self._publisher.subscribe():
-            assert isinstance(message, base.IncomingMessage)
+            assert isinstance(message, mdl.IncomingMessage)
             yield message.chat
 
 

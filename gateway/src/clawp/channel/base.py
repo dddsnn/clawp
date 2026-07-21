@@ -17,7 +17,6 @@
 
 import abc
 import collections.abc as cl_abc
-import dataclasses as dc
 import logging
 import typing as t
 
@@ -53,12 +52,6 @@ class MessageSender(abc.ABC):
     async def send(self, message: msg.AgentMessage) -> None:
         """Send a message."""
         raise NotImplementedError
-
-
-@dc.dataclass
-class IncomingMessage:
-    chat: mdl.ChatDescriptor
-    message: mdl.ChatMessage | mdl.SystemMessage
 
 
 class Channel(MessageSender):
@@ -116,7 +109,7 @@ class Channel(MessageSender):
         """
         raise NotImplementedError
 
-    def incoming_messages(self) -> cl_abc.AsyncGenerator[IncomingMessage]:
+    def incoming_messages(self) -> cl_abc.AsyncGenerator[mdl.IncomingMessage]:
         """Iterate over incoming messages."""
         return self._publisher.subscribe()
 
@@ -133,7 +126,8 @@ class Channel(MessageSender):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def get_unread_messages(self, chat_id: str) -> list[IncomingMessage]:
+    async def get_unread_messages(self,
+                                  chat_id: str) -> list[mdl.IncomingMessage]:
         """
         Get messages that haven't yet been read.
 

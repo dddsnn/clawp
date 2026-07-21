@@ -115,7 +115,7 @@ class SessionTransaction:
         return self._session.num_messages
 
     async def append_incoming_message(
-            self, incoming_message: chan.IncomingMessage) -> None:
+            self, incoming_message: mdl.IncomingMessage) -> None:
         if not self._is_active:
             raise RuntimeError("transaction is not active")
         await self._session._append_incoming_message(incoming_message)
@@ -225,7 +225,7 @@ class Session:
         return len(self._messages or [])
 
     async def _append_incoming_message(
-            self, incoming_message: chan.IncomingMessage) -> None:
+            self, incoming_message: mdl.IncomingMessage) -> None:
         """
         Append an incoming message to this session.
 

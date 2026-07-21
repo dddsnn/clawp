@@ -39,7 +39,7 @@ class MatrixChannel(base.Channel):
     class RoomMessageEvent:
         room: nio.MatrixRoom
         event: nio.RoomMessageText
-        incoming_message: base.IncomingMessage
+        incoming_message: mdl.IncomingMessage
 
     def __init__(
             self, store_dir: pathlib.Path,
@@ -105,7 +105,7 @@ class MatrixChannel(base.Channel):
             raise base.ChatIdError(f"no room {chat_id}")
 
     async def get_unread_messages(self,
-                                  chat_id: str) -> list[base.IncomingMessage]:
+                                  chat_id: str) -> list[mdl.IncomingMessage]:
         try:
             room_message_events = self._unread_message_events[chat_id]
         except KeyError:
@@ -161,7 +161,7 @@ class MatrixChannel(base.Channel):
         )
         message = mdl.MatrixChatMessage(
             role="user", metadata=metadata, content=event.body)
-        incoming_message = base.IncomingMessage(
+        incoming_message = mdl.IncomingMessage(
             chat=message.metadata.chat, message=message)
         return self.RoomMessageEvent(
             room=room, event=event, incoming_message=incoming_message)

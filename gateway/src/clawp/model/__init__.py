@@ -68,6 +68,8 @@ from .message import (
     GithubChatMessage,
     GithubChatMessageMetadata,
     GithubStartMessageMetadata,
+    IncomingGithubMessage,
+    IncomingMessage,
     InternalMessageMetadata,
     InternalMessageRole,
     MatrixChatMessage,
@@ -106,6 +108,7 @@ from .state import (
     AgentState,
     GatewayState,
     GithubChannelState,
+    GithubEventReadMarker,
     WebUiChannelState,
 )
 from .tool import ShellResult
@@ -165,6 +168,8 @@ __all__ = [
     "GithubChatMessage",
     "GithubChatMessageMetadata",
     "GithubStartMessageMetadata",
+    "IncomingGithubMessage",
+    "IncomingMessage",
     "InternalMessageMetadata",
     "InternalMessageRole",
     "MatrixChatMessage",
@@ -202,6 +207,7 @@ __all__ = [
     "AgentState",
     "GatewayState",
     "GithubChannelState",
+    "GithubEventReadMarker",
     "WebUiChannelState",
     # tool
     "ShellResult",]

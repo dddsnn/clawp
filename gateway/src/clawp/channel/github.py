@@ -17,7 +17,6 @@
 
 import asyncio
 import contextlib
-import dataclasses as dc
 import datetime as dt
 import logging
 import operator as op
@@ -115,13 +114,6 @@ class GithubAppClient:
         return repos
 
 
-@dc.dataclass
-class IncomingGithubMessage(base.IncomingMessage):
-    chat: mdl.GithubChatDescriptor
-    message: mdl.GithubChatMessage | mdl.SystemMessage
-    event_id: int
-
-
 class GithubChannel(base.Channel):
     """
     Github channel.
@@ -140,7 +132,6 @@ class GithubChannel(base.Channel):
         self._config = config
         self._state = state
         self._client = GithubAppClient(self._config)
-        self._incoming_messages: dict[str, list[IncomingGithubMessage]] = {}
         self._poll_task: asyncio.Task | None = None
 
     async def __aenter__(self) -> t.Self:
@@ -192,22 +183,20 @@ class GithubChannel(base.Channel):
     async def num_unread_messages(self, chat_id: str) -> int:
         chat = await self.get_chat_descriptor(chat_id)
         try:
-            return len(self._incoming_messages[chat.chat_id])
+            return len(self._state.unread_messages[chat.chat_id])
         except KeyError:
             return 0
 
-    async def get_unread_messages(self,
-                                  chat_id: str) -> list[IncomingGithubMessage]:
+    async def get_unread_messages(
+            self, chat_id: str) -> list[mdl.IncomingGithubMessage]:
         chat = await self.get_chat_descriptor(chat_id)
         try:
-            incoming_messages = self._incoming_messages[chat.chat_id]
+            incoming_messages = self._state.unread_messages[chat.chat_id]
         except KeyError:
             # No messages at all for this chat_id.
             return []
-        self._state.last_read_event_ids[chat.repo_full_name] = (
-            incoming_messages[-1].event_id)
-        # Mark as read by deleting the local copy.
-        del self._incoming_messages[chat.chat_id]
+        # Mark the messages as read by deleting them from the state.
+        del self._state.unread_messages[chat.chat_id]
         return incoming_messages
 
     def make_outgoing_start_metadata(
@@ -263,17 +252,28 @@ class GithubChannel(base.Channel):
 
     def _get_new_issue_events(
             self, repo: gh_repo.Repository) -> list[gh_iss.IssueEvent]:
-        read_event_id = self._state.last_read_event_ids.get(repo.full_name)
+        read_marker = self._get_read_marker(repo.full_name)
         new_issue_events: list[gh_iss.IssueEvent] = []
         for issue_event in repo.get_issues_events():
             # The issue events are sorted newest-first, so collect them until
             # we come across the first event we've already seen.
-            if issue_event.id == read_event_id:
+            this_event_time = we.Instant(issue_event.created_at)
+            already_seen = (
+                this_event_time < read_marker.last_event_time
+                or issue_event.id in read_marker.last_event_ids)
+            if already_seen:
                 break
             new_issue_events.append(issue_event)
         # Sort by creation timestamp so we're returning oldest events first.
         new_issue_events.sort(key=op.attrgetter("created_at"))
         return new_issue_events
+
+    def _get_read_marker(
+            self, repo_full_name: str) -> mdl.GithubEventReadMarker:
+        try:
+            return self._state.issue_event_read_markers[repo_full_name]
+        except KeyError:
+            return mdl.GithubEventReadMarker.min()
 
     async def _process_events(
             self, repo: gh_repo.Repository,
@@ -281,8 +281,9 @@ class GithubChannel(base.Channel):
         issue_stati = await asyncio.to_thread(
             self._issue_state_changes, issue_events)
         self._logger.info(f"got issue stati {issue_stati}")
+        read_marker = self._get_read_marker(repo.full_name)
         for issue_event in issue_events:
-            messages: list[IncomingGithubMessage] = []
+            messages: list[mdl.IncomingGithubMessage] = []
             try:
                 assigned, event_id = issue_stati[issue_event.issue.number]
                 if issue_event.id == event_id:
@@ -294,12 +295,31 @@ class GithubChannel(base.Channel):
                     messages += await asyncio.to_thread(
                         self._incoming_messages_for_event, repo, issue_event)
             finally:
-                self._state.last_read_event_ids[repo.full_name] = (
-                    issue_event.id)
+                self._state.issue_event_read_markers[repo.full_name] = (
+                    self._update_issue_event_read_marker(
+                        read_marker, issue_event))
             for message in messages:
-                self._incoming_messages.setdefault(message.chat.chat_id,
-                                                   []).append(message)
+                self._state.unread_messages.setdefault(
+                    message.chat.chat_id, []).append(message)
                 await self._publisher.append(message)
+
+    def _update_issue_event_read_marker(
+            self, read_marker: mdl.GithubEventReadMarker,
+            issue_event: gh_iss.IssueEvent) -> mdl.GithubEventReadMarker:
+        """
+        Update a read marker with an event.
+
+        Returns a read marker that marks the given event as read. This may be a
+        new instance, or the original one with the event's ID added to the set.
+        """
+        this_event_time = we.Instant(issue_event.created_at)
+        if this_event_time > read_marker.last_event_time:
+            read_marker = mdl.GithubEventReadMarker(
+                last_event_time=this_event_time,
+                last_event_ids={issue_event.id})
+        elif this_event_time == read_marker.last_event_time:
+            read_marker.last_event_ids.add(issue_event.id)
+        return read_marker
 
     def _issue_state_changes(
         self, issue_events: list[gh_iss.IssueEvent]
@@ -352,7 +372,7 @@ class GithubChannel(base.Channel):
 
     def _incoming_messages_for_assignment_change(
             self, repo: gh_repo.Repository, issue_event: gh_iss.IssueEvent,
-            assigned: bool) -> list[IncomingGithubMessage]:
+            assigned: bool) -> list[mdl.IncomingGithubMessage]:
         if not assigned:
             content = (
                 f"You were unassigned from issue #{issue_event.issue.number} "
@@ -369,7 +389,7 @@ class GithubChannel(base.Channel):
             label_message_content += (
                 f"\n\n Showing {issue_event.issue.comments} existing "
                 "message(s) in the issue.")
-        messages: list[IncomingGithubMessage] = []
+        messages: list[mdl.IncomingGithubMessage] = []
         messages.append(
             self._make_system_message(
                 issue_event, repo, label_message_content))
@@ -390,12 +410,12 @@ class GithubChannel(base.Channel):
 
     def _make_system_message(
             self, issue_event: gh_iss.IssueEvent, repo: gh_repo.Repository,
-            content: str) -> IncomingGithubMessage:
+            content: str) -> mdl.IncomingGithubMessage:
         chat = self._make_chat_descriptor(issue_event, repo)
         system_message = mdl.SystemMessage(
             metadata=mdl.InternalMessageMetadata(
                 time=we.Instant(issue_event.created_at)), content=content)
-        return IncomingGithubMessage(
+        return mdl.IncomingGithubMessage(
             chat=chat, message=system_message, event_id=issue_event.id)
 
     def _make_chat_descriptor(
@@ -409,18 +429,19 @@ class GithubChannel(base.Channel):
 
     def _make_user_message(
             self, issue_event: gh_iss.IssueEvent, repo: gh_repo.Repository,
-            comment_type: t.Literal["description", "comment"],
-            created_at: dt.datetime, content: str) -> IncomingGithubMessage:
+            comment_type: t.Literal["description",
+                                    "comment"], created_at: dt.datetime,
+            content: str) -> mdl.IncomingGithubMessage:
         chat = self._make_chat_descriptor(issue_event, repo)
         user_message = mdl.GithubChatMessage(
             role="user", metadata=mdl.GithubChatMessageMetadata(
                 time=we.Instant(created_at), chat=chat,
                 comment_type=comment_type), content=content)
-        return IncomingGithubMessage(
+        return mdl.IncomingGithubMessage(
             chat=chat, message=user_message, event_id=issue_event.id)
 
     def _incoming_messages_for_event(
             self, repo: gh_repo.Repository,
-            issue_event: gh_iss.IssueEvent) -> list[IncomingGithubMessage]:
+            issue_event: gh_iss.IssueEvent) -> list[mdl.IncomingGithubMessage]:
         assert issue_event.event not in ["labeled", "unlabeled"]
         return []

@@ -18,9 +18,11 @@
 import uuid
 
 import pydantic as pyd
+import whenever as we
 
 from . import base
 from . import channel as chan
+from . import message as msg
 
 
 class WebUiChannelState(base.BaseModel):
@@ -33,12 +35,37 @@ class AgentChannelState(base.BaseModel):
     read_offsets: dict[uuid.UUID, int] = pyd.Field(default_factory=dict)
 
 
+class GithubEventReadMarker(base.BaseModel):
+    """
+    A read marker for events.
+
+    The marker stores the timestamp of the last event read, as well as a set of
+    all event IDs at that timestamp (usually this should just be one, but they
+    are use to disambiguate in case there are multiple events with the same
+    timestamp).
+    """
+    last_event_time: base.Iso8601Millis
+    last_event_ids: set[int]
+
+    @staticmethod
+    def min() -> GithubEventReadMarker:
+        """Minimum value."""
+        return GithubEventReadMarker(
+            last_event_time=we.Instant.MIN, last_event_ids=set())
+
+
 class GithubChannelState(base.BaseModel):
     """Persistent state for the Github channel."""
-    last_read_event_ids: dict[str, int] = pyd.Field(default_factory=dict)
+    issue_event_read_markers: dict[str, GithubEventReadMarker] = pyd.Field(
+        default_factory=dict)
     """
-    Highest event ID that has already been shown to the recipient.
+    Read markers for the last read issue event.
+
+    Maps full repo names to the read marker for issue events.
     """
+    unread_messages: dict[str, list[msg.IncomingGithubMessage]] = pyd.Field(
+        default_factory=dict)
+    """Unread messages, by chat_id."""
 
 
 class AgentState(base.BaseModel):

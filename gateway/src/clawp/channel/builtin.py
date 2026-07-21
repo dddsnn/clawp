@@ -130,7 +130,7 @@ class WebUiChannel(base.Channel):
         return len(self._messages) - self._read_offset
 
     async def get_unread_messages(self,
-                                  chat_id: str) -> list[base.IncomingMessage]:
+                                  chat_id: str) -> list[mdl.IncomingMessage]:
         self._assert_valid_chat_id(chat_id)
         unread_messages = self._messages[self._read_offset:]
         self._read_offset = len(self._messages)
@@ -138,9 +138,8 @@ class WebUiChannel(base.Channel):
 
     def _make_incoming_message(
             self, message: mdl.UserMessage | mdl.AgentMessage
-    ) -> base.IncomingMessage:
-        return base.IncomingMessage(
-            chat=message.metadata.chat, message=message)
+    ) -> mdl.IncomingMessage:
+        return mdl.IncomingMessage(chat=message.metadata.chat, message=message)
 
     def make_outgoing_start_metadata(
         self, chat: mdl.ChatDescriptor
@@ -319,7 +318,7 @@ class AgentChannel(base.Channel):
         return len(messages) - read_offset
 
     async def get_unread_messages(self,
-                                  chat_id: str) -> list[base.IncomingMessage]:
+                                  chat_id: str) -> list[mdl.IncomingMessage]:
         peer_agent = self._get_agent(chat_id)
         messages = self._messages.setdefault(peer_agent.information.id, [])
         read_offset = self._get_read_offset(
@@ -330,9 +329,8 @@ class AgentChannel(base.Channel):
 
     def _make_incoming_message(
             self, message: mdl.UserMessage | mdl.AgentMessage
-    ) -> base.IncomingMessage:
-        return base.IncomingMessage(
-            chat=message.metadata.chat, message=message)
+    ) -> mdl.IncomingMessage:
+        return mdl.IncomingMessage(chat=message.metadata.chat, message=message)
 
     def make_outgoing_start_metadata(
         self, chat: mdl.ChatDescriptor
