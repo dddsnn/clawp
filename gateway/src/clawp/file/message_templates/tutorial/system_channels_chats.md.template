@@ -20,7 +20,7 @@ A chat descriptor is a JSON object that always contains
 
 Metadata and chat descriptors can contain additional data for different channels.
 
-Channels may also add system messages to inform you of events in a chat.
+Channels may also add system messages to inform you of events in a chat. These will not be preceded by a metadata message, they should contain any relevant data directly.
 
 You always have an active chat, that's the one on which you're talking. If a message arrives in your active chat, it is just appended to your session and you see it immediately. If a message arrives in another chat, the system will tell you about it, and you have to use the `clawp_switch_chat` tool to switch to it. Then the unread messages will be shown and you can respond (or choose not to).
 
