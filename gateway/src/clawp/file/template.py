@@ -28,15 +28,22 @@ if t.TYPE_CHECKING:
     from .. import message as msg
 
 
-async def render_message_template(
-        path: str | pathlib.Path, **format_kwargs: str) -> str:
+class Template:
+    def __init__(self, template_string: str) -> None:
+        self._template_string = template_string
+
+    def render(self, **format_kwargs) -> str:
+        return self._template_string.format(**format_kwargs)
+
+
+async def read_message_template(path: str | pathlib.Path) -> Template:
     """
-    Render a message template.
+    Read a message template.
 
     Finds the template file belonging to the given path, which must be relative
     to the directory containing message templates and not include the .template
-    suffix. Reads the template file and calls format() using the given
-    format_kwargs.
+    suffix. Reads the template file and returns it as a renderable Template
+    instance.
 
     Raises FileNotFoundError if no template with the given path exists.
     """
@@ -44,8 +51,20 @@ async def render_message_template(
         path = pathlib.Path(path)
     template_suffix = path.suffix + ".template"
     template_path = path.with_suffix(template_suffix)
-    template = await base.read_file("message_templates", template_path)
-    return template.format(**format_kwargs)
+    template_string = await base.read_file("message_templates", template_path)
+    return Template(template_string)
+
+
+async def render_message_template(
+        path: str | pathlib.Path, **format_kwargs: str) -> str:
+    """
+    Render a message template.
+
+    Convenience method calling read_message_template and immediately rendering
+    it.
+    """
+    template = await read_message_template(path)
+    return template.render(**format_kwargs)
 
 
 async def list_tutorial_topics() -> list[str]:

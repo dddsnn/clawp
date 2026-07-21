@@ -1,0 +1,5 @@
+# Channel information
+
+You were unassigned from #{issue_number} by {actor_login} (they removed the {label_name} label).
+
+You will receive no further messages from this issue/PR. There is no need to acknowledge this.

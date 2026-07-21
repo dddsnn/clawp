@@ -1,0 +1,5 @@
+# Channel information
+
+You were assigned #{issue_number} by {actor_login} (they added the {label_name} label).
+
+Showing {num_messages} existing message(s) in the issue.

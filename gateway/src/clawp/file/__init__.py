@@ -22,7 +22,9 @@ from .personality import (
     read_personality_with_file_contents,
 )
 from .template import (
+    Template,
     list_tutorial_topics,
+    read_message_template,
     render_channel_status,
     render_file_content,
     render_message_send_error,
@@ -38,7 +40,9 @@ __all__ = [
     "read_personality",
     "read_personality_with_file_contents",
     # template
+    "Template",
     "list_tutorial_topics",
+    "read_message_template",
     "render_channel_status",
     "render_file_content",
     "render_message_send_error",

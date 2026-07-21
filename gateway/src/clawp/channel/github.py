@@ -28,6 +28,7 @@ import github.Repository as gh_repo
 import pydantic as pyd
 import whenever as we
 
+from .. import file
 from .. import message as msg
 from .. import model as mdl
 from . import base
@@ -133,9 +134,15 @@ class GithubChannel(base.Channel):
         self._state = state
         self._client = GithubAppClient(self._config)
         self._poll_task: asyncio.Task | None = None
+        self._message_templates: dict[str, file.Template] = None
 
     async def __aenter__(self) -> t.Self:
         await super().__aenter__()
+        self._message_templates = {
+            "assigned": await file.read_message_template(
+                "system_information/github_assigned.md"),
+            "unassigned": await file.read_message_template(
+                "system_information/github_unassigned.md"),}
         await self._client.__aenter__()
         self._poll_task = asyncio.create_task(self._poll_forever())
         return self
@@ -374,25 +381,21 @@ class GithubChannel(base.Channel):
             self, repo: gh_repo.Repository, issue_event: gh_iss.IssueEvent,
             assigned: bool) -> list[mdl.IncomingGithubMessage]:
         if not assigned:
-            content = (
-                f"You were unassigned from issue #{issue_event.issue.number} "
-                f"by {issue_event.actor.login} (they removed the "
-                f"{issue_event.label.name} label). You will receive no "
-                "further messages from this issue. There is no need to "
-                "acknowledge this.")
+            content = self._message_templates["unassigned"].render(
+                issue_number=issue_event.issue.number,
+                actor_login=issue_event.actor.login,
+                label_name=issue_event.label.name)
             return [self._make_system_message(issue_event, repo, content)]
-        label_message_content = (
-            f"You were assigned issue #{issue_event.issue.number} by "
-            f"{issue_event.actor.login} (they added the "
-            f"{issue_event.label.name} label).")
-        if issue_event.issue.comments > 0:
-            label_message_content += (
-                f"\n\n Showing {issue_event.issue.comments} existing "
-                "message(s) in the issue.")
+        assignment_message_content = (
+            self._message_templates["assigned"].render(
+                issue_number=issue_event.issue.number,
+                actor_login=issue_event.actor.login,
+                label_name=issue_event.label.name,
+                num_messages=issue_event.issue.comments))
         messages: list[mdl.IncomingGithubMessage] = []
         messages.append(
             self._make_system_message(
-                issue_event, repo, label_message_content))
+                issue_event, repo, assignment_message_content))
         description_content = issue_event.issue.body
         if not description_content:
             description_content = "No description provided."
@@ -443,5 +446,4 @@ class GithubChannel(base.Channel):
     def _incoming_messages_for_event(
             self, repo: gh_repo.Repository,
             issue_event: gh_iss.IssueEvent) -> list[mdl.IncomingGithubMessage]:
-        assert issue_event.event not in ["labeled", "unlabeled"]
         return []
