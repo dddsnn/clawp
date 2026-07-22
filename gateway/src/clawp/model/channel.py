@@ -68,6 +68,13 @@ class GithubChatDescriptor(BasicChatDescriptor):
     repo_full_name: str
     issue_type: t.Literal["issue", "pr"]
     issue_number: int
+    issue_title: str
+    issue_author: str
+
+    @pyd.computed_field
+    @property
+    def repo_clone_url(self) -> str:
+        return f"https://github.com/{self.repo_full_name}.git"
 
     @pyd.model_validator(mode="after")
     def validate_chat_id(self) -> t.Self:
@@ -83,16 +90,17 @@ class GithubChatDescriptor(BasicChatDescriptor):
         return f"{issue_type}:{repo_full_name}#{issue_number}"
 
     @classmethod
-    def from_chat_id(cls, chat_id: str) -> GithubChatDescriptor:
+    def parse_chat_id(
+            cls, chat_id: str) -> tuple[t.Literal["issue", "pr"], str, int]:
+        """Parse a chat_id into (issue_type, repo_full_name, issue_number)."""
         match = cls._chat_id_regex.match(chat_id)
         if not match:
             raise ValueError(
                 "chat ID doesn't match format (must be like "
                 '"issue|pr:owner-name/repo-name#123"')
-        return cls(
-            chat_id=chat_id,
-            repo_full_name=f"{match.group('owner')}/{match.group('repo')}",
-            issue_type=match.group("type"), issue_number=match.group("number"))
+        repo_full_name = f"{match.group('owner')}/{match.group('repo')}"
+        issue_number = int(match.group("number"))
+        return (match.group("type"), repo_full_name, issue_number)
 
 
 ChatDescriptor = (

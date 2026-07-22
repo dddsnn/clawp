@@ -203,9 +203,26 @@ class GithubChannel(base.Channel):
     async def get_chat_descriptor(
             self, chat_id: str) -> mdl.GithubChatDescriptor:
         try:
-            return mdl.GithubChatDescriptor.from_chat_id(chat_id)
+            issue_type, repo_full_name, issue_number = (
+                mdl.GithubChatDescriptor.parse_chat_id(chat_id))
         except (ValueError, pyd.ValidationError) as e:
             raise base.ChatIdError("invalid chat ID") from e
+        issue = await asyncio.to_thread(
+            self._get_issue_sync, repo_full_name, issue_number)
+        return mdl.GithubChatDescriptor(
+            chat_id=chat_id,
+            issue_type=issue_type,
+            repo_full_name=repo_full_name,
+            issue_number=issue_number,
+            issue_title=issue.title,
+            issue_author=issue.user.login,
+        )
+
+    def _get_issue_sync(
+            self, repo_full_name: str, issue_number: int) -> gh_iss.Issue:
+        repo = self._client.get_github().get_repo(repo_full_name)
+        issue = repo.get_issue(issue_number)
+        return issue.complete()
 
     async def num_unread_messages(self, chat_id: str) -> int:
         chat = await self.get_chat_descriptor(chat_id)
@@ -438,10 +455,14 @@ class GithubChannel(base.Channel):
             self, repo: gh_repo.Repository,
             issue_event: gh_iss.IssueEvent) -> mdl.GithubChatDescriptor:
         return mdl.GithubChatDescriptor(
-            channel="github", chat_id=mdl.GithubChatDescriptor.create_chat_id(
+            chat_id=mdl.GithubChatDescriptor.create_chat_id(
                 "issue", repo.full_name, issue_event.issue.number),
-            issue_type="issue", repo_full_name=repo.full_name,
-            issue_number=issue_event.issue.number)
+            issue_type="issue",
+            repo_full_name=repo.full_name,
+            issue_number=issue_event.issue.number,
+            issue_title=issue_event.issue.title,
+            issue_author=issue_event.issue.user.login,
+        )
 
     def _make_system_message(
         self, repo: gh_repo.Repository, issue_event: gh_iss.IssueEvent,

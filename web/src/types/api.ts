@@ -32,8 +32,11 @@ export const AgentChatDescriptorSchema = BaseChatDescriptorSchema.extend({
 export const GithubChatDescriptorSchema = BaseChatDescriptorSchema.extend({
   channel: z.literal('github'),
   repo_full_name: z.string(),
+  repo_clone_url: z.string(),
   issue_type: z.literal('issue', 'pr'),
   issue_number: z.int(),
+  issue_title: z.string(),
+  issue_author: z.string(),
 });
 
 export const MatrixChatDescriptorSchema = BaseChatDescriptorSchema.extend({

@@ -21,5 +21,8 @@ Message metadata JSON contains the additional key `comment_type`: either "descri
 The chat descriptor contains the additional keys
 
 - `repo_full_name`: Name like "<owner>/<repo_name>".
+- `repo_clone_url`: The URL with which the issue can be cloned.
 - `issue_type`: Either "issue" or "pr".
 - `issue_number`: Issue number, integer.
+- `issue_title`: Issue title.
+- `issue_author`: The login name of the issue author.
