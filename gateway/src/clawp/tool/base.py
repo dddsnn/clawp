@@ -145,11 +145,20 @@ class ClientSessionTransactionContext:
 
 class Client:
     """A client providing tools via MCP servers."""
-    def __init__(self, config: mdl.GatewayConfig, agent: "agt.Agent"):
+    def __init__(
+        self, config: mdl.GatewayConfig, agent: "agt.Agent",
+        extra_env_getter: cl_abc.Callable[[], cl_abc.Awaitable[dict[str,
+                                                                    str]]]):
+        """
+        :param extra_env_getter: A coroutine function returning a dictionary of
+            additional environment variables for the shell tool. It will be
+            called on every execution of the shell tool.
+        """
         self._logger = logging.getLogger(type(self).__name__)
         self._complex_metadata_registry = ComplexToolResultMetadataRegistry()
         server = fastmcp.FastMCP(name="Clawp MCP server")
-        self._shell_server = shell.SandboxShellMcpServer(config, agent)
+        self._shell_server = shell.SandboxShellMcpServer(
+            config, agent, extra_env_getter)
         self._clawp_server = builtin.ClawpMcpServer(
             agent, self._complex_metadata_registry)
         server.mount(builtin.make_filesystem_proxy(agent.workspace_dir))

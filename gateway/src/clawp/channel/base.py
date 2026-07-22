@@ -100,6 +100,15 @@ class Channel(MessageSender):
         """Current status of the channel."""
         raise NotImplementedError
 
+    async def get_extra_shell_env(self) -> dict[str, str]:
+        """
+        Get extra environment variables that should be set in the shell tool.
+
+        This can be used to inject environment variables that make tools
+        related to the channel available in the shell tool.
+        """
+        return {}
+
     @abc.abstractmethod
     async def get_chat_descriptor(self, chat_id: str) -> mdl.ChatDescriptor:
         """

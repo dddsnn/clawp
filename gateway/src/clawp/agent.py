@@ -20,6 +20,7 @@ import collections.abc as cl_abc
 import contextlib
 import dataclasses as dc
 import functools as ft
+import itertools as it
 import json
 import logging
 import pathlib
@@ -506,7 +507,9 @@ class Agent:
         self._workspace_dir = workspace_dir
         self._message_store = message_store
         self.memory_store = memory_store
-        self._mcp_client = tool.Client(config=config, agent=self)
+        self._mcp_client = tool.Client(
+            config=config, agent=self,
+            extra_env_getter=self._collect_channel_extra_env)
         self._channel_router = channel_router
         self._session_factory = ft.partial(
             Session, model_config=config.openrouter.model,
@@ -837,6 +840,24 @@ class Agent:
         await tool_part.append(msg.ToolCall(function=function))
         await tool_part.finalize()
         await tx.append_agent_message(util.StreamableList([tool_part]))
+
+    async def _collect_channel_extra_env(self) -> dict[str, str]:
+        env_by_channel = {
+            t: await c.get_extra_shell_env()
+            for t, c in self.channels.items()}
+        for t1, t2 in it.combinations(env_by_channel.keys(), 2):
+            env1 = env_by_channel[t1]
+            env2 = env_by_channel[t2]
+            if not env1.keys().isdisjoint(env2):
+                self._logger.warning(
+                    f"Extra environment variables specified by channels {t1} "
+                    f"and {t2} are not disjoint ({list(env1)} vs. "
+                    f"{list(env2)}). Actual environment will be "
+                    "non-deterministic.")
+        return {
+            k: v
+            for env in env_by_channel.values()
+            for k, v in env.items()}
 
     def messages(self) -> cl_abc.Generator[MessageInSession]:
         """

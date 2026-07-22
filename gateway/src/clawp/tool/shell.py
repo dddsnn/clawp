@@ -16,6 +16,7 @@
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
+import collections.abc as cl_abc
 import pathlib
 import shlex
 import typing as t
@@ -51,7 +52,15 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
     The environment variables HOME, SHELL, USER, and LOGNAME must be set
     correctly by the wrapper script. The PATH must always be passed on.
     """
-    def __init__(self, config: mdl.GatewayConfig, agent: "agt.Agent"):
+    def __init__(
+        self, config: mdl.GatewayConfig, agent: "agt.Agent",
+        extra_env_getter: cl_abc.Callable[[], cl_abc.Awaitable[dict[str,
+                                                                    str]]]):
+        """
+        :param extra_env_getter: A coroutine function returning a dictionary of
+            additional environment variables to set. It will be called on every
+            execution.
+        """
         super().__init__("Shell MCP server")
         self._config = config
         self._agent = agent
@@ -63,6 +72,7 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
                 "key_filename": str(
                     config.tools.shell.ssh.key_filename.absolute())},
         )
+        self._extra_env_getter = extra_env_getter
         self.add_tool(self.shell)
 
     async def __aenter__(self) -> t.Self:
@@ -98,6 +108,7 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
         (e.g. ~/file_in_my_workspace).
         """
         env = env or {}
+        env |= await self._extra_env_getter()
         if "PATH" in env or "HOME" in env:
             raise ValueError("PATH and HOME can't be changed")
         env["PATH"] = self._config.tools.shell.path
