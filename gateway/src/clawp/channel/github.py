@@ -125,6 +125,9 @@ class GithubChannel(base.Channel):
     <agent_login> is the agent's login name (ending in [bot]).
 
     Uses polling of the Github API.
+
+    The channel also makes environment variables available that authorize git
+    and the gh CLI.
     """
     def __init__(
             self, config: mdl.GithubAccountConfig,
@@ -179,6 +182,19 @@ class GithubChannel(base.Channel):
     def agent_assigned_label(self) -> str:
         """The issue label meaning this agent is assigned."""
         return f"agent-assigned:{self._client.login}"
+
+    async def get_extra_shell_env(self) -> dict[str, str]:
+        # We're using the GIT_CONFIG_* env variables, which allow us to specify
+        # extra config without having to write to a file.
+        token = await self._client.get_installation_token()
+        url_rewrite_config_key = (
+            'url."https://{}:{}@github.com/".insteadOf'.format(
+                self._client.login, token))
+        return {
+            "GH_TOKEN": token,
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": url_rewrite_config_key,
+            "GIT_CONFIG_VALUE_0": "https://github.com/",}
 
     async def get_chat_descriptor(
             self, chat_id: str) -> mdl.GithubChatDescriptor:
@@ -287,7 +303,6 @@ class GithubChannel(base.Channel):
             issue_events: list[gh_iss.IssueEvent]) -> None:
         issue_stati = await asyncio.to_thread(
             self._issue_state_changes, issue_events)
-        self._logger.info(f"got issue stati {issue_stati}")
         read_marker = self._get_read_marker(repo.full_name)
         for issue_event in issue_events:
             messages: list[mdl.IncomingGithubMessage] = []
