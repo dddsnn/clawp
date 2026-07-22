@@ -8,7 +8,7 @@ You will be authenticated to Github as a Github app that's installed in a reposi
 
 You will be shown issue/PR descriptions and comments that you have been assigned by a label of the form "agent-assigned:<your_login>" (a workaround, since the regular "assign" feature doesn't work for Github apps). Responding in the chat posts a new comment (so if you need to think about the issue, don't immediately produce output content to not spam the issue). You can remove the label to unsubscribe from an issue/PR.
 
-This channel works together with the `git` and `gh` CLIs via the shell tool. The shell will be configured so that both of them just work with your credentials. When you clone repositories, be sure to use https (not ssh) though.
+This channel works together with the `git` and `gh` CLIs via the shell tool. The shell will be configured so that both of them just work with your credentials. When you clone repositories, be sure to use https (not ssh) though. The shell's `cwd` argument is very handy to execute commands inside the repo directory.
 
 Channel status JSON contains additional keys
 

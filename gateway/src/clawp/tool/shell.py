@@ -91,8 +91,8 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
             pyd.Field(
                 description=
                 "Change working directory before running the command. Must be "
-                "an absolute path. Default: own workspace directory."
-            )]] = None,
+                "relative to your home directory (i.e. start with ~) or be an "
+                "absolute path. Default: your home directory.")]] = None,
         env: t.Optional[dict[str, str]] = None,
     ) -> mdl.ShellResult:
         """
@@ -116,8 +116,15 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
             cwd_path = pathlib.Path(cwd)
         else:
             cwd_path = self._agent.workspace_dir.absolute()
+        if cwd_path.is_relative_to("~"):
+            # We want to allow specifying cwd relative to ~, but that won't
+            # mean what we think inside the wrapper script. But since we know
+            # the agent's home, we can calculate the absolute path here.
+            cwd_path = (
+                self._agent.workspace_dir.absolute()
+                / cwd_path.relative_to("~"))
         if not cwd_path.is_absolute():
-            raise ValueError("cwd must be an absolute path")
+            raise ValueError("cwd must start with ~ or be an absolute path")
         return await asyncio.to_thread(
             self._run_wrapped_command_sync, command, cwd_path, env)
 
