@@ -401,7 +401,8 @@ class GithubChannel(base.Channel):
         chat = self._make_chat_descriptor(repo, issue_event)
         if not assigned:
             content = self._message_templates["unassigned"].render(
-                chat=chat, issue_number=issue_event.issue.number,
+                chat=chat.model_dump_json(),
+                issue_number=issue_event.issue.number,
                 actor_login=issue_event.actor.login,
                 label_name=issue_event.label.name)
             return [
@@ -409,7 +410,8 @@ class GithubChannel(base.Channel):
                     repo, issue_event, content, chat=chat)]
         assignment_message_content = (
             self._message_templates["assigned"].render(
-                chat=chat, issue_number=issue_event.issue.number,
+                chat=chat.model_dump_json(),
+                issue_number=issue_event.issue.number,
                 actor_login=issue_event.actor.login,
                 label_name=issue_event.label.name,
                 num_messages=issue_event.issue.comments))
