@@ -21,16 +21,24 @@
 # their workspace, they don't access to anything else, and the gateway isn't
 # locked out either.
 #
-# Usage: command_wrapper.bash <clawp_base_dir> <agent_id> <cwd> <cmd>
+# Usage: command_wrapper.bash <clawp_base_dir> <agent_id> <envs> <cwd> <cmd>
 #
-# This executes <cmd> for the given <agent_id>, changing directory to <cwd>
-# first. <clawp_base_dir> is the directory containing the system's files. The
-# agent's workspace is assumed to be at
+# This executes <cmd> as a non-privileged user for the given <agent_id>,
+# changing directory to <cwd> first. <clawp_base_dir> is the directory
+# containing the system's files. The agent's workspace is assumed to be at
 # <clawp_base_dir>/agents/<agent_id>/workspace.
 #
 # The script further assumes there is a system user/group named clawp:clawp
 # which belongs to the gateway and which must have access to all agents'
-# workspaces. Before executing the command, it guarantees these things:
+# workspaces.
+#
+# <envs> is a comma-separated list of environment variables that should be
+# preserved from the original environment when the command is run. HOME, SHELL,
+# USER, and LOGNAME, shouldn't be in <envs> since they are set automatically
+# (including them has no effect). PATH also shouldn't be in <envs> since it is
+# always preserved.
+#
+# Before executing the command, these things are guaranteed:
 #
 # - A system user and group for the agent exist, both named <agent_id>. The
 #   user's HOME is the agent's workspace.
@@ -50,15 +58,16 @@ set -e
 
 source /scripts/lib/command_lib.bash
 
-if [ "$#" -ne 4 ]; then
+if [ "$#" -ne 5 ]; then
     echo "Usage error in the sandbox wrapper script." >&2
     exit 1
 fi
 
 CLAWP_BASE_DIR="$1"
 AGENT_ID="$2"
-CWD="$3"
-COMMAND="$4"
+ENVS="$3"
+CWD="$4"
+COMMAND="$5"
 
 if ! id "$AGENT_ID" &>/dev/null; then
     # There is no system user with the same name as the agent's ID. Create one.
@@ -84,7 +93,11 @@ if ! ensure_base_dir_permissions "$CLAWP_BASE_DIR" ; then
 fi
 
 # Execute the command as the agent user. The -l flag ensures shell login stuff
-# is taken care of (.bashrc etc.). -P creates an independent pseudo-terminal.
-# Prefix with umask 0007 so any files and directories created by the command
-# don't allow any access to others (except the agent user and the clawp group).
-exec runuser -P -l "$AGENT_ID" -c "umask 0007 && cd $CWD && $COMMAND"
+# is taken care of (.bashrc etc.). It also sets the variables HOME, SHELL, USER,
+# LOGNAME, and PATH. -P creates an independent pseudo-terminal. -w whitelists
+# the env variables we want to pass on. Prefix with umask 0007 so any files and
+# directories created by the command don't allow any access to others (except
+# the agent user and the clawp group). We have to explicitly export PATH, since
+# the -l flag always sets it.
+exec runuser -P -l "$AGENT_ID" -w "$ENVS" -c \
+    "umask 0007 && export PATH="$PATH" && cd $CWD && $COMMAND"

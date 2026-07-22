@@ -35,16 +35,21 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
     MCP server providing a shell tool running in a sandbox.
 
     Shell commands are executed in a sandbox, which the server connects to via
-    SSH. On the host, there must be a script in PATH that acts as a wrapper
-    around the command to set up permission boundaries. This script is called
-    with these arguments:
+    SSH. On the host, there must be a script named command_wrapper.bash in PATH
+    that acts as a wrapper around the command to set up permission boundaries.
+    This script is called with these arguments:
 
     - clawp_base_dir: The base directory where the system stores its files.
       This must be accessible in the sandbox at the same path as in the
       gateway.
     - agent_id: The agent's ID.
+    - envs: A comma-separated list of environment variable names that should be
+      passed on the the wrapped command.
     - cwd: The directory to change to before executing the command.
     - cmd: The command as a single string, escaped for the shell.
+
+    The environment variables HOME, SHELL, USER, and LOGNAME must be set
+    correctly by the wrapper script. The PATH must always be passed on.
     """
     def __init__(self, config: mdl.GatewayConfig, agent: "agt.Agent"):
         super().__init__("Shell MCP server")
@@ -95,9 +100,7 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
         env = env or {}
         if "PATH" in env or "HOME" in env:
             raise ValueError("PATH and HOME can't be changed")
-        env = env | {
-            "PATH": self._config.tools.shell.path,
-            "HOME": str(self._agent.workspace_dir.absolute()),}
+        env["PATH"] = self._config.tools.shell.path
         if cwd:
             cwd_path = pathlib.Path(cwd)
         else:
@@ -105,16 +108,17 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
         if not cwd_path.is_absolute():
             raise ValueError("cwd must be an absolute path")
         return await asyncio.to_thread(
-            self._sync_run_wrapped_command, command, cwd_path, env)
+            self._run_wrapped_command_sync, command, cwd_path, env)
 
-    def _sync_run_wrapped_command(self, command, cwd, env):
+    def _run_wrapped_command_sync(
+            self, command: str, cwd: pathlib.Path, env: dict[str, str]):
         # Escape the command so we can pass it to the wrapper script as a
         # single argument even with special characters (e.g. quotes,
         # redirection).
         escaped_command = shlex.quote(command)
-        wrapped_command = "command_wrapper.bash {} {} {} {}".format(
+        wrapped_command = "command_wrapper.bash {} {} {} {} {}".format(
             self._config.files_base_dir.absolute(), self._agent.information.id,
-            cwd, escaped_command)
+            ",".join(env.keys()), cwd, escaped_command)
         result = self._conn.run(
             wrapped_command, shell="/bin/bash", env=env, replace_env=True,
             warn=True)
