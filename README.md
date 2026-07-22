@@ -117,6 +117,12 @@ This is how the sandbox is implemented in the `docker-compose.yaml`:
   directories created by the gateway itself are not readable by others (which
   would make them accessible to the agents).
 
+Security note: The wrapper script uses `runuser` with the `-T` flag to not
+allocate a pseudo-terminal. This strips conole formatting characters and makes
+the output easier to understand. However, it also enables privilege escalation
+via TIOCSTI/TIOCLINUX ioctl command injection if this legacy feature is set in
+the kernel. To run safely, `CONFIG_LEGACY_TIOCSTI` must be unset.
+
 The sandbox' Dockerfile has an `EXTRA_PACKAGES` argument that can be populated
 with a space-separated list of extra packages to install (via `apt-get` on an
 Ubuntu image).

@@ -53,6 +53,13 @@
 #   the group ownership (clawp), so the gateway can also access those.
 # - The umask is set to 0007, so files and directories don't allow access from
 #   others (outside of user/group).
+#
+# Security note: The user's privilege is dropped using runuser with the -T flag
+# to not allocate a pseudo-terminal. This strips console formatting characters
+# and makes the output easier to understand. However, it also enables privilege
+# escalation via TIOCSTI/TIOCLINUX ioctl command injection if this legacy
+# feature is set in the kernel. To run safely, CONFIG_LEGACY_TIOCSTI must be
+# unset.
 
 set -e
 
@@ -94,10 +101,11 @@ fi
 
 # Execute the command as the agent user. The -l flag ensures shell login stuff
 # is taken care of (.bashrc etc.). It also sets the variables HOME, SHELL, USER,
-# LOGNAME, and PATH. -P creates an independent pseudo-terminal. -w whitelists
-# the env variables we want to pass on. Prefix with umask 0007 so any files and
-# directories created by the command don't allow any access to others (except
-# the agent user and the clawp group). We have to explicitly export PATH, since
-# the -l flag always sets it.
-exec runuser -P -l "$AGENT_ID" -w "$ENVS" -c \
+# LOGNAME, and PATH. -T explicitly prevents a pseudo-terminal from being
+# created, making the output more friendly to our text-based agents. -w
+# whitelists the env variables we want to pass on. Prefix with umask 0007 so any
+# files and directories created by the command don't allow any access to others
+# (except the agent user and the clawp group). We have to explicitly export
+# PATH, since the -l flag always sets it.
+exec runuser -T -l "$AGENT_ID" -w "$ENVS" -c \
     "umask 0007 && export PATH="$PATH" && cd $CWD && $COMMAND"
