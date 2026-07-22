@@ -111,6 +111,7 @@ class GithubAccountConfig(Account):
     installation_id: int
     private_key: SecretValue
     organization: str
+    agent_email: pyd.EmailStr
     poll_interval: we.TimeDelta = we.TimeDelta(minutes=1)
     """
     Interval with which the API is polled.

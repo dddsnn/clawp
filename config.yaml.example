@@ -27,6 +27,8 @@ gateway:
             type: "file"
             path: "path/to/key.pem"
           organization: "my-org"
+          # The email that will be configured in git (shown in commits).
+          agent_email: "my-agent@some-domain.org"
           poll_interval: "PT1M" # Optional.
     matrix:
       accounts:

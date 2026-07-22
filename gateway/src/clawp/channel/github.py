@@ -192,9 +192,13 @@ class GithubChannel(base.Channel):
                 self._client.login, token))
         return {
             "GH_TOKEN": token,
-            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_COUNT": "3",
             "GIT_CONFIG_KEY_0": url_rewrite_config_key,
-            "GIT_CONFIG_VALUE_0": "https://github.com/",}
+            "GIT_CONFIG_VALUE_0": "https://github.com/",
+            "GIT_CONFIG_KEY_1": "user.name",
+            "GIT_CONFIG_VALUE_1": self._client.login,
+            "GIT_CONFIG_KEY_2": "user.email",
+            "GIT_CONFIG_VALUE_2": self._config.agent_email,}
 
     async def get_chat_descriptor(
             self, chat_id: str) -> mdl.GithubChatDescriptor:
