@@ -100,12 +100,10 @@ class ChatMessage(BaseMessage):
 
 
 class GithubChatMessage(ChatMessage):
-    type: t.Literal["github"] = "github"
     metadata: GithubChatMessageMetadata
 
 
 class MatrixChatMessage(ChatMessage):
-    type: t.Literal["matrix"] = "matrix"
     metadata: MatrixChatMessageMetadata
 
 
