@@ -51,7 +51,16 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
 
     The environment variables HOME, SHELL, USER, and LOGNAME must be set
     correctly by the wrapper script. The PATH must always be passed on.
+
+    The shell tool automatically adds some environment variables meant to
+    encourage tools to produce cleaner output for our noninteractive purposes.
     """
+    EXTRA_ENV_FOR_BETTER_NONINTERACTIVE_DISPLAY = {
+        "TERM": "dumb",
+        "NO_COLOR": "1",
+        "CI": "true",
+        "PAGER": "cat",}
+
     def __init__(
         self, config: mdl.GatewayConfig, agent: "agt.Agent",
         extra_env_getter: cl_abc.Callable[[], cl_abc.Awaitable[dict[str,
@@ -108,6 +117,7 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
         (e.g. ~/file_in_my_workspace).
         """
         env = env or {}
+        env |= self.EXTRA_ENV_FOR_BETTER_NONINTERACTIVE_DISPLAY
         env |= await self._extra_env_getter()
         if "PATH" in env or "HOME" in env:
             raise ValueError("PATH and HOME can't be changed")
