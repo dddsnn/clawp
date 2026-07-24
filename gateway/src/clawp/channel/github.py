@@ -152,7 +152,8 @@ class RepositoryProgressChecker:
         self._github_client = github_client
         self._read_progress = read_progress
         self._issues_events_url = (
-            f"https://api.github.com/repos/{repo_full_name}/issues/events")
+            f"https://api.github.com/repos/{repo_full_name}/issues/events"
+            "?per_page=1")
         self._httpx_client = httpx_client
         self._active_etag = None
         self._new_issues_events_available = None

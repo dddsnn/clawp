@@ -38,7 +38,8 @@ def get_request_with_headers(headers: dict[str, str]):
 class TestRepositoryProgressChecker:
     REPO_FULL_NAME = "owner-name/repo-name"
     ISSUES_EVENTS_URL = (
-        f"https://api.github.com/repos/{REPO_FULL_NAME}/issues/events")
+        f"https://api.github.com/repos/{REPO_FULL_NAME}/issues/events"
+        "?per_page=1")
 
     @pytest.fixture
     def token(self):
