@@ -280,6 +280,7 @@ class GithubChannel(base.Channel):
         self._config = config
         self._state = state
         self._client = GithubAppClient(self._config)
+        self._progress_checker = ProgressChecker(self._client, self._state)
         self._poll_task: asyncio.Task | None = None
         self._message_templates: dict[str, file.Template] = None
 
@@ -304,6 +305,7 @@ class GithubChannel(base.Channel):
         except Exception:
             self._logger.exception("Github poll task failed while stopping.")
         await self._client.__aexit__(*args)
+        await self._progress_checker.aclose()
         return await super().__aexit__(*args)
 
     @property
@@ -433,10 +435,18 @@ class GithubChannel(base.Channel):
                     f"Error while polling repository {repo.full_name}.")
 
     async def _poll_repo(self, repo: gh_repo.Repository) -> None:
-        new_events = await asyncio.to_thread(self._get_new_issue_events, repo)
-        if not new_events:
-            return
-        await self._process_events(repo, new_events)
+        async with self._progress_checker.for_repo(
+                repo.full_name) as repo_checker:
+            if repo_checker.new_issues_events_available:
+                issue_events = await asyncio.to_thread(
+                    self._get_new_issue_events, repo)
+                self._logger.debug(
+                    f"Got {len(issue_events)} new events polling repository "
+                    f"{repo.full_name}.")
+            else:
+                issue_events = []
+            if issue_events:
+                await self._process_events(repo, issue_events)
 
     def _get_new_issue_events(
             self, repo: gh_repo.Repository) -> list[gh_iss.IssueEvent]:
