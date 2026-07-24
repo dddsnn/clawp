@@ -47,6 +47,7 @@ class GithubAppClient:
         # access a property and cause a request to be sent.
         self._integration = github.GithubIntegration(auth=app_auth, lazy=False)
         self._login = None
+        self._github = None
         self._authorization = None
 
     async def __aenter__(self) -> t.Self:
@@ -78,10 +79,13 @@ class GithubAppClient:
         assert self._login is not None
         return self._login
 
-    def get_github(self) -> github.Github:
-        """Get a Github instance for the app's installation."""
-        return self._integration.get_github_for_installation(
-            self._config.installation_id)
+    @property
+    def github(self) -> github.Github:
+        """Github instance for the app's installation."""
+        if not self._github:
+            self._github = self._integration.get_github_for_installation(
+                self._config.installation_id)
+        return self._github
 
     @property
     async def installation_token(self) -> str:
@@ -366,7 +370,7 @@ class GithubChannel(base.Channel):
 
     def _get_issue_sync(
             self, repo_full_name: str, issue_number: int) -> gh_iss.Issue:
-        repo = self._client.get_github().get_repo(repo_full_name)
+        repo = self._client.github.get_repo(repo_full_name)
         issue = repo.get_issue(issue_number)
         return issue.complete()
 
@@ -408,8 +412,7 @@ class GithubChannel(base.Channel):
 
     def _create_comment(
             self, chat: mdl.GithubChatDescriptor, comment_body: str):
-        gh = self._client.get_github()
-        repo = gh.get_repo(chat.repo_full_name)
+        repo = self._client.github.get_repo(chat.repo_full_name)
         issue = repo.get_issue(chat.issue_number)
         return issue.create_comment(comment_body)
 
