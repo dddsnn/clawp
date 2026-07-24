@@ -33,19 +33,19 @@ from . import provider as prov
 from . import state as st
 
 _log_fmt = "%(asctime)s|%(module)s|%(name)s|%(levelname)s: %(message)s"
-_loggers_with_only_info_level = [
-    "fabric", "httpcore", "invoke", "mcp.server.lowlevel.server", "nio",
-    "paramiko.transport", "peewee", "urllib3.connectionpool"]
+_loggers_with_reduced_level = {
+    "INFO": [
+        "fabric", "httpcore", "invoke", "mcp.server.lowlevel.server", "nio",
+        "paramiko.transport", "peewee", "urllib3.connectionpool"],
+    "WARNING": ["httpx"]}
 logging.config.dictConfig({
-    "version": 1,
-    "formatters": {"simple": {"format": _log_fmt}},
-    "handlers": {
+    "version": 1, "formatters": {"simple": {"format": _log_fmt}}, "handlers": {
         "stream_handler": {
             "class": "logging.StreamHandler", "formatter": "simple"}},
-    "root": {"level": "DEBUG", "handlers": ["stream_handler"]},
-    "loggers": {
-        logger_name: {"level": "INFO", "handlers": ["stream_handler"]}
-        for logger_name in _loggers_with_only_info_level},})
+    "root": {"level": "DEBUG", "handlers": ["stream_handler"]}, "loggers": {
+        logger_name: {"level": level, "handlers": ["stream_handler"]}
+        for level, loggers in _loggers_with_reduced_level.items()
+        for logger_name in loggers}})
 logger = logging.getLogger(__name__)
 
 
