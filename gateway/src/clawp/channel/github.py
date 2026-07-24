@@ -47,6 +47,7 @@ class GithubAppClient:
         # access a property and cause a request to be sent.
         self._integration = github.GithubIntegration(auth=app_auth, lazy=False)
         self._login = None
+        self._authorization = None
 
     async def __aenter__(self) -> t.Self:
         self._login = await asyncio.to_thread(self._get_login_sync)
@@ -82,15 +83,23 @@ class GithubAppClient:
         return self._integration.get_github_for_installation(
             self._config.installation_id)
 
-    async def get_installation_token(self) -> str:
+    @property
+    async def installation_token(self) -> str:
         """
-        Get an authorization token for the app.
+        Authorization token for the app installation.
+
+        The token is guaranteed to be valid for at least another minute.
 
         This token can be used with the gh CLI (GH_TOKEN).
         """
-        authorization = await asyncio.to_thread(
-            self._integration.get_access_token, self._config.installation_id)
-        return authorization.token
+        if (self._authorization is None
+                or we.Instant(self._authorization.expires_at)
+                < we.Instant.now() + we.TimeDelta(minutes=1)):
+            self._logger.info("Fetching new installation token.")
+            self._authorization = await asyncio.to_thread(
+                self._integration.get_access_token,
+                self._config.installation_id)
+        return self._authorization.token
 
     async def list_installation_repositories(self) -> list[gh_repo.Repository]:
         """
@@ -180,8 +189,8 @@ class RepositoryProgressChecker:
 
     async def _update(self) -> None:
         headers = {
-            "Authorization": await
-            self._github_client.get_installation_token(),
+            "Authorization": "Bearer " +
+            (await self._github_client.installation_token),
             "Accept": "application/vnd.github+json"}
         if self._read_progress.issues_event_etag is not None:
             headers["If-None-Match"] = self._read_progress.issues_event_etag
@@ -321,7 +330,7 @@ class GithubChannel(base.Channel):
     async def get_extra_shell_env(self) -> dict[str, str]:
         # We're using the GIT_CONFIG_* env variables, which allow us to specify
         # extra config without having to write to a file.
-        token = await self._client.get_installation_token()
+        token = await self._client.installation_token
         url_rewrite_config_key = (
             'url."https://{}:{}@github.com/".insteadOf'.format(
                 self._client.login, token))

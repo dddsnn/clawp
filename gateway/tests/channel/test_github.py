@@ -27,6 +27,7 @@ from hamcrest import (
     has_properties,
 )
 
+import clawp.util
 from clawp import model as mdl
 from clawp.channel import github
 
@@ -46,9 +47,10 @@ class TestRepositoryProgressChecker:
         return "Bearer test-token"
 
     @pytest.fixture
-    def mock_github_client(self, token):
+    async def mock_github_client(self, token):
         mock_github_client = um.Mock(spec=github.GithubAppClient)
-        mock_github_client.get_installation_token.return_value = token
+        mock_github_client.installation_token = clawp.util.create_done_future(
+            token)
         return mock_github_client
 
     @pytest.fixture
@@ -82,7 +84,7 @@ class TestRepositoryProgressChecker:
                 httpx_mock.get_requests(),
                 contains_exactly(
                     get_request_with_headers({
-                        "authorization": token,
+                        "authorization": f"Bearer {token}",
                         "accept": "application/vnd.github+json"})))
 
     async def test_issues_events_available_if_200_response(
