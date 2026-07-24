@@ -25,6 +25,7 @@ import typing as t
 import github
 import github.Issue as gh_iss
 import github.Repository as gh_repo
+import httpx
 import pydantic as pyd
 import whenever as we
 
@@ -113,6 +114,139 @@ class GithubAppClient:
                 continue
             repos.append(repo)
         return repos
+
+
+class RepositoryProgressChecker:
+    """
+    Utility checking whether there is any progress in the API.
+
+    This is a context manager that makes requests to selected endpoints making
+    use of ETag/If-None-Match headers. The new_issues_events_available is
+    available when the context manager is active, indicating whether a request
+    to the issues events endpoint would yield new results.
+
+    The ETag value of any response is persisted when the context manager exits
+    and provided as If-None-Match header on the next request. Checks the
+    response's status code, where 200 means there are new events, 304 means no
+    new events.
+
+    If an exception occurs when querying the API, defaults to indicating that
+    there are new results (so that nothing is skipped accidentally). The same
+    applies when an exception occurs within the context manager (i.e. the code
+    wrapped by it). This applies that client code must be ready to receive
+    events it has seen before and filter them appropriately.
+
+    This only works as intended if the client code processes all events within
+    the context manager. Once the context manager exits, it is asssumed they
+    never need to be received again. If an error occurs in the processing code,
+    an exception must be raised in the context manager so that the events are
+    not marked as seen and can be tried again.
+
+    The context manager is reentrant.
+    """
+    def __init__(
+            self, github_client: GithubAppClient,
+            read_progress: mdl.GithubRepositoryReadProgress,
+            repo_full_name: str, httpx_client: httpx.AsyncClient) -> None:
+        self._logger = logging.getLogger(type(self).__name__)
+        self._github_client = github_client
+        self._read_progress = read_progress
+        self._issues_events_url = (
+            f"https://api.github.com/repos/{repo_full_name}/issues/events")
+        self._httpx_client = httpx_client
+        self._active_etag = None
+        self._new_issues_events_available = None
+
+    async def __aenter__(self) -> t.Self:
+        self._new_issues_events_available = True
+        self._active_etag = None
+        await self._update()
+        return self
+
+    async def __aexit__(
+            self, exc_type: type[BaseException] | None, *_) -> t.Self:
+        self._new_issues_events_available = None
+        if self._active_etag is None:
+            self._logger.warning(
+                f"{self._issues_events_url} responded without an ETag.")
+        elif exc_type is None:
+            self._read_progress.issues_event_etag = self._active_etag
+        else:
+            self._logger.debug(
+                f"Discarding ETag because of exception in context manager "
+                f"processing events from {self._issues_events_url}.")
+        return False
+
+    async def _update(self) -> None:
+        headers = {
+            "Authorization": await
+            self._github_client.get_installation_token(),
+            "Accept": "application/vnd.github+json"}
+        if self._read_progress.issues_event_etag is not None:
+            headers["If-None-Match"] = self._read_progress.issues_event_etag
+        try:
+            response = await self._httpx_client.get(
+                self._issues_events_url, headers=headers)
+            self._active_etag = response.headers.get("ETag")
+            self._new_issues_events_available = response.status_code != 304
+            if response.status_code not in (200, 304):
+                self._logger.warning(
+                    f"Unexpected status {response.status_code} in response "
+                    f"from {self._issues_events_url}.")
+        except Exception:
+            self._logger.exception(
+                "Error checking ETag, setting events as available.")
+            self._new_issues_events_available = True
+
+    @property
+    def new_issues_events_available(self) -> bool:
+        """
+        Whether any new issues events are available.
+
+        Indicates whether a query to the issues events endpoint will return
+        events that didn't exist since the last time the context manager
+        exited.
+
+        This applies to the
+        https://api.github.com/repos/{owner}/{repo}/issues/events endpoint.
+
+        The context manager must be active or this raises an exception.
+        """
+        if self._new_issues_events_available is None:
+            raise ValueError("context manager is not active")
+        return self._new_issues_events_available
+
+
+class ProgressChecker:
+    """
+    Utility checking whether there is any progress in the API.
+
+    This is just a manager for the repo-specific checkers that manages their
+    state and a shared http client.
+
+    The checker should be closed with aclose() on shutdown.
+    """
+    def __init__(
+            self, github_client: GithubAppClient,
+            state: mdl.GithubChannelState) -> None:
+        self._github_client = github_client
+        self._state = state
+        self._httpx_client = httpx.AsyncClient()
+
+    async def aclose(self) -> None:
+        await self._httpx_client.aclose()
+
+    def for_repo(self, repo_full_name: str) -> RepositoryProgressChecker:
+        """
+        Get a repo-specific checker.
+
+        Creates a new read progress state for the repo if necessary.
+        """
+        read_progress = self._state.repo_read_progress.setdefault(
+            repo_full_name, mdl.GithubRepositoryReadProgress())
+        return RepositoryProgressChecker(
+            self._github_client, read_progress, repo_full_name,
+            self._httpx_client)
 
 
 class GithubChannel(base.Channel):
@@ -314,10 +448,9 @@ class GithubChannel(base.Channel):
 
     def _get_read_marker(
             self, repo_full_name: str) -> mdl.GithubEventReadMarker:
-        try:
-            return self._state.issue_event_read_markers[repo_full_name]
-        except KeyError:
-            return mdl.GithubEventReadMarker.min()
+        read_progress = self._state.repo_read_progress.setdefault(
+            repo_full_name, mdl.GithubRepositoryReadProgress())
+        return read_progress.issues_event_read_marker
 
     async def _process_events(
             self, repo: gh_repo.Repository,
@@ -338,15 +471,16 @@ class GithubChannel(base.Channel):
                     messages += await asyncio.to_thread(
                         self._incoming_messages_for_event, repo, issue_event)
             finally:
-                self._state.issue_event_read_markers[repo.full_name] = (
-                    self._update_issue_event_read_marker(
+                read_progress = self._state.repo_read_progress[repo.full_name]
+                read_progress.issues_event_read_marker = (
+                    self._updated_issues_event_read_marker(
                         read_marker, issue_event))
             for message in messages:
                 self._state.unread_messages.setdefault(
                     message.chat.chat_id, []).append(message)
                 await self._publisher.append(message)
 
-    def _update_issue_event_read_marker(
+    def _updated_issues_event_read_marker(
             self, read_marker: mdl.GithubEventReadMarker,
             issue_event: gh_iss.IssueEvent) -> mdl.GithubEventReadMarker:
         """

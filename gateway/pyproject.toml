@@ -26,6 +26,7 @@ dependencies = [
     "whenever>=0.10.0",
     "fabric>=3.2.3",
     "pygithub>=2.9.1",
+    "httpx>=0.28.1",
 ]
 
 [project.optional-dependencies]
@@ -36,6 +37,7 @@ test = [
     "pyhamcrest>=2.1.0",
     "pytest>=9.0.3",
     "pytest-asyncio>=1.3.0",
+    "pytest-httpx>=0.36.2",
 ]
 
 [project.urls]
