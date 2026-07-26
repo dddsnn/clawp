@@ -277,6 +277,8 @@ class GithubChannel(base.Channel):
     The channel also makes environment variables available that authorize git
     and the gh CLI.
     """
+    _RELEVANT_ISSUE_EVENTS = ["labeled", "unlabeled"]
+
     def __init__(
             self, config: mdl.GithubAccountConfig,
             state: mdl.GithubChannelState) -> None:
@@ -442,7 +444,7 @@ class GithubChannel(base.Channel):
                 repo.full_name) as repo_checker:
             if repo_checker.new_issues_events_available:
                 issue_events = await asyncio.to_thread(
-                    self._get_new_issue_events, repo)
+                    self._get_relevant_new_issue_events, repo)
                 self._logger.debug(
                     f"Got {len(issue_events)} new events polling repository "
                     f"{repo.full_name}.")
@@ -451,7 +453,7 @@ class GithubChannel(base.Channel):
             if issue_events:
                 await self._process_events(repo, issue_events)
 
-    def _get_new_issue_events(
+    def _get_relevant_new_issue_events(
             self, repo: gh_repo.Repository) -> list[gh_iss.IssueEvent]:
         read_marker = self._get_read_marker(repo.full_name)
         new_issue_events: list[gh_iss.IssueEvent] = []
@@ -464,7 +466,8 @@ class GithubChannel(base.Channel):
                 or issue_event.id in read_marker.last_event_ids)
             if already_seen:
                 break
-            new_issue_events.append(issue_event)
+            if issue_event.event in self._RELEVANT_ISSUE_EVENTS:
+                new_issue_events.append(issue_event)
         # Sort by creation timestamp so we're returning oldest events first.
         new_issue_events.sort(key=op.attrgetter("created_at"))
         return new_issue_events
