@@ -486,25 +486,23 @@ class GithubChannel(base.Channel):
         read_marker = self._get_read_marker(repo.full_name)
         for issue_event in issue_events:
             messages: list[mdl.IncomingGithubMessage] = []
-            try:
-                assigned, event_id = issue_stati[issue_event.issue.number]
-                if issue_event.id == event_id:
-                    # This is the event of assignment state change.
-                    messages += await asyncio.to_thread(
-                        self._incoming_messages_for_assignment_change, repo,
-                        issue_event, assigned)
-                elif assigned:
-                    messages += await asyncio.to_thread(
-                        self._incoming_messages_for_event, repo, issue_event)
-            finally:
-                read_progress = self._state.repo_read_progress[repo.full_name]
-                read_progress.issues_event_read_marker = (
-                    self._updated_issues_event_read_marker(
-                        read_marker, issue_event))
+            assigned, event_id = issue_stati[issue_event.issue.number]
+            if issue_event.id == event_id:
+                # This is the issue_event of assignment state change.
+                messages += await asyncio.to_thread(
+                    self._incoming_messages_for_assignment_change, repo,
+                    issue_event, assigned)
+            elif assigned:
+                messages += await asyncio.to_thread(
+                    self._incoming_messages_for_event, repo, issue_event)
             for message in messages:
                 self._state.unread_messages.setdefault(
                     message.chat.chat_id, []).append(message)
                 await self._publisher.append(message)
+            read_progress = self._state.repo_read_progress[repo.full_name]
+            read_progress.issues_event_read_marker = (
+                self._updated_issues_event_read_marker(
+                    read_marker, issue_event))
 
     def _updated_issues_event_read_marker(
             self, read_marker: mdl.GithubEventReadMarker,
