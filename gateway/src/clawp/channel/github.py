@@ -159,13 +159,12 @@ class ProgressChecker:
     """
     def __init__(
             self, github_client: GithubAppClient,
-            read_progress: mdl.GithubRepositoryReadProgress,
             httpx_client: httpx.AsyncClient, check_url: str) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._github_client = github_client
-        self._read_progress = read_progress
         self._httpx_client = httpx_client
         self._check_url = check_url
+        self._read_etag = None
         self._active_etag = None
         self._has_changes = None
 
@@ -182,7 +181,7 @@ class ProgressChecker:
             self._logger.warning(
                 f"{self._check_url} responded without an ETag.")
         elif exc_type is None:
-            self._read_progress.issues_event_etag = self._active_etag
+            self._read_etag = self._active_etag
         else:
             self._logger.debug(
                 f"Discarding ETag because of exception in context manager "
@@ -194,8 +193,8 @@ class ProgressChecker:
             "Authorization": "Bearer " +
             (await self._github_client.installation_token),
             "Accept": "application/vnd.github+json"}
-        if self._read_progress.issues_event_etag is not None:
-            headers["If-None-Match"] = self._read_progress.issues_event_etag
+        if self._read_etag is not None:
+            headers["If-None-Match"] = self._read_etag
         try:
             response = await self._httpx_client.get(
                 self._check_url, headers=headers)
@@ -234,11 +233,8 @@ class ProgressCheckers:
 
     The checker should be closed with aclose() on shutdown.
     """
-    def __init__(
-            self, github_client: GithubAppClient,
-            state: mdl.GithubChannelState) -> None:
+    def __init__(self, github_client: GithubAppClient) -> None:
         self._github_client = github_client
-        self._state = state
         self._httpx_client = httpx.AsyncClient()
 
     async def aclose(self) -> None:
@@ -256,10 +252,8 @@ class ProgressCheckers:
         check_url = (
             f"https://api.github.com/repos/{repo_full_name}/issues/events"
             "?per_page=1")
-        read_progress = self._state.repo_read_progress.setdefault(
-            repo_full_name, mdl.GithubRepositoryReadProgress())
         return ProgressChecker(
-            self._github_client, read_progress, self._httpx_client, check_url)
+            self._github_client, self._httpx_client, check_url)
 
 
 class GithubChannel(base.Channel):
@@ -285,7 +279,7 @@ class GithubChannel(base.Channel):
         self._config = config
         self._state = state
         self._client = GithubAppClient(self._config)
-        self._progress_checkers = ProgressCheckers(self._client, self._state)
+        self._progress_checkers = ProgressCheckers(self._client)
         self._poll_task: asyncio.Task | None = None
         self._message_templates: dict[str, file.Template] = None
 

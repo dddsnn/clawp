@@ -28,7 +28,6 @@ from hamcrest import (
 )
 
 import clawp.util
-from clawp import model as mdl
 from clawp.channel import github
 
 
@@ -51,20 +50,10 @@ class TestProgressChecker:
         return mock_github_client
 
     @pytest.fixture
-    def make_checker(self, mock_github_client):
-        def factory(read_progress):
-            httpx_client = httpx.AsyncClient()
-            checker = github.ProgressChecker(
-                mock_github_client, read_progress, httpx_client,
-                self.CHECK_URL)
-            return checker, httpx_client
-
-        return factory
-
-    @pytest.fixture
-    async def checker(self, make_checker):
-        checker, httpx_client = make_checker(
-            mdl.GithubRepositoryReadProgress())
+    async def checker(self, mock_github_client):
+        httpx_client = httpx.AsyncClient()
+        checker = github.ProgressChecker(
+            mock_github_client, httpx_client, self.CHECK_URL)
         yield checker
         await httpx_client.aclose()
 
@@ -192,48 +181,3 @@ class TestProgressChecker:
             assert checker.has_changes
         async with checker:
             assert checker.has_changes
-
-    async def test_persists_previous_etag(
-            self, make_checker, httpx_mock: pytest_httpx.HTTPXMock):
-        httpx_mock.add_response(
-            url=self.CHECK_URL, headers={"etag": '"tag1"'}, status_code=200)
-        httpx_mock.add_response(
-            url=self.CHECK_URL, match_headers={"If-None-Match": '"tag1"'},
-            headers={"etag": '"tag1"'}, status_code=304)
-        read_progress = mdl.GithubRepositoryReadProgress()
-        checker, httpx_client = make_checker(read_progress)
-        async with checker:
-            pass
-        await httpx_client.aclose()
-        checker, httpx_client = make_checker(read_progress)
-        async with checker:
-            pass
-        await httpx_client.aclose()
-
-
-class TestProgressCheckers:
-    @pytest.fixture
-    def mock_repo_checker(self, monkeypatch):
-        monkeypatch.setattr(github, "ProgressChecker", um.Mock())
-        return github.ProgressChecker
-
-    def test_creates_new_progress(self, mock_repo_checker):
-        check_url = (
-            "https://api.github.com/repos/repo1/issues/events?per_page=1")
-        client, state = um.Mock(), mdl.GithubChannelState()
-        checkers = github.ProgressCheckers(client, state)
-        mock_repo_checker.assert_not_called()
-        checkers.for_issue_events("repo1")
-        mock_repo_checker.assert_called_once_with(
-            client, state.repo_read_progress["repo1"], um.ANY, check_url)
-
-    def test_uses_existing_progress(self, mock_repo_checker):
-        client, state = um.Mock(), mdl.GithubChannelState()
-        checkers = github.ProgressCheckers(client, state)
-        checkers.for_issue_events("repo1")
-        progress = state.repo_read_progress["repo1"]
-        checkers.for_issue_events("repo1")
-        assert state.repo_read_progress["repo1"] is progress
-        assert mock_repo_checker.call_args_list == [
-            um.call(client, progress, um.ANY, um.ANY),
-            um.call(client, progress, um.ANY, um.ANY)]
