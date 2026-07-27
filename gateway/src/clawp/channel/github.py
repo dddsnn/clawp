@@ -129,14 +129,14 @@ class GithubAppClient:
         return repos
 
 
-class RepositoryProgressChecker:
+class ProgressChecker:
     """
     Utility checking whether there is any progress in the API.
 
     This is a context manager that makes requests to selected endpoints making
-    use of ETag/If-None-Match headers. The new_issues_events_available is
-    available when the context manager is active, indicating whether a request
-    to the issues events endpoint would yield new results.
+    use of ETag/If-None-Match headers. The has_changes property is available
+    when the context manager is active, indicating whether a request to the
+    endpoint would yield new results.
 
     The ETag value of any response is persisted when the context manager exits
     and provided as If-None-Match header on the next request. Checks the
@@ -144,9 +144,9 @@ class RepositoryProgressChecker:
     new events.
 
     If an exception occurs when querying the API, defaults to indicating that
-    there are new results (so that nothing is skipped accidentally). The same
+    there are changes (so that nothing is skipped accidentally). The same
     applies when an exception occurs within the context manager (i.e. the code
-    wrapped by it). This applies that client code must be ready to receive
+    wrapped by it). This implies that client code must be ready to receive
     events it has seen before and filter them appropriately.
 
     This only works as intended if the client code processes all events within
@@ -160,35 +160,33 @@ class RepositoryProgressChecker:
     def __init__(
             self, github_client: GithubAppClient,
             read_progress: mdl.GithubRepositoryReadProgress,
-            repo_full_name: str, httpx_client: httpx.AsyncClient) -> None:
+            httpx_client: httpx.AsyncClient, check_url: str) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._github_client = github_client
         self._read_progress = read_progress
-        self._issues_events_url = (
-            f"https://api.github.com/repos/{repo_full_name}/issues/events"
-            "?per_page=1")
         self._httpx_client = httpx_client
+        self._check_url = check_url
         self._active_etag = None
-        self._new_issues_events_available = None
+        self._has_changes = None
 
     async def __aenter__(self) -> t.Self:
-        self._new_issues_events_available = True
+        self._has_changes = True
         self._active_etag = None
         await self._update()
         return self
 
     async def __aexit__(
             self, exc_type: type[BaseException] | None, *_) -> t.Self:
-        self._new_issues_events_available = None
+        self._has_changes = None
         if self._active_etag is None:
             self._logger.warning(
-                f"{self._issues_events_url} responded without an ETag.")
+                f"{self._check_url} responded without an ETag.")
         elif exc_type is None:
             self._read_progress.issues_event_etag = self._active_etag
         else:
             self._logger.debug(
                 f"Discarding ETag because of exception in context manager "
-                f"processing events from {self._issues_events_url}.")
+                f"processing results from {self._check_url}.")
         return False
 
     async def _update(self) -> None:
@@ -200,43 +198,39 @@ class RepositoryProgressChecker:
             headers["If-None-Match"] = self._read_progress.issues_event_etag
         try:
             response = await self._httpx_client.get(
-                self._issues_events_url, headers=headers)
+                self._check_url, headers=headers)
             self._active_etag = response.headers.get("ETag")
-            self._new_issues_events_available = response.status_code != 304
+            self._has_changes = response.status_code != 304
             if response.status_code not in (200, 304):
                 self._logger.warning(
                     f"Unexpected status {response.status_code} in response "
-                    f"from {self._issues_events_url}.")
+                    f"from {self._check_url}.")
         except Exception:
             self._logger.exception(
-                "Error checking ETag, setting events as available.")
-            self._new_issues_events_available = True
+                "Error checking ETag, setting changes flag.")
+            self._has_changes = True
 
     @property
-    def new_issues_events_available(self) -> bool:
+    def has_changes(self) -> bool:
         """
-        Whether any new issues events are available.
+        Whether there are any changes.
 
-        Indicates whether a query to the issues events endpoint will return
-        events that didn't exist since the last time the context manager
-        exited.
-
-        This applies to the
-        https://api.github.com/repos/{owner}/{repo}/issues/events endpoint.
+        Indicates whether a query to endpoint will return results that didn't
+        exist since the last time the context manager exited.
 
         The context manager must be active or this raises an exception.
         """
-        if self._new_issues_events_available is None:
+        if self._has_changes is None:
             raise ValueError("context manager is not active")
-        return self._new_issues_events_available
+        return self._has_changes
 
 
-class ProgressChecker:
+class ProgressCheckers:
     """
     Utility checking whether there is any progress in the API.
 
-    This is just a manager for the repo-specific checkers that manages their
-    state and a shared http client.
+    This is just a manager for the specific checkers that manages their state
+    and a shared http client.
 
     The checker should be closed with aclose() on shutdown.
     """
@@ -250,17 +244,22 @@ class ProgressChecker:
     async def aclose(self) -> None:
         await self._httpx_client.aclose()
 
-    def for_repo(self, repo_full_name: str) -> RepositoryProgressChecker:
+    def for_issue_events(self, repo_full_name: str) -> ProgressChecker:
         """
-        Get a repo-specific checker.
+        Get a checker for issue events.
+
+        This applies to the /repos/{owner}/{repo}/issues/events endpoint, where
+        repo_full_name is the {owner}/{repo} part.
 
         Creates a new read progress state for the repo if necessary.
         """
+        check_url = (
+            f"https://api.github.com/repos/{repo_full_name}/issues/events"
+            "?per_page=1")
         read_progress = self._state.repo_read_progress.setdefault(
             repo_full_name, mdl.GithubRepositoryReadProgress())
-        return RepositoryProgressChecker(
-            self._github_client, read_progress, repo_full_name,
-            self._httpx_client)
+        return ProgressChecker(
+            self._github_client, read_progress, self._httpx_client, check_url)
 
 
 class GithubChannel(base.Channel):
@@ -286,7 +285,7 @@ class GithubChannel(base.Channel):
         self._config = config
         self._state = state
         self._client = GithubAppClient(self._config)
-        self._progress_checker = ProgressChecker(self._client, self._state)
+        self._progress_checkers = ProgressCheckers(self._client, self._state)
         self._poll_task: asyncio.Task | None = None
         self._message_templates: dict[str, file.Template] = None
 
@@ -311,7 +310,7 @@ class GithubChannel(base.Channel):
         except Exception:
             self._logger.exception("Github poll task failed while stopping.")
         await self._client.__aexit__(*args)
-        await self._progress_checker.aclose()
+        await self._progress_checkers.aclose()
         return await super().__aexit__(*args)
 
     @property
@@ -440,9 +439,9 @@ class GithubChannel(base.Channel):
                     f"Error while polling repository {repo.full_name}.")
 
     async def _poll_repo(self, repo: gh_repo.Repository) -> None:
-        async with self._progress_checker.for_repo(
-                repo.full_name) as repo_checker:
-            if repo_checker.new_issues_events_available:
+        async with self._progress_checkers.for_issue_events(
+                repo.full_name) as issue_events_checker:
+            if issue_events_checker.has_changes:
                 issue_events = await asyncio.to_thread(
                     self._get_relevant_new_issue_events, repo)
                 self._logger.debug(
