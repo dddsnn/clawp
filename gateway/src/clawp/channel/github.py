@@ -443,8 +443,8 @@ class GithubChannel(base.Channel):
                     f"Error while polling repository {repo.full_name}.")
 
     async def _poll_repo(self, repo: gh_repo.Repository) -> None:
-            async with self._progress_checkers.for_url(
-                    self._issues_events_url(repo.full_name))) as issue_events_checker:
+        async with self._progress_checkers.for_url(self._issues_events_url(
+                repo.full_name)) as issue_events_checker:
             if issue_events_checker.has_changes:
                 issue_events = await asyncio.to_thread(
                     self._get_relevant_new_issue_events, repo)
