@@ -19,6 +19,7 @@ import uuid
 
 import pydantic as pyd
 import whenever as we
+import yarl
 
 from . import base
 from . import channel as chan
@@ -56,13 +57,13 @@ class GithubEventReadMarker(base.BaseModel):
 
 class GithubChannelState(base.BaseModel):
     """Persistent state for the Github channel."""
-    read_markers: dict[str, GithubEventReadMarker] = pyd.Field(
+    read_markers: dict[yarl.URL, GithubEventReadMarker] = pyd.Field(
         default_factory=dict)
     """
     Read markers for the channel.
 
-    Maps endpoints (including parameters like repo name or issue ID) to a read
-    marker of the last event processed from that endpoint.
+    Maps endpoint URL (including parameters like repo name or issue ID) to a
+    read marker of the last event processed from that endpoint.
     """
     unread_messages: dict[str, list[msg.IncomingMessage]] = pyd.Field(
         default_factory=dict)

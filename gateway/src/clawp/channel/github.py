@@ -28,6 +28,7 @@ import github.Repository as gh_repo
 import httpx
 import pydantic as pyd
 import whenever as we
+import yarl
 
 from .. import file
 from .. import message as msg
@@ -159,11 +160,11 @@ class ProgressChecker:
     """
     def __init__(
             self, github_client: GithubAppClient,
-            httpx_client: httpx.AsyncClient, check_url: str) -> None:
+            httpx_client: httpx.AsyncClient, check_url: yarl.URL) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._github_client = github_client
         self._httpx_client = httpx_client
-        self._check_url = check_url
+        self._check_url = str(check_url)
         self._read_etag = None
         self._active_etag = None
         self._has_changes = None
@@ -242,7 +243,7 @@ class ProgressCheckers:
     async def aclose(self) -> None:
         await self._httpx_client.aclose()
 
-    def for_url(self, check_url: str) -> ProgressChecker:
+    def for_url(self, check_url: yarl.URL) -> ProgressChecker:
         """
         Get a checker for a URL.
 
@@ -251,7 +252,7 @@ class ProgressCheckers:
 
         Creates a new read progress state for the repo if necessary.
         """
-        check_url += "?per_page=1"
+        check_url = check_url.update_query(per_page=1)
         try:
             return self._checkers[check_url]
         except KeyError:
@@ -416,9 +417,9 @@ class GithubChannel(base.Channel):
         issue = repo.get_issue(chat.issue_number)
         return issue.create_comment(comment_body)
 
-    @staticmethod
-    def _issues_events_endpoint(repo_full_name: str) -> str:
-        return f"https://api.github.com/repos/{repo_full_name}/issues/events"
+    def _issues_events_url(self, repo_full_name: str) -> yarl.URL:
+        return yarl.URL(
+            f"https://api.github.com/repos/{repo_full_name}/issues/events")
 
     async def _poll_forever(self) -> None:
         while True:
@@ -443,7 +444,7 @@ class GithubChannel(base.Channel):
 
     async def _poll_repo(self, repo: gh_repo.Repository) -> None:
             async with self._progress_checkers.for_url(
-                    self._issues_events_endpoint(repo.full_name))) as issue_events_checker:
+                    self._issues_events_url(repo.full_name))) as issue_events_checker:
             if issue_events_checker.has_changes:
                 issue_events = await asyncio.to_thread(
                     self._get_relevant_new_issue_events, repo)
@@ -458,7 +459,7 @@ class GithubChannel(base.Channel):
     def _get_relevant_new_issue_events(
             self, repo: gh_repo.Repository) -> list[gh_iss.IssueEvent]:
         read_marker = self._state.read_markers.setdefault(
-            self._issues_events_endpoint(repo.full_name),
+            self._issues_events_url(repo.full_name),
             mdl.GithubEventReadMarker())
         new_issue_events: list[gh_iss.IssueEvent] = []
         for issue_event in repo.get_issues_events():
@@ -483,7 +484,7 @@ class GithubChannel(base.Channel):
         issue_stati = await asyncio.to_thread(
             self._issue_state_changes, events)
         read_marker = self._state.read_markers.setdefault(
-            self._issues_events_endpoint(repo.full_name),
+            self._issues_events_url(repo.full_name),
             mdl.GithubEventReadMarker())
         for issue_event in issue_events:
             messages: list[mdl.IncomingGithubMessage] = []
@@ -500,7 +501,7 @@ class GithubChannel(base.Channel):
                 self._state.unread_messages.setdefault(
                     message.chat.chat_id, []).append(message)
                 await self._publisher.append(message)
-            self._state.read_markers[self._issues_events_endpoint(
+            self._state.read_markers[self._issues_events_url(
                 repo.full_name)] = (
                     self._updated_issues_event_read_marker(read_marker, event))
 

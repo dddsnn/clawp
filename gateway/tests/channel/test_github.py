@@ -20,6 +20,7 @@ import unittest.mock as um
 import httpx
 import pytest
 import pytest_httpx
+import yarl
 from hamcrest import (
     assert_that,
     contains_exactly,
@@ -53,7 +54,7 @@ class TestProgressChecker:
     async def checker(self, mock_github_client):
         httpx_client = httpx.AsyncClient()
         checker = github.ProgressChecker(
-            mock_github_client, httpx_client, self.CHECK_URL)
+            mock_github_client, httpx_client, yarl.URL(self.CHECK_URL))
         yield checker
         await httpx_client.aclose()
 
@@ -184,7 +185,7 @@ class TestProgressChecker:
 
 
 class TestProgressCheckers:
-    @pytest.fixture
+    @pytest.fixture(autouse=True)
     def mock_checker(self, monkeypatch):
         instances = {}
 
@@ -200,30 +201,42 @@ class TestProgressCheckers:
         client = um.Mock()
         checkers = github.ProgressCheckers(client)
         mock_checker.assert_not_called()
-        checker = checkers.for_url("https://example.org/endpoint")
+        checker = checkers.for_url(yarl.URL("https://example.org/endpoint"))
         mock_checker.assert_called_once_with(
-            client, um.ANY, "https://example.org/endpoint?per_page=1")
-        assert checker.check_url == "https://example.org/endpoint?per_page=1"
+            client, um.ANY,
+            yarl.URL("https://example.org/endpoint?per_page=1"))
+        assert checker.check_url == yarl.URL(
+            "https://example.org/endpoint?per_page=1")
 
     def test_uses_existing_checker_for_same_url(self, mock_checker):
         client = um.Mock()
         checkers = github.ProgressCheckers(client)
         mock_checker.assert_not_called()
-        checker1 = checkers.for_url("https://example.org/endpoint")
-        checker2 = checkers.for_url("https://example.org/endpoint")
+        checker1 = checkers.for_url(yarl.URL("https://example.org/endpoint"))
+        checker2 = checkers.for_url(yarl.URL("https://example.org/endpoint"))
         mock_checker.assert_called_once_with(
-            client, um.ANY, "https://example.org/endpoint?per_page=1")
+            client, um.ANY,
+            yarl.URL("https://example.org/endpoint?per_page=1"))
         assert checker1 is checker2
 
     def test_creates_new_checker_for_different_url(self, mock_checker):
         client = um.Mock()
         checkers = github.ProgressCheckers(client)
         mock_checker.assert_not_called()
-        checker1 = checkers.for_url("https://example.org/endpoint1")
-        checker2 = checkers.for_url("https://example.org/endpoint2")
+        checker1 = checkers.for_url(yarl.URL("https://example.org/endpoint1"))
+        checker2 = checkers.for_url(yarl.URL("https://example.org/endpoint2"))
         assert mock_checker.call_args_list == [
             um.call(
-                client, um.ANY, "https://example.org/endpoint1?per_page=1"),
+                client, um.ANY,
+                yarl.URL("https://example.org/endpoint1?per_page=1")),
             um.call(
-                client, um.ANY, "https://example.org/endpoint2?per_page=1"),]
+                client, um.ANY,
+                yarl.URL("https://example.org/endpoint2?per_page=1")),]
         assert checker1 is not checker2
+
+    def test_preservers_url_query_params(self):
+        checkers = github.ProgressCheckers(um.Mock())
+        checker = checkers.for_url(
+            yarl.URL("https://example.org/endpoint?param=1"))
+        assert checker.check_url == yarl.URL(
+            "https://example.org/endpoint?param=1&per_page=1")

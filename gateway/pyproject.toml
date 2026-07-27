@@ -27,6 +27,7 @@ dependencies = [
     "fabric>=3.2.3",
     "pygithub>=2.9.1",
     "httpx>=0.28.1",
+    "yarl>=1.23.0",
 ]
 
 [project.optional-dependencies]
