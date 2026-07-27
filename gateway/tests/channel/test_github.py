@@ -169,8 +169,8 @@ class TestProgressChecker:
             assert checker.has_changes
         async with checker:
             assert not checker.has_changes
-            async with checker:
-                assert checker.has_changes
+        async with checker:
+            assert checker.has_changes
 
     async def test_issues_events_available_if_missing_etag_in_response(
             self, checker, httpx_mock: pytest_httpx.HTTPXMock):
@@ -181,3 +181,49 @@ class TestProgressChecker:
             assert checker.has_changes
         async with checker:
             assert checker.has_changes
+
+
+class TestProgressCheckers:
+    @pytest.fixture
+    def mock_checker(self, monkeypatch):
+        instances = {}
+
+        def constructor(_1, _2, check_url):
+            return instances.setdefault(
+                check_url, um.Mock(check_url=check_url))
+
+        monkeypatch.setattr(
+            github, "ProgressChecker", um.Mock(side_effect=constructor))
+        return github.ProgressChecker
+
+    def test_creates_new_checker(self, mock_checker):
+        client = um.Mock()
+        checkers = github.ProgressCheckers(client)
+        mock_checker.assert_not_called()
+        checker = checkers.for_url("https://example.org/endpoint")
+        mock_checker.assert_called_once_with(
+            client, um.ANY, "https://example.org/endpoint?per_page=1")
+        assert checker.check_url == "https://example.org/endpoint?per_page=1"
+
+    def test_uses_existing_checker_for_same_url(self, mock_checker):
+        client = um.Mock()
+        checkers = github.ProgressCheckers(client)
+        mock_checker.assert_not_called()
+        checker1 = checkers.for_url("https://example.org/endpoint")
+        checker2 = checkers.for_url("https://example.org/endpoint")
+        mock_checker.assert_called_once_with(
+            client, um.ANY, "https://example.org/endpoint?per_page=1")
+        assert checker1 is checker2
+
+    def test_creates_new_checker_for_different_url(self, mock_checker):
+        client = um.Mock()
+        checkers = github.ProgressCheckers(client)
+        mock_checker.assert_not_called()
+        checker1 = checkers.for_url("https://example.org/endpoint1")
+        checker2 = checkers.for_url("https://example.org/endpoint2")
+        assert mock_checker.call_args_list == [
+            um.call(
+                client, um.ANY, "https://example.org/endpoint1?per_page=1"),
+            um.call(
+                client, um.ANY, "https://example.org/endpoint2?per_page=1"),]
+        assert checker1 is not checker2

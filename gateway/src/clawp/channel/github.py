@@ -155,7 +155,7 @@ class ProgressChecker:
     an exception must be raised in the context manager so that the events are
     not marked as seen and can be tried again.
 
-    The context manager is reentrant.
+    The context manager is reusable but not reentrant.
     """
     def __init__(
             self, github_client: GithubAppClient,
@@ -169,6 +169,7 @@ class ProgressChecker:
         self._has_changes = None
 
     async def __aenter__(self) -> t.Self:
+        assert self._has_changes is None
         self._has_changes = True
         self._active_etag = None
         await self._update()
@@ -236,24 +237,28 @@ class ProgressCheckers:
     def __init__(self, github_client: GithubAppClient) -> None:
         self._github_client = github_client
         self._httpx_client = httpx.AsyncClient()
+        self._checkers = {}
 
     async def aclose(self) -> None:
         await self._httpx_client.aclose()
 
-    def for_issue_events(self, repo_full_name: str) -> ProgressChecker:
+    def for_url(self, check_url: str) -> ProgressChecker:
         """
-        Get a checker for issue events.
+        Get a checker for a URL.
 
-        This applies to the /repos/{owner}/{repo}/issues/events endpoint, where
-        repo_full_name is the {owner}/{repo} part.
+        Creates or returns an existing checker for the given URL. A query
+        parameter "?per_page=1" is appended to the URL first.
 
         Creates a new read progress state for the repo if necessary.
         """
-        check_url = (
-            f"https://api.github.com/repos/{repo_full_name}/issues/events"
-            "?per_page=1")
-        return ProgressChecker(
-            self._github_client, self._httpx_client, check_url)
+        check_url += "?per_page=1"
+        try:
+            return self._checkers[check_url]
+        except KeyError:
+            return self._checkers.setdefault(
+                check_url,
+                ProgressChecker(
+                    self._github_client, self._httpx_client, check_url))
 
 
 class GithubChannel(base.Channel):
@@ -437,8 +442,8 @@ class GithubChannel(base.Channel):
                     f"Error while polling repository {repo.full_name}.")
 
     async def _poll_repo(self, repo: gh_repo.Repository) -> None:
-        async with self._progress_checkers.for_issue_events(
-                repo.full_name) as issue_events_checker:
+            async with self._progress_checkers.for_url(
+                    self._issues_events_endpoint(repo.full_name))) as issue_events_checker:
             if issue_events_checker.has_changes:
                 issue_events = await asyncio.to_thread(
                     self._get_relevant_new_issue_events, repo)
