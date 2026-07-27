@@ -54,35 +54,17 @@ class GithubEventReadMarker(base.BaseModel):
             last_event_time=we.Instant.MIN, last_event_ids=set())
 
 
-class GithubRepositoryReadProgress(base.BaseModel):
-    """
-    Read progress in a repository.
-
-    Stores metadata describing what data from the API has already been ingested
-    into the system.
-    """
-    issues_event_read_marker: GithubEventReadMarker = pyd.Field(
-        default_factory=GithubEventReadMarker.min)
-    """
-    Read marker for the last read issue event.
-
-    Events are marked as read when they have been successfully processed and
-    stored as an unread message to be delivered to the agent.
-    """
-    issues_event_etag: str | None = None
-    """Last seen ETag in the issues events endpoint."""
-
-
 class GithubChannelState(base.BaseModel):
     """Persistent state for the Github channel."""
-    repo_read_progress: dict[str, GithubRepositoryReadProgress] = pyd.Field(
+    read_markers: dict[str, GithubEventReadMarker] = pyd.Field(
         default_factory=dict)
     """
-    Read progress for known repositories.
+    Read markers for the channel.
 
-    Maps full repo names to their read progress.
+    Maps endpoints (including parameters like repo name or issue ID) to a read
+    marker of the last event processed from that endpoint.
     """
-    unread_messages: dict[str, list[msg.IncomingGithubMessage]] = pyd.Field(
+    unread_messages: dict[str, list[msg.IncomingMessage]] = pyd.Field(
         default_factory=dict)
     """Unread messages, by chat_id."""
 

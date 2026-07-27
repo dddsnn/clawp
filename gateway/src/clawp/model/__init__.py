@@ -109,7 +109,6 @@ from .state import (
     GatewayState,
     GithubChannelState,
     GithubEventReadMarker,
-    GithubRepositoryReadProgress,
     WebUiChannelState,
 )
 from .tool import ShellResult
@@ -209,7 +208,6 @@ __all__ = [
     "GatewayState",
     "GithubChannelState",
     "GithubEventReadMarker",
-    "GithubRepositoryReadProgress",
     "WebUiChannelState",
     # tool
     "ShellResult",]

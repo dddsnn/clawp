@@ -411,6 +411,10 @@ class GithubChannel(base.Channel):
         issue = repo.get_issue(chat.issue_number)
         return issue.create_comment(comment_body)
 
+    @staticmethod
+    def _issues_events_endpoint(repo_full_name: str) -> str:
+        return f"https://api.github.com/repos/{repo_full_name}/issues/events"
+
     async def _poll_forever(self) -> None:
         while True:
             try:
@@ -448,7 +452,9 @@ class GithubChannel(base.Channel):
 
     def _get_relevant_new_issue_events(
             self, repo: gh_repo.Repository) -> list[gh_iss.IssueEvent]:
-        read_marker = self._get_read_marker(repo.full_name)
+        read_marker = self._state.read_markers.setdefault(
+            self._issues_events_endpoint(repo.full_name),
+            mdl.GithubEventReadMarker())
         new_issue_events: list[gh_iss.IssueEvent] = []
         for issue_event in repo.get_issues_events():
             # The issue events are sorted newest-first, so collect them until
@@ -465,18 +471,15 @@ class GithubChannel(base.Channel):
         new_issue_events.sort(key=op.attrgetter("created_at"))
         return new_issue_events
 
-    def _get_read_marker(
-            self, repo_full_name: str) -> mdl.GithubEventReadMarker:
-        read_progress = self._state.repo_read_progress.setdefault(
-            repo_full_name, mdl.GithubRepositoryReadProgress())
-        return read_progress.issues_event_read_marker
 
     async def _process_events(
             self, repo: gh_repo.Repository,
             issue_events: list[gh_iss.IssueEvent]) -> None:
         issue_stati = await asyncio.to_thread(
-            self._issue_state_changes, issue_events)
-        read_marker = self._get_read_marker(repo.full_name)
+            self._issue_state_changes, events)
+        read_marker = self._state.read_markers.setdefault(
+            self._issues_events_endpoint(repo.full_name),
+            mdl.GithubEventReadMarker())
         for issue_event in issue_events:
             messages: list[mdl.IncomingGithubMessage] = []
             assigned, event_id = issue_stati[issue_event.issue.number]
@@ -492,10 +495,9 @@ class GithubChannel(base.Channel):
                 self._state.unread_messages.setdefault(
                     message.chat.chat_id, []).append(message)
                 await self._publisher.append(message)
-            read_progress = self._state.repo_read_progress[repo.full_name]
-            read_progress.issues_event_read_marker = (
-                self._updated_issues_event_read_marker(
-                    read_marker, issue_event))
+            self._state.read_markers[self._issues_events_endpoint(
+                repo.full_name)] = (
+                    self._updated_issues_event_read_marker(read_marker, event))
 
     def _updated_issues_event_read_marker(
             self, read_marker: mdl.GithubEventReadMarker,
