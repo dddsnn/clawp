@@ -180,12 +180,6 @@ class IncomingMessage(base.BaseModel):
     message: ChatMessage | SystemMessage
 
 
-class IncomingGithubMessage(IncomingMessage):
-    chat: chan.GithubChatDescriptor
-    message: GithubChatMessage | SystemMessage
-    event_id: int
-
-
 class BaseStreamingMessageMarker(base.BaseModel):
     """A marker in the stream of a streamable message."""
     marker_type: t.Literal["message_start", "message_end", "part_start",

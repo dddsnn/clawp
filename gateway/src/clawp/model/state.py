@@ -41,12 +41,12 @@ class GithubEventReadMarker(base.BaseModel):
     A read marker for events.
 
     The marker stores the timestamp of the last event read, as well as a set of
-    all event IDs at that timestamp (usually this should just be one, but they
-    are use to disambiguate in case there are multiple events with the same
-    timestamp).
+    all event node IDs at that timestamp (usually this should just be one, but
+    they are use to disambiguate in case there are multiple events with the
+    same timestamp).
     """
     last_event_time: base.Iso8601Millis
-    last_event_ids: set[int]
+    last_event_ids: set[str]
 
     @staticmethod
     def min() -> GithubEventReadMarker:
