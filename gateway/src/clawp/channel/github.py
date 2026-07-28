@@ -136,15 +136,34 @@ class ProgressChecker:
     """
     Utility checking whether there is any progress in the API.
 
-    This is a context manager that makes requests to selected endpoints making
-    use of ETag/If-None-Match headers. The has_changes property is available
-    when the context manager is active, indicating whether a request to the
-    endpoint would yield new results.
+    This is a context manager that makes requests to paginated Github API
+    endpoints making use of ETag/If-None-Match headers. Paginated endpoints are
+    ones that support the page and per_page query parameters. The has_changes
+    property is available when the context manager is active, indicating
+    whether a request to the endpoint would yield new results.
 
     The ETag value of any response is persisted when the context manager exits
     and provided as If-None-Match header on the next request. Checks the
     response's status code, where 200 means there are new events, 304 means no
     new events.
+
+    The checker operates in one of two modes, depending on the
+    look_for_changes_in parameter: It can look for changes in the first page of
+    the response. This is the easy case, in which it only fetches the first
+    item from the first page of the endpoint. This is meant for endpoints that
+    are sorted newest-first, where any change will necessarily change the first
+    item.
+
+    The more complex case is last_page, meant for endpoints that are sorted
+    such that new items are at the end, where a new item might not change the
+    first page at all. In this mode, the checker uses the maximum allowable
+    page size to load all pages once, record their ETags and learn how many
+    pages there are. On subsequent checks, it only checks the last page. If the
+    the page is not full and the status code is 304, there are no changes. If
+    the page is full (i.e. maximum number of items) the next page is checked.
+    If the next page doesn't exist (indicated by a 404 response), there are no
+    changes. All other conditions lead the checker to report that there are
+    changes.
 
     If an exception occurs when querying the API, defaults to indicating that
     there are changes (so that nothing is skipped accidentally). The same
@@ -160,32 +179,53 @@ class ProgressChecker:
 
     The context manager is reusable but not reentrant.
     """
+    GITHUB_MAX_PER_PAGE = 100
+
     def __init__(
             self, github_client: GithubAppClient,
-            httpx_client: httpx.AsyncClient, check_url: yarl.URL) -> None:
+            httpx_client: httpx.AsyncClient, check_url: yarl.URL, *,
+            look_for_changes_in: t.Literal["first_page", "last_page"]) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._github_client = github_client
         self._httpx_client = httpx_client
-        self._check_url = str(check_url)
+        self._check_url = check_url
+        self._look_for_changes_in = look_for_changes_in
         self._read_etag = None
+        self._read_page = None
+        self._read_page_is_full = None
         self._active_etag = None
+        self._active_page = None
+        self._active_page_is_full = None
         self._has_changes = None
+
+    @property
+    def look_for_changes_in(self) -> t.Literal["first_page", "last_page"]:
+        return t.cast(
+            t.Literal["first_page", "last_page"], self._look_for_changes_in)
 
     async def __aenter__(self) -> t.Self:
         assert self._has_changes is None
         self._has_changes = True
         self._active_etag = None
+        self._active_page = None
+        self._active_page_is_full = None
         await self._update()
         return self
 
     async def __aexit__(
-            self, exc_type: type[BaseException] | None, *_) -> t.Self:
+            self, exc_type: type[BaseException] | None, *_) -> bool:
         self._has_changes = None
         if self._active_etag is None:
             self._logger.warning(
                 f"{self._check_url} responded without an ETag.")
+            if exc_type is None and self._active_page is not None:
+                self._read_etag = None
+                self._read_page = self._active_page
+                self._read_page_is_full = self._active_page_is_full
         elif exc_type is None:
             self._read_etag = self._active_etag
+            self._read_page = self._active_page
+            self._read_page_is_full = self._active_page_is_full
         else:
             self._logger.debug(
                 f"Discarding ETag because of exception in context manager "
@@ -197,21 +237,104 @@ class ProgressChecker:
             "Authorization": "Bearer " +
             (await self._github_client.installation_token),
             "Accept": "application/vnd.github+json"}
-        if self._read_etag is not None:
-            headers["If-None-Match"] = self._read_etag
         try:
-            response = await self._httpx_client.get(
-                self._check_url, headers=headers)
-            self._active_etag = response.headers.get("ETag")
-            self._has_changes = response.status_code != 304
-            if response.status_code not in (200, 304):
-                self._logger.warning(
-                    f"Unexpected status {response.status_code} in response "
-                    f"from {self._check_url}.")
+            if self._look_for_changes_in == "first_page":
+                await self._update_first_page(headers)
+            else:
+                await self._update_last_page(headers)
         except Exception:
             self._logger.exception(
                 "Error checking ETag, setting changes flag.")
+            self._active_etag = None
+            self._active_page = None
+            self._active_page_is_full = None
             self._has_changes = True
+
+    def _page_url(self, page: int, per_page: int) -> str:
+        return str(self._check_url.update_query(page=page, per_page=per_page))
+
+    async def _get_page(
+            self, page: int, per_page: int, headers: dict[str, str],
+            etag: str | None = None) -> httpx.Response:
+        headers = headers.copy()
+        if etag is not None:
+            headers["If-None-Match"] = etag
+        return await self._httpx_client.get(
+            self._page_url(page, per_page), headers=headers)
+
+    async def _update_first_page(self, headers: dict[str, str]) -> None:
+        response = await self._get_page(1, 1, headers, etag=self._read_etag)
+        self._active_etag = response.headers.get("ETag")
+        self._has_changes = response.status_code != 304
+        if response.status_code not in (200, 304):
+            self._logger.warning(
+                f"Unexpected status {response.status_code} in response "
+                f"from {self._check_url}.")
+
+    async def _update_last_page(self, headers: dict[str, str]) -> None:
+        if self._read_page is None:
+            await self._find_last_page(headers)
+            return
+
+        response = await self._get_page(
+            self._read_page, self.GITHUB_MAX_PER_PAGE, headers,
+            etag=self._read_etag)
+        self._active_etag = response.headers.get("ETag")
+        self._active_page = self._read_page
+        self._active_page_is_full = self._read_page_is_full
+        if response.status_code != 304:
+            self._has_changes = True
+            if response.status_code == 200:
+                self._active_page_is_full = (
+                    len(response.json()) == self.GITHUB_MAX_PER_PAGE)
+            else:
+                self._logger.warning(
+                    f"Unexpected status {response.status_code} in response "
+                    f"from {self._check_url}.")
+            return
+
+        if not self._read_page_is_full:
+            self._has_changes = False
+            return
+
+        # A full final page can gain a new successor without its ETag changing.
+        response = await self._get_page(
+            self._read_page + 1, self.GITHUB_MAX_PER_PAGE, headers)
+        if response.status_code == 404:
+            self._has_changes = False
+        else:
+            self._has_changes = True
+            if response.status_code != 200:
+                self._logger.warning(
+                    f"Unexpected status {response.status_code} in response "
+                    f"from {self._check_url}.")
+            else:
+                self._active_etag = response.headers.get("ETag")
+                self._active_page = self._read_page + 1
+                self._active_page_is_full = (
+                    len(response.json()) == self.GITHUB_MAX_PER_PAGE)
+
+    async def _find_last_page(self, headers: dict[str, str]) -> None:
+        page = 1
+        while True:
+            response = await self._get_page(
+                page, self.GITHUB_MAX_PER_PAGE, headers)
+            if response.status_code != 200:
+                self._has_changes = True
+                if response.status_code != 404:
+                    self._logger.warning(
+                        f"Unexpected status {response.status_code} in response "
+                        f"from {self._check_url}.")
+                return
+
+            page_is_full = len(response.json()) == self.GITHUB_MAX_PER_PAGE
+            self._active_etag = response.headers.get("ETag")
+            self._active_page = page
+            self._active_page_is_full = page_is_full
+            self._has_changes = True
+            if not page_is_full:
+                return
+            page += 1
 
     @property
     def has_changes(self) -> bool:
@@ -245,23 +368,28 @@ class ProgressCheckers:
     async def aclose(self) -> None:
         await self._httpx_client.aclose()
 
-    def for_url(self, check_url: yarl.URL) -> ProgressChecker:
+    def for_url(
+        self, check_url: yarl.URL, *,
+        look_for_changes_in: t.Literal["first_page", "last_page"]
+    ) -> ProgressChecker:
         """
         Get a checker for a URL.
 
-        Creates or returns an existing checker for the given URL. A query
-        parameter "?per_page=1" is appended to the URL first.
+        Creates or returns an existing checker for the given URL. The checker
+        can have one of the 2 modes looking for changes in the first or the
+        last page. See the ProgressChecker documentation for details.
 
         Creates a new read progress state for the repo if necessary.
         """
-        check_url = check_url.update_query(per_page=1)
+        key = (check_url, look_for_changes_in)
         try:
-            return self._checkers[check_url]
+            return self._checkers[key]
         except KeyError:
             return self._checkers.setdefault(
-                check_url,
+                key,
                 ProgressChecker(
-                    self._github_client, self._httpx_client, check_url))
+                    self._github_client, self._httpx_client, check_url,
+                    look_for_changes_in=look_for_changes_in))
 
 
 @dc.dataclass
@@ -442,6 +570,29 @@ class GithubChannel(base.Channel):
             f"https://api.github.com/repos/{repo_full_name}/issues"
             f"/{issue_number}/timeline")
 
+    def _issues_events_checker(self, repo_full_name: str) -> ProgressChecker:
+        # Issues events are sorted newest first, so look on the first page.
+        return self._progress_checkers.for_url(
+            self._issues_events_url(repo_full_name),
+            look_for_changes_in="first_page")
+
+    def _assigned_issues_checker(self, repo_full_name: str) -> ProgressChecker:
+        # For the issues endpoint, sort issues so we get the last updated one
+        # first, and then we only have to check the first page.
+        check_url = self._assigned_issues_url(repo_full_name)
+        check_url.update_query(sort="updated", direction="desc")
+        return self._progress_checkers.for_url(
+            check_url, look_for_changes_in="first_page")
+
+    def _issue_timeline_checker(
+            self, repo_full_name: str, issue_number: int) -> ProgressChecker:
+        # The issue timeline endpoint is sorted with the newest event at the
+        # end (and has no option to sort in another way). Check the last page
+        # for changes.
+        return self._progress_checkers.for_url(
+            self._issue_timeline_url(repo_full_name, issue_number),
+            look_for_changes_in="last_page")
+
     async def _poll_forever(self) -> None:
         while True:
             try:
@@ -465,28 +616,25 @@ class GithubChannel(base.Channel):
 
     async def _poll_repo(self, repo: gh_repo.Repository) -> None:
         async with contextlib.AsyncExitStack() as stack:
-            repo_checker = await stack.enter_async_context(
-                self._progress_checkers.for_url(
-                    self._issues_events_url(repo.full_name)))
+            issues_events_checker = await stack.enter_async_context(
+                self._issues_events_checker(repo.full_name))
             events: list[Event] = []
-            if repo_checker.has_changes:
+            if issues_events_checker.has_changes:
                 events += await asyncio.to_thread(
                     self._get_relevant_new_issue_events, repo)
                 self._logger.debug(
                     f"Got {len(events)} new issue events polling repository "
                     f"{repo.full_name}.")
             assigned_issues_checker = await stack.enter_async_context(
-                self._progress_checkers.for_url(
-                    self._assigned_issues_url(repo.full_name)))
+                self._assigned_issues_checker(repo.full_name))
             if assigned_issues_checker.has_changes:
                 assigned_issues = await asyncio.to_thread(
                     repo.get_issues, labels=[self.agent_assigned_label])
                 for issue in assigned_issues:
-                    timeline_checker = await stack.enter_async_context(
-                        self._progress_checkers.for_url(
-                            self._issue_timeline_url(
-                                repo.full_name, issue.number)))
-                    if timeline_checker.has_changes:
+                    issue_timeline_checker = await stack.enter_async_context(
+                        self._issue_timeline_checker(
+                            repo.full_name, issue.number))
+                    if issue_timeline_checker.has_changes:
                         events += await asyncio.to_thread(
                             self._get_relevant_new_timeline_events, repo,
                             issue)
