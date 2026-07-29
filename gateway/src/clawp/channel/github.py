@@ -18,6 +18,7 @@
 import asyncio
 import contextlib
 import dataclasses as dc
+import itertools as it
 import logging
 import operator as op
 import typing as t
@@ -181,6 +182,11 @@ class ProgressChecker:
     """
     GITHUB_MAX_PER_PAGE = 100
 
+    @dc.dataclass
+    class PageStatus:
+        etag: str | None
+        page_is_full: bool
+
     def __init__(
             self, github_client: GithubAppClient,
             httpx_client: httpx.AsyncClient, check_url: yarl.URL, *,
@@ -189,152 +195,93 @@ class ProgressChecker:
         self._github_client = github_client
         self._httpx_client = httpx_client
         self._check_url = check_url
-        self._look_for_changes_in = look_for_changes_in
-        self._read_etag = None
-        self._read_page = None
-        self._read_page_is_full = None
-        self._active_etag = None
-        self._active_page = None
-        self._active_page_is_full = None
+        if look_for_changes_in == "first_page":
+            self._per_page = 1
+        else:
+            self._per_page = self.GITHUB_MAX_PER_PAGE
+        self._read_pages = {}
+        self._active_pages = {}
         self._has_changes = None
-
-    @property
-    def look_for_changes_in(self) -> t.Literal["first_page", "last_page"]:
-        return t.cast(
-            t.Literal["first_page", "last_page"], self._look_for_changes_in)
 
     async def __aenter__(self) -> t.Self:
         assert self._has_changes is None
-        self._has_changes = True
-        self._active_etag = None
-        self._active_page = None
-        self._active_page_is_full = None
+        self._active_pages = {}
         await self._update()
+        assert self._has_changes is not None
         return self
 
     async def __aexit__(
             self, exc_type: type[BaseException] | None, *_) -> bool:
         self._has_changes = None
-        if self._active_etag is None:
-            self._logger.warning(
-                f"{self._check_url} responded without an ETag.")
-            if exc_type is None and self._active_page is not None:
-                self._read_etag = None
-                self._read_page = self._active_page
-                self._read_page_is_full = self._active_page_is_full
-        elif exc_type is None:
-            self._read_etag = self._active_etag
-            self._read_page = self._active_page
-            self._read_page_is_full = self._active_page_is_full
+        for page_number, page_status in self._active_pages.items():
+            if page_status.etag is None:
+                self._logger.warning(
+                    f"{self._check_url} responded without an ETag on page "
+                    f"{page_number}.")
+        if exc_type is None:
+            self._read_pages |= self._active_pages
         else:
             self._logger.debug(
-                f"Discarding ETag because of exception in context manager "
+                f"Discarding ETags because of exception in context manager "
                 f"processing results from {self._check_url}.")
         return False
 
     async def _update(self) -> None:
+        try:
+            await self._update_pages()
+        except Exception:
+            self._logger.exception(
+                "Error checking ETags, setting changes flag.")
+            self._has_changes = True
+
+    async def _update_pages(self,) -> None:
+        # Start with the last page we know.
+        start_page = max(self._read_pages.keys(), default=1)
+        for page in it.count(start=start_page):
+            page_status = self._read_pages.get(
+                page, self.PageStatus(etag=None, page_is_full=False))
+            response = await self._get_page(page, page_status.etag)
+            if response.status_code not in [200, 304, 404]:
+                self._logger.warning(
+                    f"Unexpected status {response.status_code} in response "
+                    f"from {self._check_url}.")
+            if response.status_code == 404:
+                if self._has_changes is None:
+                    # The page doesn't exist. If it's the first page (i.e. we
+                    # haven't decided whether there are changes), we should
+                    # report that there are changes.
+                    self._has_changes = True
+                # Break before we even record a status for the missing page.
+                break
+            # 304 response -> no changes.
+            self._has_changes = response.status_code != 304
+            if response.status_code == 200:
+                # For first_page mode, page_is_full is always False, i.e. we
+                # always break out of the loop after the first iteration.
+                page_is_full = (
+                    len(response.json()) == self.GITHUB_MAX_PER_PAGE)
+            else:
+                page_is_full = page_status.page_is_full
+            self._active_pages[page] = self.PageStatus(
+                etag=response.headers.get("ETag"), page_is_full=page_is_full)
+            if not page_is_full:
+                # Only continue checking if the page is full and we need to see
+                # what comes after.
+                break
+
+    async def _get_page(self, page: int, etag: str | None) -> httpx.Response:
         headers = {
             "Authorization": "Bearer " +
             (await self._github_client.installation_token),
             "Accept": "application/vnd.github+json"}
-        try:
-            if self._look_for_changes_in == "first_page":
-                await self._update_first_page(headers)
-            else:
-                await self._update_last_page(headers)
-        except Exception:
-            self._logger.exception(
-                "Error checking ETag, setting changes flag.")
-            self._active_etag = None
-            self._active_page = None
-            self._active_page_is_full = None
-            self._has_changes = True
-
-    def _page_url(self, page: int, per_page: int) -> str:
-        return str(self._check_url.update_query(page=page, per_page=per_page))
-
-    async def _get_page(
-            self, page: int, per_page: int, headers: dict[str, str],
-            etag: str | None = None) -> httpx.Response:
-        headers = headers.copy()
         if etag is not None:
             headers["If-None-Match"] = etag
         return await self._httpx_client.get(
-            self._page_url(page, per_page), headers=headers)
+            self._page_url(page), headers=headers)
 
-    async def _update_first_page(self, headers: dict[str, str]) -> None:
-        response = await self._get_page(1, 1, headers, etag=self._read_etag)
-        self._active_etag = response.headers.get("ETag")
-        self._has_changes = response.status_code != 304
-        if response.status_code not in (200, 304):
-            self._logger.warning(
-                f"Unexpected status {response.status_code} in response "
-                f"from {self._check_url}.")
-
-    async def _update_last_page(self, headers: dict[str, str]) -> None:
-        if self._read_page is None:
-            await self._find_last_page(headers)
-            return
-
-        response = await self._get_page(
-            self._read_page, self.GITHUB_MAX_PER_PAGE, headers,
-            etag=self._read_etag)
-        self._active_etag = response.headers.get("ETag")
-        self._active_page = self._read_page
-        self._active_page_is_full = self._read_page_is_full
-        if response.status_code != 304:
-            self._has_changes = True
-            if response.status_code == 200:
-                self._active_page_is_full = (
-                    len(response.json()) == self.GITHUB_MAX_PER_PAGE)
-            else:
-                self._logger.warning(
-                    f"Unexpected status {response.status_code} in response "
-                    f"from {self._check_url}.")
-            return
-
-        if not self._read_page_is_full:
-            self._has_changes = False
-            return
-
-        # A full final page can gain a new successor without its ETag changing.
-        response = await self._get_page(
-            self._read_page + 1, self.GITHUB_MAX_PER_PAGE, headers)
-        if response.status_code == 404:
-            self._has_changes = False
-        else:
-            self._has_changes = True
-            if response.status_code != 200:
-                self._logger.warning(
-                    f"Unexpected status {response.status_code} in response "
-                    f"from {self._check_url}.")
-            else:
-                self._active_etag = response.headers.get("ETag")
-                self._active_page = self._read_page + 1
-                self._active_page_is_full = (
-                    len(response.json()) == self.GITHUB_MAX_PER_PAGE)
-
-    async def _find_last_page(self, headers: dict[str, str]) -> None:
-        page = 1
-        while True:
-            response = await self._get_page(
-                page, self.GITHUB_MAX_PER_PAGE, headers)
-            if response.status_code != 200:
-                self._has_changes = True
-                if response.status_code != 404:
-                    self._logger.warning(
-                        f"Unexpected status {response.status_code} in response "
-                        f"from {self._check_url}.")
-                return
-
-            page_is_full = len(response.json()) == self.GITHUB_MAX_PER_PAGE
-            self._active_etag = response.headers.get("ETag")
-            self._active_page = page
-            self._active_page_is_full = page_is_full
-            self._has_changes = True
-            if not page_is_full:
-                return
-            page += 1
+    def _page_url(self, page: int) -> str:
+        return str(
+            self._check_url.update_query(page=page, per_page=self._per_page))
 
     @property
     def has_changes(self) -> bool:

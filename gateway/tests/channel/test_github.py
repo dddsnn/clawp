@@ -62,13 +62,31 @@ class TestFirstPageProgressChecker(TestProgressChecker):
         yield checker
         await httpx_client.aclose()
 
+    @pytest.fixture
+    async def add_response(self, httpx_mock: pytest_httpx.HTTPXMock):
+        def adder(etag, match_if_none_match, status_code):
+            kwargs = {}
+            if match_if_none_match is not None:
+                kwargs["match_headers"] = {
+                    "If-None-Match": match_if_none_match}
+            if etag is not None:
+                kwargs["headers"] = {"etag": etag}
+            if status_code == 200:
+                kwargs["json"] = [{"page_number": 1, "item_index": 0}]
+            first_page_url = self.CHECK_URL.update_query(per_page=1, page=1)
+            httpx_mock.add_response(
+                url=str(first_page_url), status_code=status_code, **kwargs)
+
+        return adder
+
     async def test_has_changes_raises_if_not_active(self, checker):
         with pytest.raises(ValueError):
             _ = checker.has_changes
 
     async def test_sets_headers(
-            self, checker, httpx_mock: pytest_httpx.HTTPXMock, token):
-        httpx_mock.add_response(url=self.FIRST_PAGE_URL, status_code=200)
+            self, checker, add_response, httpx_mock: pytest_httpx.HTTPXMock,
+            token):
+        add_response(None, None, 200)
         assert httpx_mock.get_requests() == []
         async with checker:
             assert_that(
@@ -78,62 +96,40 @@ class TestFirstPageProgressChecker(TestProgressChecker):
                         "authorization": f"Bearer {token}",
                         "accept": "application/vnd.github+json"})))
 
-    async def test_has_changes_if_200(
-            self, checker, httpx_mock: pytest_httpx.HTTPXMock):
-        httpx_mock.add_response(url=self.FIRST_PAGE_URL, status_code=200)
+    async def test_has_changes_if_200(self, checker, add_response):
+        add_response(None, None, 200)
         async with checker:
             assert checker.has_changes
 
-    async def test_provides_previous_etag(
-            self, checker, httpx_mock: pytest_httpx.HTTPXMock):
-        httpx_mock.add_response(
-            url=self.FIRST_PAGE_URL, headers={"etag": '"tag1"'},
-            status_code=200)
-        httpx_mock.add_response(
-            url=self.FIRST_PAGE_URL, match_headers={"If-None-Match": '"tag1"'},
-            headers={"etag": '"tag1"'}, status_code=304)
+    async def test_provides_previous_etag(self, checker, add_response):
+        add_response('"tag1"', None, 200)
+        add_response('"tag1"', '"tag1"', 304)
         async with checker:
             pass
         async with checker:
             pass
 
-    async def test_no_changes_if_304(
-            self, checker, httpx_mock: pytest_httpx.HTTPXMock):
-        httpx_mock.add_response(
-            url=self.FIRST_PAGE_URL, headers={"etag": '"tag1"'},
-            status_code=200)
-        httpx_mock.add_response(
-            url=self.FIRST_PAGE_URL, match_headers={"If-None-Match": '"tag1"'},
-            headers={"etag": '"tag1"'}, status_code=304)
+    async def test_no_changes_if_304(self, checker, add_response):
+        add_response('"tag1"', None, 200)
+        add_response('"tag1"', '"tag1"', 304)
         async with checker:
             assert checker.has_changes
         async with checker:
             assert not checker.has_changes
 
-    async def test_has_changes_if_repeated_200(
-            self, checker, httpx_mock: pytest_httpx.HTTPXMock):
-        httpx_mock.add_response(
-            url=self.FIRST_PAGE_URL, headers={"etag": '"tag1"'},
-            status_code=200)
-        httpx_mock.add_response(
-            url=self.FIRST_PAGE_URL, match_headers={"If-None-Match": '"tag1"'},
-            headers={"etag": '"tag2"'}, status_code=200)
+    async def test_has_changes_if_repeated_200(self, checker, add_response):
+        add_response('"tag1"', None, 200)
+        add_response('"tag2"', '"tag1"', 200)
         async with checker:
             assert checker.has_changes
         async with checker:
             assert checker.has_changes
 
     async def test_provides_new_etag_after_multiple_responses(
-            self, checker, httpx_mock: pytest_httpx.HTTPXMock):
-        httpx_mock.add_response(
-            url=self.FIRST_PAGE_URL, headers={"etag": '"tag1"'},
-            status_code=200)
-        httpx_mock.add_response(
-            url=self.FIRST_PAGE_URL, match_headers={"If-None-Match": '"tag1"'},
-            headers={"etag": '"tag2"'}, status_code=200)
-        httpx_mock.add_response(
-            url=self.FIRST_PAGE_URL, match_headers={"If-None-Match": '"tag2"'},
-            headers={"etag": '"tag3"'}, status_code=200)
+            self, checker, add_response):
+        add_response('"tag1"', None, 200)
+        add_response('"tag2"', '"tag1"', 200)
+        add_response('"tag3"', '"tag2"', 200)
         async with checker:
             assert checker.has_changes
         async with checker:
@@ -142,16 +138,10 @@ class TestFirstPageProgressChecker(TestProgressChecker):
             assert checker.has_changes
 
     async def test_doesnt_update_etag_on_exception_in_cm(
-            self, checker, httpx_mock: pytest_httpx.HTTPXMock):
-        httpx_mock.add_response(
-            url=self.FIRST_PAGE_URL, headers={"etag": '"tag1"'},
-            status_code=200)
-        httpx_mock.add_response(
-            url=self.FIRST_PAGE_URL, match_headers={"If-None-Match": '"tag1"'},
-            headers={"etag": '"tag2"'}, status_code=200)
-        httpx_mock.add_response(
-            url=self.FIRST_PAGE_URL, match_headers={"If-None-Match": '"tag1"'},
-            headers={"etag": '"tag2"'}, status_code=200)
+            self, checker, add_response):
+        add_response('"tag1"', None, 200)
+        add_response('"tag2"', '"tag1"', 200)
+        add_response('"tag2"', '"tag1"', 200)
         async with checker:
             assert checker.has_changes
         with pytest.raises(RuntimeError):
@@ -162,19 +152,15 @@ class TestFirstPageProgressChecker(TestProgressChecker):
             assert checker.has_changes
 
     async def test_has_changes_if_unexpected_response(
-            self, checker, httpx_mock: pytest_httpx.HTTPXMock):
-        httpx_mock.add_response(url=self.FIRST_PAGE_URL, status_code=500)
+            self, checker, add_response):
+        add_response(None, None, status_code=500)
         async with checker:
             assert checker.has_changes
 
     async def test_has_changes_if_exception(
-            self, checker, httpx_mock: pytest_httpx.HTTPXMock):
-        httpx_mock.add_response(
-            url=self.FIRST_PAGE_URL, headers={"etag": '"tag1"'},
-            status_code=200)
-        httpx_mock.add_response(
-            url=self.FIRST_PAGE_URL, match_headers={"If-None-Match": '"tag1"'},
-            headers={"etag": '"tag1"'}, status_code=304)
+            self, checker, add_response, httpx_mock: pytest_httpx.HTTPXMock):
+        add_response('"tag1"', None, 200)
+        add_response('"tag1"', '"tag1"', 304)
         httpx_mock.add_exception(httpx.ReadTimeout(""))
         async with checker:
             assert checker.has_changes
@@ -184,11 +170,9 @@ class TestFirstPageProgressChecker(TestProgressChecker):
             assert checker.has_changes
 
     async def test_has_changes_if_missing_etag_in_response(
-            self, checker, httpx_mock: pytest_httpx.HTTPXMock):
-        httpx_mock.add_response(url=self.FIRST_PAGE_URL, status_code=200)
-        httpx_mock.add_response(
-            url=self.FIRST_PAGE_URL, headers={"etag": '"tag1"'},
-            status_code=200)
+            self, checker, add_response):
+        add_response(None, None, 200)
+        add_response('"tag1"', None, 200)
         async with checker:
             assert checker.has_changes
         async with checker:
@@ -211,17 +195,19 @@ class TestLastPageProgressChecker(TestProgressChecker):
     @pytest.fixture
     async def add_page_response(self, httpx_mock: pytest_httpx.HTTPXMock):
         def adder(
-                page_number, num_elements, etag, match_if_none_match,
-                status_code):
+                page_number, num_elements_or_content, etag,
+                match_if_none_match, status_code):
             assert page_number > 0
-            assert 0 <= num_elements <= self.PER_PAGE
+            assert (
+                isinstance(num_elements_or_content, str)
+                or (0 <= num_elements_or_content <= self.PER_PAGE))
             page_url = self.CHECK_URL.update_query(
                 per_page=self.PER_PAGE, page=page_number)
             kwargs = {}
             if match_if_none_match is not None:
                 kwargs["match_headers"] = {
                     "If-None-Match": match_if_none_match}
-            if num_elements == 0:
+            if num_elements_or_content == 0:
                 assert status_code == 404
                 httpx_mock.add_response(
                     url=str(page_url), status_code=404, **kwargs)
@@ -229,9 +215,12 @@ class TestLastPageProgressChecker(TestProgressChecker):
             if etag is not None:
                 kwargs["headers"] = {"etag": etag}
             if status_code == 200:
-                kwargs["json"] = [{
-                    "page_number": page_number, "item_index": i}
-                                  for i in range(num_elements)]
+                if isinstance(num_elements_or_content, int):
+                    kwargs["json"] = [{
+                        "page_number": page_number, "item_index": i}
+                                      for i in range(num_elements_or_content)]
+                else:
+                    kwargs["text"] = num_elements_or_content
             httpx_mock.add_response(
                 url=str(page_url), status_code=status_code, **kwargs)
 
@@ -382,13 +371,19 @@ class TestLastPageProgressChecker(TestProgressChecker):
         async with checker:
             assert checker.has_changes
 
-    async def test_has_changes_if_unexpected_response(
+    async def test_has_changes_if_unexpected_response_status(
             self, checker, add_page_response):
         add_page_response(1, self.PER_PAGE, '"tag1"', None, 200)
         add_page_response(2, self.PER_PAGE - 3, '"tag2"', None, 200)
         add_page_response(2, self.PER_PAGE - 3, '"tag2"', '"tag2"', 500)
         async with checker:
             assert checker.has_changes
+        async with checker:
+            assert checker.has_changes
+
+    async def test_has_changes_if_unexpected_response_content(
+            self, checker, add_page_response):
+        add_page_response(1, '}this"is[not valid json', '"tag1"', None, 200)
         async with checker:
             assert checker.has_changes
 
