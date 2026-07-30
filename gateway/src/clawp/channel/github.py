@@ -375,7 +375,7 @@ class GithubChannel(base.Channel):
             "unassigned": await file.read_message_template(
                 "system_information/github_unassigned.md"),}
         await self._client.__aenter__()
-        await self._ensure_assigned_issues()
+        await self._ensure_up_to_date_assigned_issues()
         self._poll_task = asyncio.create_task(self._poll_forever())
         return self
 
@@ -392,7 +392,7 @@ class GithubChannel(base.Channel):
         await self._progress_checkers.aclose()
         return await super().__aexit__(*args)
 
-    async def _ensure_assigned_issues(self) -> None:
+    async def _ensure_up_to_date_assigned_issues(self) -> None:
         for repo in await self._client.list_installation_repositories():
             async with self._assigned_issues_checker(
                     repo.full_name) as assigned_issues_checker:
@@ -577,28 +577,57 @@ class GithubChannel(base.Channel):
 
     async def _poll_repo(self, repo: gh_repo.Repository) -> None:
         async with contextlib.AsyncExitStack() as stack:
-            issues_events_checker = await stack.enter_async_context(
-                self._issues_events_checker(repo.full_name))
-            events: list[Event] = []
-            if issues_events_checker.has_changes:
-                events += await asyncio.to_thread(
-                    self._get_relevant_new_issue_events, repo)
-                self._logger.debug(
-                    f"Got {len(events)} new issue events polling repository "
-                    f"{repo.full_name}.")
-            await self._ensure_assigned_issues()
-            assert repo.full_name in self._assigned_issues
-            for issue in self._assigned_issues[repo.full_name]:
-                issue_timeline_checker = await stack.enter_async_context(
-                    self._issue_timeline_checker(repo.full_name, issue.number))
-                if issue_timeline_checker.has_changes:
-                    events += await asyncio.to_thread(
-                        self._get_relevant_new_timeline_events, repo, issue)
-            new_events = sorted(events, key=op.attrgetter("time"))
+            async with asyncio.TaskGroup() as tg:
+                issue_events_task = tg.create_task(
+                    self._get_issue_events(repo, stack))
+                timeline_events_task = tg.create_task(
+                    self._get_timeline_events(repo, stack))
+            issue_events = issue_events_task.result()
+            timeline_events = timeline_events_task.result()
+            new_events = sorted(
+                it.chain(issue_events, timeline_events),
+                key=op.attrgetter("time"))
             if new_events:
+                self._logger.debug(
+                    f"Got {len(issue_events)} new issue events and "
+                    f"{len(timeline_events)} new timeline events polling "
+                    f"repository {repo.full_name}.")
                 await self._process_events(repo, new_events)
             # After successful processing, all checker context managers exit
             # and commit their etags.
+
+    async def _get_issue_events(
+            self, repo: gh_repo.Repository,
+            stack: contextlib.AsyncExitStack) -> list[Event]:
+        issues_events_checker = await stack.enter_async_context(
+            self._issues_events_checker(repo.full_name))
+        if issues_events_checker.has_changes:
+            return await asyncio.to_thread(
+                self._get_relevant_new_issue_events, repo)
+        return []
+
+    async def _get_timeline_events(
+            self, repo: gh_repo.Repository,
+            stack: contextlib.AsyncExitStack) -> list[Event]:
+        tasks = []
+        await self._ensure_up_to_date_assigned_issues()
+        assert repo.full_name in self._assigned_issues
+        async with asyncio.TaskGroup() as tg:
+            for issue in self._assigned_issues[repo.full_name]:
+                tasks.append(
+                    tg.create_task(
+                        self._get_issue_timeline_events(repo, stack, issue)))
+        return list(it.chain.from_iterable(task.result() for task in tasks))
+
+    async def _get_issue_timeline_events(
+            self, repo: gh_repo.Repository, stack: contextlib.AsyncExitStack,
+            issue: gh_iss.Issue) -> list[Event]:
+        issue_timeline_checker = await stack.enter_async_context(
+            self._issue_timeline_checker(repo.full_name, issue.number))
+        if issue_timeline_checker.has_changes:
+            return await asyncio.to_thread(
+                self._get_relevant_new_timeline_events, repo, issue)
+        return []
 
     def _get_relevant_new_issue_events(
             self, repo: gh_repo.Repository) -> list[Event]:
