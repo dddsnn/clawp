@@ -373,6 +373,7 @@ class GithubChannel(base.Channel):
         self._progress_checkers = ProgressCheckers(self._client)
         self._poll_task: asyncio.Task | None = None
         self._message_templates: dict[str, file.Template] = None
+        self._assigned_issues: dict[str, list[gh_iss.Issue]] = {}
 
     async def __aenter__(self) -> t.Self:
         await super().__aenter__()
@@ -382,6 +383,7 @@ class GithubChannel(base.Channel):
             "unassigned": await file.read_message_template(
                 "system_information/github_unassigned.md"),}
         await self._client.__aenter__()
+        await self._ensure_assigned_issues()
         self._poll_task = asyncio.create_task(self._poll_forever())
         return self
 
@@ -397,6 +399,25 @@ class GithubChannel(base.Channel):
         await self._client.__aexit__(*args)
         await self._progress_checkers.aclose()
         return await super().__aexit__(*args)
+
+    async def _ensure_assigned_issues(self) -> None:
+        for repo in await self._client.list_installation_repositories():
+            async with self._assigned_issues_checker(
+                    repo.full_name) as assigned_issues_checker:
+                should_get_issues = (
+                    repo.full_name not in self._assigned_issues
+                    or assigned_issues_checker.has_changes)
+                if not should_get_issues:
+                    continue
+                self._logger.debug(
+                    f"Getting assigned issues for {repo.full_name}.")
+                self._assigned_issues[repo.full_name] = (
+                    await self._read_paginated_list(
+                        repo.get_issues, labels=[self.agent_assigned_label]))
+
+    async def _read_paginated_list(self, list_getter, *args, **kwargs) -> list:
+        paginated_list = await asyncio.to_thread(list_getter, *args, **kwargs)
+        return await asyncio.to_thread(list, paginated_list)
 
     @property
     def id(self) -> str:
@@ -572,19 +593,14 @@ class GithubChannel(base.Channel):
                 self._logger.debug(
                     f"Got {len(events)} new issue events polling repository "
                     f"{repo.full_name}.")
-            assigned_issues_checker = await stack.enter_async_context(
-                self._assigned_issues_checker(repo.full_name))
-            if assigned_issues_checker.has_changes:
-                assigned_issues = await asyncio.to_thread(
-                    repo.get_issues, labels=[self.agent_assigned_label])
-                for issue in assigned_issues:
-                    issue_timeline_checker = await stack.enter_async_context(
-                        self._issue_timeline_checker(
-                            repo.full_name, issue.number))
-                    if issue_timeline_checker.has_changes:
-                        events += await asyncio.to_thread(
-                            self._get_relevant_new_timeline_events, repo,
-                            issue)
+            await self._ensure_assigned_issues()
+            assert repo.full_name in self._assigned_issues
+            for issue in self._assigned_issues[repo.full_name]:
+                issue_timeline_checker = await stack.enter_async_context(
+                    self._issue_timeline_checker(repo.full_name, issue.number))
+                if issue_timeline_checker.has_changes:
+                    events += await asyncio.to_thread(
+                        self._get_relevant_new_timeline_events, repo, issue)
             new_events = sorted(events, key=op.attrgetter("time"))
             if new_events:
                 await self._process_events(repo, new_events)
