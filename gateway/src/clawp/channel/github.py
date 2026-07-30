@@ -162,9 +162,9 @@ class ProgressChecker:
     pages there are. On subsequent checks, it only checks the last page. If the
     the page is not full and the status code is 304, there are no changes. If
     the page is full (i.e. maximum number of items) the next page is checked.
-    If the next page doesn't exist (indicated by a 404 response), there are no
-    changes. All other conditions lead the checker to report that there are
-    changes.
+    If the next page is empty (indicated by a 200 response and an empty array),
+    there are no changes. All other conditions lead the checker to report that
+    there are changes.
 
     If an exception occurs when querying the API, defaults to indicating that
     there are changes (so that nothing is skipped accidentally). The same
@@ -241,18 +241,10 @@ class ProgressChecker:
             page_status = self._read_pages.get(
                 page, self.PageStatus(etag=None, page_is_full=False))
             response = await self._get_page(page, page_status.etag)
-            if response.status_code not in [200, 304, 404]:
+            if response.status_code not in [200, 304]:
                 self._logger.warning(
                     f"Unexpected status {response.status_code} in response "
                     f"from {self._check_url}.")
-            if response.status_code == 404:
-                if self._has_changes is None:
-                    # The page doesn't exist. If it's the first page (i.e. we
-                    # haven't decided whether there are changes), we should
-                    # report that there are changes.
-                    self._has_changes = True
-                # Break before we even record a status for the missing page.
-                break
             # 304 response -> no changes.
             self._has_changes = response.status_code != 304
             if response.status_code == 200:

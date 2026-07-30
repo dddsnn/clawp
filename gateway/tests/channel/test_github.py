@@ -207,11 +207,6 @@ class TestLastPageProgressChecker(TestProgressChecker):
             if match_if_none_match is not None:
                 kwargs["match_headers"] = {
                     "If-None-Match": match_if_none_match}
-            if num_elements_or_content == 0:
-                assert status_code == 404
-                httpx_mock.add_response(
-                    url=str(page_url), status_code=404, **kwargs)
-                return
             if etag is not None:
                 kwargs["headers"] = {"etag": etag}
             if status_code == 200:
@@ -243,9 +238,9 @@ class TestLastPageProgressChecker(TestProgressChecker):
                         "authorization": f"Bearer {token}",
                         "accept": "application/vnd.github+json"})))
 
-    async def test_has_changes_if_404_with_empty_first_page(
+    async def test_has_changes_if_empty_first_page(
             self, checker, add_page_response):
-        add_page_response(1, 0, '"tag1"', None, 404)
+        add_page_response(1, 0, '"tag1"', None, 200)
         async with checker:
             assert checker.has_changes
 
@@ -303,16 +298,15 @@ class TestLastPageProgressChecker(TestProgressChecker):
     async def test_has_changes_if_200_with_following_empty_page(
             self, checker, add_page_response):
         add_page_response(1, self.PER_PAGE, '"tag1"', None, 200)
-        add_page_response(2, 0, None, None, 404)
+        add_page_response(2, 0, '"tag2"', None, 200)
         async with checker:
             assert checker.has_changes
 
     async def test_no_changes_if_304_with_following_empty_page(
             self, checker, add_page_response):
         add_page_response(1, self.PER_PAGE, '"tag1"', None, 200)
-        add_page_response(2, 0, None, None, 404)
-        add_page_response(1, self.PER_PAGE, '"tag1"', '"tag1"', 304)
-        add_page_response(2, 0, None, None, 404)
+        add_page_response(2, 0, '"tag2"', None, 200)
+        add_page_response(2, 0, '"tag2"', '"tag2"', 304)
         async with checker:
             assert checker.has_changes
         async with checker:
@@ -321,9 +315,8 @@ class TestLastPageProgressChecker(TestProgressChecker):
     async def test_has_changes_if_previously_empty_page_has_content(
             self, checker, add_page_response):
         add_page_response(1, self.PER_PAGE, '"tag1"', None, 200)
-        add_page_response(2, 0, None, None, 404)
-        add_page_response(1, self.PER_PAGE, '"tag1"', '"tag1"', 304)
-        add_page_response(2, 5, '"tag2"', None, 200)
+        add_page_response(2, 0, '"tag2"', None, 200)
+        add_page_response(2, 5, '"tag3"', '"tag2"', 200)
         async with checker:
             assert checker.has_changes
         async with checker:
@@ -332,10 +325,9 @@ class TestLastPageProgressChecker(TestProgressChecker):
     async def test_no_changes_if_304_in_previously_empty_page(
             self, checker, add_page_response):
         add_page_response(1, self.PER_PAGE, '"tag1"', None, 200)
-        add_page_response(2, 0, None, None, 404)
-        add_page_response(1, self.PER_PAGE, '"tag1"', '"tag1"', 304)
-        add_page_response(2, 5, '"tag2"', None, 200)
-        add_page_response(2, 5, '"tag2"', '"tag2"', 304)
+        add_page_response(2, 0, '"tag2"', None, 200)
+        add_page_response(2, 5, '"tag3"', '"tag2"', 200)
+        add_page_response(2, 5, '"tag3"', '"tag3"', 304)
         async with checker:
             assert checker.has_changes
         async with checker:
