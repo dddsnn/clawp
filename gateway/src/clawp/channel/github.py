@@ -781,6 +781,10 @@ class GithubChannel(base.Channel):
                 chat, "description", event.time, description_content))
         if event.issue.comments:
             for comment in event.issue.get_comments():
+                if comment.user.login == self._client.login:
+                    self._logger.debug(
+                        "Skipping agent's own comment in initial issue dump.")
+                    continue
                 messages.append(
                     self._make_user_message(
                         chat, "comment", we.Instant(comment.created_at),
@@ -822,6 +826,9 @@ class GithubChannel(base.Channel):
             event: Event) -> list[mdl.IncomingMessage]:
         assert isinstance(event.event, gh_tl.TimelineEvent)
         assert event.event.event == "commented"
+        if event.event.actor.login == self._client.login:
+            self._logger.debug("Skipping agent's own new comment.")
+            return []
         chat = self._make_chat_descriptor(repo, event.issue)
         return [
             self._make_user_message(
