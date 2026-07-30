@@ -69,6 +69,7 @@ export type BasicStartMessageMetadata = z.infer<typeof BasicStartMessageMetadata
 
 export const GithubStartMessageMetadataSchema = z.object({
   chat: GithubChatDescriptorSchema,
+  comment_author_login: z.string(),
   comment_type: z.enum(['description', 'comment']),
 });
 export type GithubStartMessageMetadata = z.infer<typeof GithubStartMessageMetadataSchema>;

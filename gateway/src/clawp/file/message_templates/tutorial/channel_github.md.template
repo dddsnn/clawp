@@ -16,7 +16,10 @@ Channel status JSON contains additional keys
 - `installation_id`: The ID of your installation in the repo/org.
 - `login`: Your login name (ending in "[bot]"). This is the name with which others see you and which can be used in @mentions.
 
-Message metadata JSON contains the additional key `comment_type`: either "description" (the message is the initial description of the issue/PR), or "comment" (regular follow-up comment).
+Message metadata JSON contains additional keys
+
+- `comment_author_login`: The login name of the comment's author.
+- `comment_type`: either "description" (the message is the initial description of the issue/PR), or "comment" (regular follow-up comment).
 
 The chat descriptor contains the additional keys
 

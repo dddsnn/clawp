@@ -508,8 +508,9 @@ class GithubChannel(base.Channel):
         # comment_type is comment, since sending a message only works when the
         # issue already exists (so it can't be the description).
         return (
-            mdl.GithubStartMessageMetadata(chat=chat, comment_type="comment"),
-            mdl.GithubChatMessageMetadata)
+            mdl.GithubStartMessageMetadata(
+                chat=chat, comment_author_login=self._client.login,
+                comment_type="comment"), mdl.GithubChatMessageMetadata)
 
     async def send(self, message: msg.AgentMessage) -> None:
         chat = message.metadata.chat
@@ -778,7 +779,8 @@ class GithubChannel(base.Channel):
             description_content = "No description provided."
         messages.append(
             self._make_user_message(
-                chat, "description", event.time, description_content))
+                chat, event.event.actor.login, "description", event.time,
+                description_content))
         if event.issue.comments:
             for comment in event.issue.get_comments():
                 if comment.user.login == self._client.login:
@@ -787,8 +789,8 @@ class GithubChannel(base.Channel):
                     continue
                 messages.append(
                     self._make_user_message(
-                        chat, "comment", we.Instant(comment.created_at),
-                        comment.body))
+                        chat, comment.user.login, "comment",
+                        we.Instant(comment.created_at), comment.body))
         return messages
 
     def _make_chat_descriptor(
@@ -812,13 +814,14 @@ class GithubChannel(base.Channel):
         return mdl.IncomingMessage(chat=chat, message=system_message)
 
     def _make_user_message(
-            self, chat: mdl.GithubChatDescriptor,
+            self, chat: mdl.GithubChatDescriptor, comment_author_login: str,
             comment_type: t.Literal["description", "comment"],
             time: we.Instant, content: str) -> mdl.IncomingMessage:
         user_message = mdl.GithubChatMessage(
             role="user", metadata=mdl.GithubChatMessageMetadata(
-                time=time, chat=chat, comment_type=comment_type),
-            content=content)
+                time=time, chat=chat,
+                comment_author_login=comment_author_login,
+                comment_type=comment_type), content=content)
         return mdl.IncomingMessage(chat=chat, message=user_message)
 
     def _incoming_messages_for_timeline_event(
@@ -832,4 +835,5 @@ class GithubChannel(base.Channel):
         chat = self._make_chat_descriptor(repo, event.issue)
         return [
             self._make_user_message(
-                chat, "comment", event.time, event.event.body)]
+                chat, event.event.actor.login, "comment", event.time,
+                event.event.body)]
