@@ -640,6 +640,11 @@ class GithubChannel(base.Channel):
             # Issue timeline events are sorted in chronological order (oldest
             # first), so iterate in reverse and collect them until we come
             # across the first event we've already seen.
+            if timeline_event.id is None:
+                self._logger.warning(
+                    f"Skipping timeline event {timeline_event} "
+                    f"({timeline_event.event}) without an ID.")
+                continue
             this_event_time = we.Instant(timeline_event.created_at)
             already_seen = (
                 this_event_time < read_marker.last_event_time
