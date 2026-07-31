@@ -421,11 +421,20 @@ class GithubChannel(base.Channel):
         if not self._client.running:
             # If the client isn't running, start it to get the login.
             cm = self._client
-        async with cm:
+        try:
+            async with cm:
+                return mdl.GithubChannelStatus(
+                    available=True, app_id=self._config.app_id,
+                    installation_id=self._config.installation_id,
+                    login=self._client.login)
+        except Exception:
+            self._logger.exception(
+                "Error starting client to check status of Github channel "
+                f"{self._config}, setting it as unavailable.")
             return mdl.GithubChannelStatus(
-                available=True, app_id=self._config.app_id,
+                available=False, app_id=self._config.app_id,
                 installation_id=self._config.installation_id,
-                login=self._client.login)
+                login="<unknown>")
 
     @property
     def agent_assigned_label(self) -> str:
