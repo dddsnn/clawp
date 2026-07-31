@@ -96,7 +96,8 @@ const handleSelectedAgentChange = (event: Event) => {
 
           <button
             class="inline-flex items-center rounded-md bg-red-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
-            :disabled="isUnassigning"
+            :disabled="!channel.status.available || isUnassigning"
+            :title="!channel.status.available ? 'This channel is unavailable and cannot be unassigned.' : undefined"
             @click="handleUnassign"
           >
             <span v-if="isUnassigning">Unassigning...</span>
@@ -127,7 +128,8 @@ const handleSelectedAgentChange = (event: Event) => {
 
           <button
             class="inline-flex items-center rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
-            :disabled="!props.selectedAgentId || isAssigning || agents.length === 0"
+            :disabled="!channel.status.available || !props.selectedAgentId || isAssigning || agents.length === 0"
+            :title="!channel.status.available ? 'This channel is unavailable and cannot be assigned.' : undefined"
             @click="handleAssign"
           >
             <span v-if="isAssigning">Assigning...</span>

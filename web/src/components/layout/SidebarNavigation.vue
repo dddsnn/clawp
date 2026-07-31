@@ -191,24 +191,26 @@ const handleOpenHatchModal = () => {
                 @click="handleSelectChannel(channel)"
                 class="flex-1 text-left px-3 py-2.5 rounded-lg text-sm transition-all duration-200 truncate"
                 :class="[
-                  activeSelectionType === 'channel' && selectedChannelKey === getChannelKey(channel)
+                  !channel.status.available
+                    ? 'text-slate-400 hover:bg-slate-100 hover:text-slate-600'
+                    : activeSelectionType === 'channel' && selectedChannelKey === getChannelKey(channel)
                     ? 'bg-emerald-50 text-emerald-700 font-medium shadow-sm ring-1 ring-emerald-500/20'
                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                 ]"
-                :title="`${channel.type}:${channel.id ?? '(none)'}`"
+                :title="`${channel.type}:${channel.id ?? '(none)'}${channel.status.available ? '' : ' (unavailable)'}`"
               >
                 {{ channel.type }}:{{ channel.id ?? '(none)' }}
               </button>
 
               <Bot
                 v-if="channel.assigned_to_agent"
-                class="w-4 h-4 shrink-0 text-slate-500"
+                :class="['w-4 h-4 shrink-0', channel.status.available ? 'text-slate-500' : 'text-slate-300']"
               >
                 <title>This channel is assigned to {{ channel.assigned_to_agent }}</title>
               </Bot>
               <BotOff
                 v-else
-                class="w-4 h-4 shrink-0 text-slate-500"
+                :class="['w-4 h-4 shrink-0', channel.status.available ? 'text-slate-500' : 'text-slate-300']"
               >
                 <title>This channel is not assigned to an agent</title>
               </BotOff>

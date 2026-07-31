@@ -63,7 +63,7 @@ watch(
 );
 
 const handleAssign = async () => {
-  if (!channel.value || channel.value.id === null || !selectedAgentId.value || isAssigning.value) {
+  if (!channel.value || !channel.value.status.available || channel.value.id === null || !selectedAgentId.value || isAssigning.value) {
     return;
   }
 
@@ -82,7 +82,7 @@ const handleAssign = async () => {
 };
 
 const handleUnassign = async () => {
-  if (!channel.value || channel.value.id === null || !channel.value.assigned_to_agent || isUnassigning.value) {
+  if (!channel.value || !channel.value.status.available || channel.value.id === null || !channel.value.assigned_to_agent || isUnassigning.value) {
     return;
   }
 
