@@ -138,8 +138,12 @@ class ChannelRouter(base.MessageSender):
             raise ValueError(f"channel {channel.type} already exists")
         if not self._is_running:
             raise base.ChannelError("router isn't running, cant add channel")
-        self._stati[channel.type] = self.ChannelStatus(channel)
-        await self._start_channel(self._stati[channel.type])
+        status = self.ChannelStatus(channel)
+        try:
+            await self._start_channel(status)
+        except Exception as e:
+            raise ChannelError("error starting channel") from e
+        self._stati[channel.type] = status
         self._logger.info(f"Added and started channel {channel.type}.")
 
     async def remove_channel(self, channel_type: mdl.ChannelType) -> None:
