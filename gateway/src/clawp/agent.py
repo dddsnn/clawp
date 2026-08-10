@@ -304,6 +304,7 @@ class Session:
             except TimeoutError:
                 self._logger.error("Request timed out, giving up.")
                 return
+            num_requests += 1
         else:
             self._logger.warning(
                 f"Breaking out of request loop after {num_requests} requests.")
