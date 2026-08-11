@@ -105,7 +105,7 @@ class StreamableList:
 
         When the list is finalized, no new elements can be added.
         """
-        await self._finalized_wait_task
+        await asyncio.shield(self._finalized_wait_task)
 
     def finalized(self) -> bool:
         """Check whether the list is already finalized."""

@@ -88,6 +88,17 @@ class TestStreamableList:
             await ls.append(1)
         await ls.wait_finalized()
 
+    async def test_timeout_in_wait_finalize_doesnt_cancel_other_waiters(
+            self, ls):
+        wait_task_1 = asyncio.create_task(ls.wait_finalized())
+        wait_task_2 = asyncio.create_task(ls.wait_finalized())
+        with pytest.raises(asyncio.TimeoutError):
+            async with asyncio.timeout(0):
+                await wait_task_1
+        wait_task_1.cancel()
+        await ls.finalize()
+        await wait_task_2
+
     async def test_stream(self, ls, stream_into_list):
         output = []
         stream_task = asyncio.create_task(stream_into_list(output))
