@@ -474,7 +474,7 @@ class AgentMessage(ChatMessage):
     async def wait_finalized(self) -> None:
         """Wait until the message has finished streaming."""
         await self._parts.wait_finalized()
-        for task in self._deferred_set_tasks or []:
+        for task in list(self._deferred_set_tasks or []):
             await task
 
     def finalized(self) -> bool:
