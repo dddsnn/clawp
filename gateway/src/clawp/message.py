@@ -162,6 +162,14 @@ class Message(abc.ABC):
             assert isinstance(message_model, mdl.UserMessage)
             return UserMessage.from_model(message_model)
 
+    async def wait_finalized(self) -> None:
+        """Wait until the message is fully available."""
+        return
+
+    def finalized(self) -> bool:
+        """Check whether the message is already finalized."""
+        return True
+
 
 class InternalMessage(Message):
     """

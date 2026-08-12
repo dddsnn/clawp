@@ -268,11 +268,25 @@ class Session:
             msg.SystemMessage, content=message_content)
 
     async def _append_message(self, message: msg.Message):
+        """
+        Append a message.
+
+        Appends the message to the transient storage, then publishes it
+        immediately, possibly before it has arrived completely. This allows
+        agent messages to be streamed. Only then append the complete message to
+        persistent storage. The message is guaranteed to be finalized when this
+        returns.
+
+        Cancelling this coroutine may lead to a state in which the message
+        exists in transient storage and has started visibly streaming, but
+        hasn't been persisted.
+        """
         self._messages.append(message)
         # First, publish the message, so clients streaming it can get it before
         # it has fully arrived. Only then append it to the message store, which
         # requires the message to have finished streaming.
         await self._publisher.append(message)
+        await message.wait_finalized()
         try:
             await self._message_store.append_message(message)
         except Exception:
@@ -310,30 +324,39 @@ class Session:
                 f"Breaking out of request loop after {num_requests} requests.")
 
     async def _request_response(self) -> bool:
-        message, stream_task = await self._request_agent_message()
+        message, stream_coro = await self._request_agent_message()
         # Wait for the message to completely arrive before handling tool calls
         # or sending.
         try:
-            await stream_task
-        except Exception:
-            self._logger.exception(f"Error streaming {message}.")
-        await message.wait_finalized()
+            await stream_coro
+        except (Exception, asyncio.CancelledError):
+            self._logger.exception(
+                f"Error streaming {message}. Not attempting any further "
+                "processing.")
+            raise
+        assert message.finalized()
         need_another_request = await self._process_finalized_agent_message(
             message)
         return need_another_request
 
     async def _request_agent_message(self):
-        parts = util.StreamableList()
-        stream_task = await self._provider.stream_agent_message(
-            parts, self._messages, self._mcp_client.tools.values())
         start_metadata, full_metadata_class = (
             self._message_sender.make_outgoing_start_metadata(
                 self._active_chat))
         metadata = msg.ChatMessageMetadata.from_start_metadata(
             start_metadata, full_metadata_class)
+        parts = util.StreamableList()
         message = msg.AgentMessage(metadata, parts)
-        await self._append_message(message)
-        return message, stream_task
+        stream_coro = await self._provider.stream_agent_message(
+            parts, self._messages, self._mcp_client.tools.values())
+        combined_stream_coro = self._stream_and_append_agent_message(
+            message, stream_coro)
+        return message, combined_stream_coro
+
+    async def _stream_and_append_agent_message(self, message, stream_coro):
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(stream_coro)
+            tg.create_task(self._append_message(message))
 
     async def _process_finalized_agent_message(
             self, message: msg.AgentMessage) -> bool:
@@ -438,7 +461,7 @@ class Session:
             start_metadata, full_metadata_class)
         message = msg.AgentMessage(metadata, message_parts)
         await self._append_message(message)
-        await message.wait_finalized()
+        assert message.finalized()
         await self._process_finalized_agent_message(message)
 
     def messages(self) -> cl_abc.Generator[MessageInSession]:

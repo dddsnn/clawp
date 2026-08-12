@@ -60,19 +60,22 @@ class Provider(abc.ABC):
     async def stream_agent_message(
             self, message_parts: util.StreamableList,
             messages: cl_abc.Iterable[msg.Message],
-            tools: cl_abc.Iterable[fastmcp.tools.Tool]) -> asyncio.Task[None]:
+            tools: cl_abc.Iterable[fastmcp.tools.Tool]
+    ) -> cl_abc.Coroutine[None]:
         """
         Stream an agent response.
 
         Request the response of the agent to the context given by the messages,
-        and stream the parts into the list of message parts.
+        and provide a coroutine that streams the parts into the list of message
+        parts.
 
         :param message_parts: The list of message parts into which the result
             should be streamed.
         :param messages: The messages making up the current context.
         :param tools: An iterable of tools that should be made available to the
             agent.
-        :return: A task that is done when the message is complete.
+        :return: A coroutine that streams the response into the message parts
+            list.
         """
         raise NotImplementedError
 
@@ -106,7 +109,8 @@ class OpenrouterProvider(Provider):
     async def stream_agent_message(
             self, message_parts: util.StreamableList,
             messages: cl_abc.Iterable[msg.Message],
-            tools: cl_abc.Iterable[fastmcp.tools.Tool]) -> asyncio.Task[None]:
+            tools: cl_abc.Iterable[fastmcp.tools.Tool]
+    ) -> cl_abc.Coroutine[None]:
         stream = await self._openrouter_client.chat.send_async(
             messages=await self._as_openrouter_messages(messages),
             model=self._config.model.name,
@@ -171,8 +175,6 @@ class OpenrouterStreamReader:
 
     This class handles one stream. It is stateful and can't be reused.
     """
-    TIMEOUT = 120
-
     def __init__(
             self, message_parts: util.StreamableList,
             stream: or_stream.EventStreamAsync):
@@ -182,22 +184,17 @@ class OpenrouterStreamReader:
         self._tool_calls_kwargs: dict[int, dict] = {}
         self._saw_assistant_role = False
 
-    def read_message(self) -> asyncio.Task[None]:
+    async def read_message(self) -> None:
         """
         Read the message from the stream.
 
-        The reader's stream is consumed and message parts appended to the
-        reader's list. Returns the task that does the streaming so it can be
-        awaited.
+        Consumes the reader's stream and appends message parts to the reader's
+        list.
 
-        Only raises exceptions that happen with reading the stream itself or
-        TimeoutError if the operation takes too long. All errors with the
-        response itself like unexpected format are appended as error parts.
+        Only raises exceptions that happen with reading the stream. Any errors
+        with the response itself like unexpected format are appended as error
+        parts.
         """
-        return asyncio.create_task(
-            asyncio.wait_for(self._read_stream(), timeout=self.TIMEOUT))
-
-    async def _read_stream(self) -> None:
         try:
             finish_reasons = await self._read_stream_chunks()
             await self._check_finish_reasons(finish_reasons)
@@ -217,6 +214,10 @@ class OpenrouterStreamReader:
                     MessageStreamError(
                         "assistant role missing in all stream chunks"))
         except (Exception, asyncio.CancelledError) as e:
+            if isinstance(e, asyncio.CancelledError):
+                exc_with_msg = asyncio.CancelledError("stream was cancelled")
+                exc_with_msg.__cause__ = e
+                e = exc_with_msg
             await self._append_to_part(msg.AgentMessageErrorPart, e)
             raise e
         finally:
