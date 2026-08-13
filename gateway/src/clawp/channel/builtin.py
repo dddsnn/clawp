@@ -134,7 +134,15 @@ class WebUiChannel(base.Channel):
         self._assert_valid_chat_id(chat_id)
         unread_messages = self._messages[self._read_offset:]
         self._read_offset = len(self._messages)
-        return [self._make_incoming_message(m) for m in unread_messages]
+        incoming_messages = []
+        for m in unread_messages:
+            if isinstance(m, mdl.AgentMessage):
+                self._logger.warning(
+                    "Skipping agent message that was part of unread messages, "
+                    "probably due to unclean shutdown.")
+                continue
+            incoming_messages.append(self._make_incoming_message(m))
+        return incoming_messages
 
     def _make_incoming_message(
             self, message: mdl.UserMessage | mdl.AgentMessage
@@ -325,7 +333,15 @@ class AgentChannel(base.Channel):
             peer_agent.information.id, default=0)
         unread_messages = messages[read_offset:]
         self._set_read_offset(peer_agent.information.id, len(messages))
-        return [self._make_incoming_message(m) for m in unread_messages]
+        incoming_messages = []
+        for m in unread_messages:
+            if isinstance(m, mdl.AgentMessage):
+                self._logger.warning(
+                    "Skipping agent message that was part of unread messages, "
+                    "probably due to unclean shutdown.")
+                continue
+            incoming_messages.append(self._make_incoming_message(m))
+        return incoming_messages
 
     def _make_incoming_message(
             self, message: mdl.UserMessage | mdl.AgentMessage
