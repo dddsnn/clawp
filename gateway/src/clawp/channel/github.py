@@ -22,6 +22,7 @@ import itertools as it
 import logging
 import operator as op
 import typing as t
+import urllib.parse
 
 import github
 import github.Issue as gh_iss
@@ -447,7 +448,8 @@ class GithubChannel(base.Channel):
         token = await self._client.installation_token
         url_rewrite_config_key = (
             'url."https://{}:{}@github.com/".insteadOf'.format(
-                self._client.login, token))
+                urllib.parse.quote(self._client.login),
+                urllib.parse.quote(token)))
         return {
             "GH_TOKEN": token,
             "GIT_CONFIG_COUNT": "3",
