@@ -2,11 +2,12 @@
 import { storeToRefs } from 'pinia';
 import { EyeOff, Loader2, Maximize2, Minimize2, WifiOff } from 'lucide-vue-next';
 import { useChatStore, type MessageVisibilityMode, type ReasoningVisibilityMode } from '../../stores/chatStore';
+import type { UserInputMessage } from '../../types/api';
 import MessageList from './MessageList.vue';
 import ChatInput from './ChatInput.vue';
 
 const emit = defineEmits<{
-  (e: 'send', message: string): void
+  (e: 'send', message: UserInputMessage): void
 }>();
 
 const chatStore = useChatStore();
@@ -54,8 +55,8 @@ const reasoningModeToClass: Record<ReasoningVisibilityMode, string> = {
   expanded: 'bg-white text-slate-800 border-slate-300',
 };
 
-const handleSend = (text: string) => {
-  emit('send', text);
+const handleSend = (message: UserInputMessage) => {
+  emit('send', message);
 };
 
 const handleCycleMessageVisibility = (key: 'systemDeveloper' | 'tool' | 'crossChannelConversation') => {

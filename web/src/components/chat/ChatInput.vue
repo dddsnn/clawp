@@ -20,11 +20,12 @@ with clawp. If not, see <https://www.gnu.org/licenses/>.
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted } from 'vue';
 import { useTextareaAutosize } from '@vueuse/core';
-import { SendHorizontal } from 'lucide-vue-next';
+import { Play, SendHorizontal } from 'lucide-vue-next';
 import { useChatStore } from '../../stores/chatStore';
+import type { UserInputMessage } from '../../types/api';
 
 const emit = defineEmits<{
-  (e: 'send', message: string): void
+  (e: 'send', message: UserInputMessage): void
 }>();
 
 const store = useChatStore();
@@ -32,6 +33,8 @@ const { textarea, input } = useTextareaAutosize();
 const isSubmitting = ref(false);
 
 const isConnected = computed(() => store.connectionState.status === 'connected');
+const hasMessageContent = computed(() => Boolean(input.value?.trim()));
+const submitTitle = computed(() => hasMessageContent.value ? 'Send message' : 'Request response');
 
 watch(isConnected, async (newVal, oldVal) => {
   if (newVal && !oldVal) {
@@ -55,10 +58,15 @@ const handleKeydown = (e: KeyboardEvent) => {
 
 const sendMessage = () => {
   const text = input.value?.trim();
-  if (!text || isSubmitting.value || !isConnected.value) return;
+  if (isSubmitting.value || !isConnected.value) return;
 
-  emit('send', text);
-  input.value = ''; // Reset input
+  if (text) {
+    emit('send', { type: 'message_content', content: text });
+    input.value = ''; // Reset input
+  } else {
+    emit('send', { type: 'request_response' });
+  }
+
   // Small hack to force reset size
   if (textarea.value) {
     textarea.value.style.height = 'auto';
@@ -78,14 +86,16 @@ const sendMessage = () => {
         class="w-full bg-slate-100 border border-slate-300 rounded-xl px-4 py-3 min-h-[48px] max-h-[200px] resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all text-slate-800 placeholder-slate-400 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-200"
         rows="1"
       ></textarea>
-      
+
       <button 
         @click="sendMessage"
-        :disabled="!input?.trim() || !isConnected"
+        :disabled="!isConnected"
         class="p-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm shrink-0 flex items-center justify-center h-[48px] w-[48px]"
-        aria-label="Send message"
+        :aria-label="submitTitle"
+        :title="submitTitle"
       >
-        <SendHorizontal class="w-5 h-5" />
+        <SendHorizontal v-if="hasMessageContent" class="w-5 h-5" />
+        <Play v-else class="w-5 h-5" />
       </button>
     </div>
     <div class="max-w-4xl mx-auto mt-2 text-center">

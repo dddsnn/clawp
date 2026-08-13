@@ -285,7 +285,7 @@ export const WebsocketChunkSchema = z.discriminatedUnion('chunk_type', [
 // --- User Input ---
 
 export const BaseUserInputMessageSchema = z.object({
-  type: z.enum(['message_content']),
+  type: z.enum(['message_content', 'request_response']),
 });
 
 export const UserInputMessageContentSchema = BaseUserInputMessageSchema.extend({
@@ -294,8 +294,14 @@ export const UserInputMessageContentSchema = BaseUserInputMessageSchema.extend({
 });
 export type UserInputMessageContent = z.infer<typeof UserInputMessageContentSchema>;
 
+export const UserInputMessageRequestResponseSchema = BaseUserInputMessageSchema.extend({
+  type: z.literal('request_response'),
+});
+export type UserInputMessageRequestResponse = z.infer<typeof UserInputMessageRequestResponseSchema>;
+
 export const UserInputMessageSchema = z.discriminatedUnion('type', [
   UserInputMessageContentSchema,
+  UserInputMessageRequestResponseSchema,
 ]);
 export type UserInputMessage = z.infer<typeof UserInputMessageSchema>;
 

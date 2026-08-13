@@ -21,6 +21,7 @@ with clawp. If not, see <https://www.gnu.org/licenses/>.
 import { onUnmounted, shallowRef, watch } from 'vue';
 import ChatWindow from './ChatWindow.vue';
 import { ChatConnection } from '../../services/api';
+import type { UserInputMessage } from '../../types/api';
 
 const props = defineProps<{
   agentId: string;
@@ -37,8 +38,8 @@ const disconnectCurrentConnection = () => {
   currentConnection.value = null;
 };
 
-const handleSend = (text: string) => {
-  currentConnection.value?.sendMessage(text);
+const handleSend = (message: UserInputMessage) => {
+  currentConnection.value?.sendUserInput(message);
 };
 
 watch(
