@@ -278,6 +278,16 @@ WebsocketChunk = (
     | WebsocketChunkAgentMessageFragment)
 
 
-class UserInputMessage(base.BaseModel):
+class BaseUserInputMessage(base.BaseModel):
     """A message sent from the user to the system."""
+    type: t.Literal["message_content"]
+
+
+class UserInputMessageContent(BaseUserInputMessage):
+    type: t.Literal["message_content"] = "message_content"
     content: str
+
+
+UserInputMessage = t.Annotated[UserInputMessageContent,
+                               pyd.Field(discriminator="type")]
+UserInputMessageTypeAdapter = pyd.TypeAdapter(UserInputMessage)

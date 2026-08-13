@@ -24,10 +24,11 @@ import {
   AgentPersonalitySchema,
   AgentPersonalityWithFileContentsSchema,
   ChannelInformationSchema,
+  UserInputMessageContentSchema,
 } from '../types/api';
 import type {
   WebsocketChunk,
-  UserInputMessage,
+  UserInputMessageContent,
   AgentInformation,
   AgentPersonality,
   AgentPersonalityWithFileContents,
@@ -274,7 +275,7 @@ export class ChatConnection {
       console.error("WebSocket is not connected. Cannot send message.");
       return;
     }
-    const message: UserInputMessage = { content: text };
+    const message = UserInputMessageContentSchema.parse({ content: text });
     this.ws.send(JSON.stringify(message));
   }
 }

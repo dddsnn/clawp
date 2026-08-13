@@ -144,7 +144,7 @@ async def websocket_stream(
         _send_websocket(websocket, agent.subscribe()))
     try:
         while True:
-            input_message = mdl.UserInputMessage.model_validate(
+            input_message = mdl.UserInputMessageTypeAdapter.validate_python(
                 await websocket.receive_json())
             await agent.web_ui_channel.add_incoming_user_message(
                 we.Instant.now(), input_message.content)

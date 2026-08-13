@@ -284,9 +284,20 @@ export const WebsocketChunkSchema = z.discriminatedUnion('chunk_type', [
 
 // --- User Input ---
 
-export const UserInputMessageSchema = z.object({
+export const BaseUserInputMessageSchema = z.object({
+  type: z.enum(['message_content']),
+});
+
+export const UserInputMessageContentSchema = BaseUserInputMessageSchema.extend({
+  type: z.literal('message_content').default('message_content'),
   content: z.string(),
 });
+export type UserInputMessageContent = z.infer<typeof UserInputMessageContentSchema>;
+
+export const UserInputMessageSchema = z.discriminatedUnion('type', [
+  UserInputMessageContentSchema,
+]);
+export type UserInputMessage = z.infer<typeof UserInputMessageSchema>;
 
 // --- Agent Types ---
 
@@ -376,7 +387,6 @@ export type NonStreamableMessage = z.infer<typeof NonStreamableMessageSchema>;
 export type ToolCall = z.infer<typeof ToolCallSchema>;
 export type WebsocketChunk = z.infer<typeof WebsocketChunkSchema>;
 export type StreamingMessageMarkerPartStart = z.infer<typeof StreamingMessageMarkerPartStartSchema>;
-export type UserInputMessage = z.infer<typeof UserInputMessageSchema>;
 
 export interface StreamingAssistantMessage {
   role: 'agent';
