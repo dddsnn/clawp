@@ -280,7 +280,7 @@ WebsocketChunk = (
 
 class BaseUserInputMessage(base.BaseModel):
     """A message sent from the user to the system."""
-    type: t.Literal["message_content"]
+    type: t.Literal["message_content", "request_response"]
 
 
 class UserInputMessageContent(BaseUserInputMessage):
@@ -288,6 +288,11 @@ class UserInputMessageContent(BaseUserInputMessage):
     content: str
 
 
-UserInputMessage = t.Annotated[UserInputMessageContent,
+class UserInputMessageRequestResponse(BaseUserInputMessage):
+    type: t.Literal["request_response"] = "request_response"
+
+
+UserInputMessage = t.Annotated[UserInputMessageContent
+                               | UserInputMessageRequestResponse,
                                pyd.Field(discriminator="type")]
 UserInputMessageTypeAdapter = pyd.TypeAdapter(UserInputMessage)

@@ -883,6 +883,19 @@ class Agent:
             for env in env_by_channel.values()
             for k, v in env.items()}
 
+    async def request_response(self) -> None:
+        """
+        Request an agent response.
+
+        This simply requests a chat continuation from the agent without adding
+        any message.
+        """
+        try:
+            async with await self._session.transaction() as tx:
+                await tx.request_responses()
+        except Exception:
+            self._logger.exception("Error requesting responses.")
+
     def messages(self) -> cl_abc.Generator[MessageInSession]:
         """
         Iterate all of this agent's messages.

@@ -144,16 +144,15 @@ async def websocket_stream(
         _send_websocket(websocket, agent.subscribe()))
     try:
         while True:
-            input_message = mdl.UserInputMessageTypeAdapter.validate_python(
-                await websocket.receive_json())
-            await agent.web_ui_channel.add_incoming_user_message(
-                we.Instant.now(), input_message.content)
+            input_json = await websocket.receive_json()
+            await _handle_websocket_input(input_json, agent)
     except fastapi.WebSocketDisconnect:
         # The client closed the connection.
         return
     except asyncio.CancelledError:
         # The server is shutting down.
         await _try_close_websocket(websocket, WebsocketCloseCode.GOING_AWAY)
+        raise
     except Exception:
         logger.exception("Error in websocket.")
         await _try_close_websocket(
@@ -181,15 +180,6 @@ async def _send_websocket(
                 await send_task
     except asyncio.CancelledError:
         return
-
-
-async def _try_close_websocket(
-        websocket: fastapi.WebSocket, close_code: WebsocketCloseCode) -> None:
-    try:
-        async with asyncio.timeout(5):
-            await websocket.close(code=close_code)
-    except Exception:
-        logger.exception("Error while trying to close the websocket.")
 
 
 async def _generate_message_chunks(
@@ -247,3 +237,22 @@ async def _generate_tool_call_fragments(
 ) -> cl_abc.AsyncGenerator[mdl.StreamingMessageFragmentToolCall]:
     async for tool_call in message_part.stream_fragments():
         yield mdl.StreamingMessageFragmentToolCall(fragment=tool_call.model)
+
+
+async def _handle_websocket_input(input_json, agent: "agt.Agent") -> None:
+    input_message = mdl.UserInputMessageTypeAdapter.validate_python(input_json)
+    if isinstance(input_message, mdl.UserInputMessageContent):
+        await agent.web_ui_channel.add_incoming_user_message(
+            we.Instant.now(), input_message.content)
+    else:
+        assert isinstance(input_message, mdl.UserInputMessageRequestResponse)
+        await agent.request_response()
+
+
+async def _try_close_websocket(
+        websocket: fastapi.WebSocket, close_code: WebsocketCloseCode) -> None:
+    try:
+        async with asyncio.timeout(5):
+            await websocket.close(code=close_code)
+    except Exception:
+        logger.exception("Error while trying to close the websocket.")
