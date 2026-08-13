@@ -19,11 +19,11 @@ with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 <script setup lang="ts">
 import { AlertCircle, Bot, BotOff, Loader2, Plus, User, Radio } from 'lucide-vue-next';
-import type { AgentState, AgentPersonality, ChannelInformation } from '../../types/api';
+import type { AgentInformation, AgentPersonality, ChannelInformation } from '../../types/api';
 import { getChannelKey } from '../../stores/channelStore';
 
 defineProps<{
-  agents: AgentState[];
+  agents: AgentInformation[];
   selectedAgentId: string | null;
   agentsLoading: boolean;
   agentsError: string | null;

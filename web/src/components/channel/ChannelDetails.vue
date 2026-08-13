@@ -19,11 +19,11 @@ with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 <script setup lang="ts">
 import { AlertCircle, Link } from 'lucide-vue-next';
-import type { AgentState, ChannelInformation } from '../../types/api';
+import type { AgentInformation, ChannelInformation } from '../../types/api';
 
 const props = defineProps<{
   channel: ChannelInformation | null;
-  agents: AgentState[];
+  agents: AgentInformation[];
   selectedAgentId: string;
   isAssigning: boolean;
   isUnassigning: boolean;
