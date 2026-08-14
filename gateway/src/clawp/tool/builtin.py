@@ -44,9 +44,13 @@ def make_filesystem_proxy(
     Create a proxy to the stdio MCP server with filesystem tools that's
     installed as a binary.
     """
+    # Set HOME to the agent's workspace, so paths containing ~ resolve
+    # intuitively correct for the agent.
     transport = fastmcp.client.transports.StdioTransport(
         command="rust-mcp-filesystem",
-        args=["--enable-roots", "--allow-write"])
+        args=["--enable-roots", "--allow-write"],
+        env={"HOME": str(agent_workspace.resolve())},
+    )
     client_factory = ft.partial(
         fastmcp.Client, transport,
         roots=[f"file://{agent_workspace.resolve()}"])
