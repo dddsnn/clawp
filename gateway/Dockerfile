@@ -1,6 +1,6 @@
 FROM rust:1-alpine AS build-rust-mcp-filesystem
 RUN mkdir /dist
-RUN cargo install --locked rust-mcp-filesystem@0.4.1
+RUN cargo install --locked rust-mcp-filesystem@0.4.3
 RUN cp $(which rust-mcp-filesystem) /dist
 
 FROM python:3.14-alpine AS build
