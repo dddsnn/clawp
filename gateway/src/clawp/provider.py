@@ -80,12 +80,6 @@ class Provider(abc.ABC):
         raise NotImplementedError
 
 
-OpenRouterMessage = (
-    or_comp.ChatAssistantMessage | or_comp.ChatDeveloperMessage
-    | or_comp.ChatSystemMessage
-    | or_comp.ChatToolMessage | or_comp.ChatUserMessage)
-
-
 class OpenrouterChunkError(MessageStreamError):
     """Raised when there is an error in an Openrouter message chunk."""
     def __init__(self, message: str, error_code: int) -> None:
@@ -119,8 +113,8 @@ class OpenrouterProvider(Provider):
         return stream_reader.read_message()
 
     async def _as_openrouter_messages(
-            self,
-            messages: cl_abc.Iterable[msg.Message]) -> list[OpenRouterMessage]:
+            self, messages: cl_abc.Iterable[msg.Message]
+    ) -> list[or_comp.ChatMessages]:
         openrouter_messages = []
         for message in messages:
             if message.role == "agent":

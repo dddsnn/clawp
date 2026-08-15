@@ -496,7 +496,8 @@ class TestOpenrouterStreamReader:
                 id="chunk-id",
                 model="test-model",
                 object="chat.completion.chunk",
-                error=or_comp.Error(code=503, message="provider overloaded"),
+                error=or_comp.ChatStreamChunkError(
+                    code=503, message="provider overloaded"),
             )])
         assert error is None
         assert_that(
