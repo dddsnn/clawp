@@ -19,6 +19,7 @@ import abc
 import asyncio
 import collections.abc as cl_abc
 import logging
+import typing as t
 
 import fastmcp.tools
 import openrouter
@@ -92,6 +93,7 @@ class OpenrouterProvider(Provider):
         self._config = config
         self._openrouter_client = openrouter.OpenRouter(
             api_key=self._config.api_key.value)
+        self._schema_strict_compliance_cache = {}
 
     async def __aenter__(self):
         await self._openrouter_client.__aenter__()
@@ -160,17 +162,24 @@ class OpenrouterProvider(Provider):
             function = or_comp.ChatFunctionToolFunctionFunction(
                 name=tool.name, description=tool.description,
                 parameters=tool.parameters,
-                strict=self._tool_schema_is_strict_compliant(tool.parameters))
+                strict=self._tool_schema_is_strict_compliant(tool))
             openrouter_tools.append(
                 or_comp.ChatFunctionToolFunction(
                     type="function", function=function))
         return openrouter_tools
 
-    def _tool_schema_is_strict_compliant(self, schema: dict | None) -> bool:
+    def _tool_schema_is_strict_compliant(
+            self, tool: fastmcp.tools.Tool) -> bool:
         """Check if a tool schema is compatible with strict adherence."""
-        if not isinstance(schema, dict):
-            return True
+        try:
+            return self._schema_strict_compliance_cache[tool.name]
+        except KeyError:
+            return self._schema_strict_compliance_cache.setdefault(
+                tool.name, self._schema_is_strict_compliant(tool.parameters))
 
+    def _schema_is_strict_compliant(self, schema: t.Any) -> bool:
+        if not isinstance(schema, dict):
+            return False
         # oneOf and allOf are forbidden.
         if "oneOf" in schema or "allOf" in schema:
             return False
@@ -201,18 +210,18 @@ class OpenrouterProvider(Provider):
                 return False
             # Recursively check sub-properties.
             for prop_schema in props.values():
-                if not self._tool_schema_is_strict_compliant(prop_schema):
+                if not self._schema_is_strict_compliant(prop_schema):
                     return False
 
         # For arrays: inspect items.
         try:
             items = schema["items"]
             if isinstance(items, dict):
-                if not self._tool_schema_is_strict_compliant(items):
+                if not self._schema_is_strict_compliant(items):
                     return False
             elif isinstance(items, list):
                 for item in items:
-                    if not self._tool_schema_is_strict_compliant(item):
+                    if not self._schema_is_strict_compliant(item):
                         return False
         except KeyError:
             pass
