@@ -76,10 +76,22 @@ services:
       shell-sandbox:
         condition: "service_started"
 
+  # Production web UI served by Nginx, which proxies API and websocket traffic
+  # to the gateway so clients use one origin.
+  web:
+    build:
+      context: "web"
+      target: "app"
+    ports:
+      - "8080:80"
+    depends_on:
+      gateway:
+        condition: "service_started"
+
 volumes:
   # Volume containing persistent data like agents and config.
   clawp-data:
-    driver: local
+    driver: "local"
     driver_opts:
       type: "none"
       # We set the nosuid option, which disallows agents from setting the SGID
