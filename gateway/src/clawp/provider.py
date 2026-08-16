@@ -155,12 +155,69 @@ class OpenrouterProvider(Provider):
     def _as_openrouter_tools(
         self, tools: cl_abc.Iterable[fastmcp.tools.Tool]
     ) -> list[or_comp.ChatFunctionToolFunction]:
-        return [
-            or_comp.ChatFunctionToolFunction(
-                type="function",
-                function=or_comp.ChatFunctionToolFunctionFunction(
-                    name=t.name, description=t.description,
-                    parameters=t.inputSchema, strict=True)) for t in tools]
+        openrouter_tools: list[or_comp.ChatFunctionToolFunction] = []
+        for tool in tools:
+            function = or_comp.ChatFunctionToolFunctionFunction(
+                name=tool.name, description=tool.description,
+                parameters=tool.parameters,
+                strict=self._tool_schema_is_strict_compliant(tool.parameters))
+            openrouter_tools.append(
+                or_comp.ChatFunctionToolFunction(
+                    type="function", function=function))
+        return openrouter_tools
+
+    def _tool_schema_is_strict_compliant(self, schema: dict | None) -> bool:
+        """Check if a tool schema is compatible with strict adherence."""
+        if not isinstance(schema, dict):
+            return True
+
+        # oneOf and allOf are forbidden.
+        if "oneOf" in schema or "allOf" in schema:
+            return False
+
+        # anyOf is only allowed for simple type unions.
+        try:
+            any_of = schema["anyOf"]
+            if not isinstance(any_of, list):
+                return False
+            for sub_schema in any_of:
+                is_simple_type_dict = (
+                    isinstance(sub_schema, dict) and len(sub_schema) == 1
+                    and "type" in sub_schema
+                    and isinstance(sub_schema["type"], str))
+                if not is_simple_type_dict:
+                    return False
+        except KeyError:
+            pass
+
+        # For objects, additionalProperties must explicitly be False, and all
+        # properties must be required.
+        if schema.get("type") == "object" or "properties" in schema:
+            if schema.get("additionalProperties") is not False:
+                return False
+            props = schema.get("properties", {})
+            req = set(schema.get("required", []))
+            if set(props.keys()) != req:
+                return False
+            # Recursively check sub-properties.
+            for prop_schema in props.values():
+                if not self._tool_schema_is_strict_compliant(prop_schema):
+                    return False
+
+        # For arrays: inspect items.
+        try:
+            items = schema["items"]
+            if isinstance(items, dict):
+                if not self._tool_schema_is_strict_compliant(items):
+                    return False
+            elif isinstance(items, list):
+                for item in items:
+                    if not self._tool_schema_is_strict_compliant(item):
+                        return False
+        except KeyError:
+            pass
+
+        return True
 
 
 class OpenrouterStreamReader:
