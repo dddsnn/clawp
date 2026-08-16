@@ -200,7 +200,7 @@ class Client:
         return ClientSessionTransactionContext(self, tx)
 
     @property
-    def tools(self) -> dict[str, fastmcp.tools.Tool]:
+    def tools(self) -> dict[str, mcp.types.Tool]:
         if self._tools is None:
             raise ValueError("client not initialized")
         return self._tools

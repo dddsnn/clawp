@@ -21,7 +21,7 @@ import collections.abc as cl_abc
 import logging
 import typing as t
 
-import fastmcp.tools
+import mcp.types
 import openrouter
 import openrouter.components as or_comp
 import openrouter.utils.eventstreaming as or_stream
@@ -61,8 +61,7 @@ class Provider(abc.ABC):
     async def stream_agent_message(
             self, message_parts: util.StreamableList,
             messages: cl_abc.Iterable[msg.Message],
-            tools: cl_abc.Iterable[fastmcp.tools.Tool]
-    ) -> cl_abc.Coroutine[None]:
+            tools: cl_abc.Iterable[mcp.types.Tool]) -> cl_abc.Coroutine[None]:
         """
         Stream an agent response.
 
@@ -105,8 +104,7 @@ class OpenrouterProvider(Provider):
     async def stream_agent_message(
             self, message_parts: util.StreamableList,
             messages: cl_abc.Iterable[msg.Message],
-            tools: cl_abc.Iterable[fastmcp.tools.Tool]
-    ) -> cl_abc.Coroutine[None]:
+            tools: cl_abc.Iterable[mcp.types.Tool]) -> cl_abc.Coroutine[None]:
         stream = await self._openrouter_client.chat.send_async(
             messages=await self._as_openrouter_messages(messages),
             model=self._config.model.name,
@@ -155,27 +153,26 @@ class OpenrouterProvider(Provider):
             message.reasoning, tool_calls=tool_calls)
 
     def _as_openrouter_tools(
-        self, tools: cl_abc.Iterable[fastmcp.tools.Tool]
+        self, tools: cl_abc.Iterable[mcp.types.Tool]
     ) -> list[or_comp.ChatFunctionToolFunction]:
         openrouter_tools: list[or_comp.ChatFunctionToolFunction] = []
         for tool in tools:
             function = or_comp.ChatFunctionToolFunctionFunction(
                 name=tool.name, description=tool.description,
-                parameters=tool.parameters,
+                parameters=tool.inputSchema,
                 strict=self._tool_schema_is_strict_compliant(tool))
             openrouter_tools.append(
                 or_comp.ChatFunctionToolFunction(
                     type="function", function=function))
         return openrouter_tools
 
-    def _tool_schema_is_strict_compliant(
-            self, tool: fastmcp.tools.Tool) -> bool:
+    def _tool_schema_is_strict_compliant(self, tool: mcp.types.Tool) -> bool:
         """Check if a tool schema is compatible with strict adherence."""
         try:
             return self._schema_strict_compliance_cache[tool.name]
         except KeyError:
             return self._schema_strict_compliance_cache.setdefault(
-                tool.name, self._schema_is_strict_compliant(tool.parameters))
+                tool.name, self._schema_is_strict_compliant(tool.inputSchema))
 
     def _schema_is_strict_compliant(self, schema: t.Any) -> bool:
         if not isinstance(schema, dict):
