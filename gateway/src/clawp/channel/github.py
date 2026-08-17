@@ -524,6 +524,8 @@ class GithubChannel(base.Channel):
                 comment_type="comment"), mdl.GithubChatMessageMetadata)
 
     async def send(self, message: msg.AgentMessage) -> None:
+        if await self.num_unread_messages(message.metadata.chat.chat_id) > 0:
+            raise base.ChannelError("can't send if there are unread messages")
         chat = message.metadata.chat
         assert isinstance(chat, mdl.GithubChatDescriptor)
         await asyncio.to_thread(
