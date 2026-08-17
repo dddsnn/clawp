@@ -363,7 +363,7 @@ class GithubChannel(base.Channel):
         self._config = config
         self._state = state
         self._client = GithubAppClient(self._config)
-        self._progress_checkers = ProgressCheckers(self._client)
+        self._progress_checkers = None
         self._poll_task: asyncio.Task | None = None
         self._message_templates: dict[str, file.Template] = None
         self._assigned_issues: dict[str, list[gh_iss.Issue]] = {}
@@ -375,6 +375,7 @@ class GithubChannel(base.Channel):
                 "system_information/github_assigned.md"),
             "unassigned": await file.read_message_template(
                 "system_information/github_unassigned.md"),}
+        self._progress_checkers = ProgressCheckers(self._client)
         await self._client.__aenter__()
         await self._ensure_up_to_date_assigned_issues()
         self._poll_task = asyncio.create_task(self._poll_forever())
