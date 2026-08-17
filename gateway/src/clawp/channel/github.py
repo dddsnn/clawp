@@ -529,9 +529,9 @@ class GithubChannel(base.Channel):
         chat = message.metadata.chat
         assert isinstance(chat, mdl.GithubChatDescriptor)
         await asyncio.to_thread(
-            self._create_comment, chat, await message.content)
+            self._create_comment_sync, chat, await message.content)
 
-    def _create_comment(
+    def _create_comment_sync(
             self, chat: mdl.GithubChatDescriptor, comment_body: str):
         repo = self._client.github.get_repo(chat.repo_full_name)
         issue = repo.get_issue(chat.issue_number)
@@ -624,7 +624,7 @@ class GithubChannel(base.Channel):
             self._issues_events_checker(repo.full_name))
         if issues_events_checker.has_changes:
             return await asyncio.to_thread(
-                self._get_relevant_new_issue_events, repo)
+                self._get_relevant_new_issue_events_sync, repo)
         return []
 
     async def _get_timeline_events(
@@ -647,10 +647,10 @@ class GithubChannel(base.Channel):
             self._issue_timeline_checker(repo.full_name, issue.number))
         if issue_timeline_checker.has_changes:
             return await asyncio.to_thread(
-                self._get_relevant_new_timeline_events, repo, issue)
+                self._get_relevant_new_timeline_events_sync, repo, issue)
         return []
 
-    def _get_relevant_new_issue_events(
+    def _get_relevant_new_issue_events_sync(
             self, repo: gh_repo.Repository) -> list[Event]:
         read_marker = self._state.read_markers.setdefault(
             self._issues_events_url(repo.full_name),
@@ -672,7 +672,7 @@ class GithubChannel(base.Channel):
                 new_events.append(event)
         return new_events
 
-    def _get_relevant_new_timeline_events(
+    def _get_relevant_new_timeline_events_sync(
             self, repo: gh_repo.Repository,
             issue: gh_iss.Issue) -> list[Event]:
         read_marker = self._state.read_markers.setdefault(
@@ -711,14 +711,15 @@ class GithubChannel(base.Channel):
                 if event.event.id == event_id:
                     # This is the event of assignment state change.
                     messages += await asyncio.to_thread(
-                        self._incoming_messages_for_assignment_change, repo,
-                        event, assigned)
+                        self._incoming_messages_for_assignment_change_sync,
+                        repo, event, assigned)
             else:
                 assert isinstance(event.event, gh_tl.TimelineEvent)
                 read_marker_key = self._issue_timeline_url(
                     repo.full_name, event.issue.number)
                 messages += await asyncio.to_thread(
-                    self._incoming_messages_for_timeline_event, repo, event)
+                    self._incoming_messages_for_timeline_event_sync, repo,
+                    event)
             for message in messages:
                 self._state.unread_messages.setdefault(
                     message.chat.chat_id, []).append(message)
@@ -795,7 +796,7 @@ class GithubChannel(base.Channel):
             stati[issue_event.issue.number] = (assigned, event_id)
         return stati
 
-    def _incoming_messages_for_assignment_change(
+    def _incoming_messages_for_assignment_change_sync(
             self, repo: gh_repo.Repository, event: Event,
             assigned: bool) -> list[mdl.IncomingMessage]:
         assert isinstance(event.event, gh_issev.IssueEvent)
@@ -866,11 +867,12 @@ class GithubChannel(base.Channel):
                 comment_type=comment_type), content=content)
         return mdl.IncomingMessage(chat=chat, message=user_message)
 
-    def _incoming_messages_for_timeline_event(
+    def _incoming_messages_for_timeline_event_sync(
             self, repo: gh_repo.Repository,
             event: Event) -> list[mdl.IncomingMessage]:
         assert isinstance(event.event, gh_tl.TimelineEvent)
         assert event.event.event == "commented"
+        assert event.event.body is not None
         if event.event.actor.login == self._client.login:
             self._logger.debug("Skipping agent's own new comment.")
             return []
