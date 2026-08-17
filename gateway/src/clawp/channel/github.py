@@ -18,6 +18,7 @@
 import asyncio
 import contextlib
 import dataclasses as dc
+import functools as ft
 import itertools as it
 import logging
 import operator as op
@@ -34,7 +35,7 @@ import pydantic as pyd
 import whenever as we
 import yarl
 
-from .. import file
+from .. import file, util
 from .. import message as msg
 from .. import model as mdl
 from . import base
@@ -42,6 +43,8 @@ from . import base
 
 class GithubAppClient:
     """Github client authenticating as a Github app."""
+    INSTALLATION_REPOSITORIES_CACHE_TTL = 15 * 60
+
     def __init__(self, config: mdl.GithubAccountConfig) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._config = config
@@ -54,6 +57,10 @@ class GithubAppClient:
         self._login = None
         self._github = None
         self._authorization = None
+        self._installation_repositories_cache = util.TtlCache(
+            self.INSTALLATION_REPOSITORIES_CACHE_TTL,
+            ft.partial(
+                asyncio.to_thread, self._list_installation_repositories_sync))
 
     async def __aenter__(self) -> t.Self:
         self._login = await asyncio.to_thread(self._get_login_sync)
@@ -117,15 +124,15 @@ class GithubAppClient:
         Lists all repositories belonging to the configured organization that
         the app's installation has access to.
         """
-        return await asyncio.to_thread(
-            self._list_installation_repositories_sync)
+        # Do not expose the cache's mutable list to callers.
+        return list(await self._installation_repositories_cache.get())
 
     def _list_installation_repositories_sync(self) -> list[gh_repo.Repository]:
         installation = self._integration.get_app_installation(
             self._config.installation_id)
         repos: list[gh_repo.Repository] = []
         for repo in installation.get_repos():
-            if not repo.organization.login == self._config.organization:
+            if repo.organization.login != self._config.organization:
                 self._logger.debug(
                     f"Ignoring installation repo {repo} which is not owned by "
                     f"{self._config.organization}.")
