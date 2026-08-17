@@ -17,7 +17,9 @@
 
 import asyncio
 import contextlib
+import unittest.mock as um
 
+import async_solipsism
 import pytest
 
 from clawp import util
@@ -428,3 +430,76 @@ class TestFutureValue:
         v.value = 5
         with pytest.raises(ValueError):
             v.value = 5
+
+
+class TestTtlCache:
+    @pytest.fixture
+    def event_loop_policy(self):
+        return async_solipsism.EventLoopPolicy()
+
+    async def test_get_caches_successful_refresh(self):
+        refresh = um.AsyncMock(return_value="value")
+        cache = util.TtlCache(60, refresh)
+        assert await cache.get() == "value"
+        await asyncio.sleep(59)
+        assert await cache.get() == "value"
+        refresh.assert_awaited_once_with()
+
+    async def test_get_refreshes_after_expiry(self):
+        refresh = um.AsyncMock(side_effect=["first", "second"])
+        cache = util.TtlCache(60, refresh)
+        assert await cache.get() == "first"
+        await asyncio.sleep(60)
+        assert await cache.get() == "second"
+        assert refresh.await_count == 2
+
+    async def test_concurrent_gets_share_refresh(self):
+        refresh_started = asyncio.Event()
+        finish_refresh = asyncio.Event()
+        num_refreshes = 0
+
+        async def refresh():
+            nonlocal num_refreshes
+            num_refreshes += 1
+            refresh_started.set()
+            await finish_refresh.wait()
+            return "value"
+
+        cache = util.TtlCache(60, refresh)
+        get_tasks = [asyncio.create_task(cache.get()) for _ in range(2)]
+        await refresh_started.wait()
+        await asyncio.sleep(0)
+        assert not get_tasks[0].done()
+        assert not get_tasks[1].done()
+        finish_refresh.set()
+
+        assert await asyncio.gather(*get_tasks) == ["value", "value"]
+        assert num_refreshes == 1
+
+    async def test_initial_refresh_raises(self):
+        refresh = um.AsyncMock(side_effect=RuntimeError("failed"))
+        cache = util.TtlCache(60, refresh)
+        with pytest.raises(RuntimeError, match="failed"):
+            await cache.get()
+
+    async def test_successive_refresh_raises(self):
+        refresh = um.AsyncMock(side_effect=["value", RuntimeError("failed")])
+        cache = util.TtlCache(60, refresh)
+
+        assert await cache.get() == "value"
+        await asyncio.sleep(60)
+        with pytest.raises(RuntimeError, match="failed"):
+            await cache.get()
+        assert refresh.await_count == 2
+
+    async def test_doesnt_reset_refresh_timer_after_failure(self):
+        refresh = um.AsyncMock(
+            side_effect=["first", RuntimeError("failed"), "second"])
+        cache = util.TtlCache(60, refresh)
+
+        assert await cache.get() == "first"
+        await asyncio.sleep(60)
+        with pytest.raises(RuntimeError, match="failed"):
+            await cache.get()
+        assert await cache.get() == "second"
+        assert refresh.await_count == 3

@@ -276,3 +276,42 @@ class FutureValue(Value):
             raise ValueError("value has already been set")
         self._value = value
         self._set_event.set()
+
+
+class TtlCache(t.Generic[ValueType]):
+    """
+    Simple TTL cache for an asynchronous refresh function.
+
+    The first call to get(), and the first call after the TTL expires, refresh
+    the value. Concurrent callers share that refresh. Failed or cancelled
+    refreshes are not cached.
+    """
+    def __init__(
+        self, ttl: float,
+        refresh: cl_abc.Callable[[], cl_abc.Coroutine[t.Any, t.Any, ValueType]]
+    ) -> None:
+        """
+        :param ttl: Time in seconds for which the value is cached (using the
+            event loop's monotonic clock).
+        """
+        self._ttl = ttl
+        self._refresh = refresh
+        self._lock = asyncio.Lock()
+        self._value: ValueType | None = None
+        self._expires_at = float("-inf")
+
+    async def get(self) -> ValueType:
+        """Return the cached value, refreshing it when it has expired."""
+        if self._is_fresh():
+            assert self._value is not None
+            return self._value
+        async with self._lock:
+            if self._is_fresh():
+                assert self._value is not None
+                return self._value
+            self._value = await self._refresh()
+            self._expires_at = asyncio.get_running_loop().time() + self._ttl
+            return self._value
+
+    def _is_fresh(self) -> bool:
+        return asyncio.get_running_loop().time() < self._expires_at
