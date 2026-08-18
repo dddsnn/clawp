@@ -777,11 +777,11 @@ class GithubChannel(base.Channel):
         issue_stati = self._issue_state_changes(events)
         for event in events:
             messages: list[mdl.IncomingMessage] = []
+            assigned, changed_in_event_id, changed_by_agent = (
+                issue_stati.get(event.issue.number, (True, None, None)))
             if isinstance(event.event, gh_issev.IssueEvent):
                 read_marker_key = self._issues_events_url(repo.full_name)
-                assigned, event_id, changed_by_agent = (
-                    issue_stati[event.issue.number])
-                if event.event.id == event_id:
+                if event.event.id == changed_in_event_id:
                     assert changed_by_agent is not None
                     # This is the event of assignment state change.
                     messages += await asyncio.to_thread(
@@ -789,6 +789,15 @@ class GithubChannel(base.Channel):
                         repo, event, assigned, changed_by_agent)
             else:
                 assert isinstance(event.event, gh_tl.TimelineEvent)
+                if changed_in_event_id is not None:
+                    # Assignment of the issue changed during the poll, so the
+                    # initial message dump should already contain everything
+                    # the agent needs to know.
+                    self._logger.debug(
+                        f"Ignoring {event.event.event} timeline event for "
+                        "issue that was newly assigned (initial info dump "
+                        "should have everything).")
+                    continue
                 read_marker_key = self._issue_timeline_url(
                     repo.full_name, event.issue.number)
                 messages += await asyncio.to_thread(
