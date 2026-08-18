@@ -347,6 +347,22 @@ class Event:
     time: we.Instant
 
 
+@dc.dataclass
+class IssueAssignmentStatus:
+    is_assigned: bool
+    changed_in_event_id: int | None
+    changed_by_agent: bool | None
+
+    def __post_init__(self):
+        if (self.changed_in_event_id is None) != (self.changed_by_agent
+                                                  is None):
+            raise ValueError
+
+    @property
+    def has_changed(self) -> bool:
+        return self.changed_in_event_id is not None
+
+
 class GithubChannel(base.Channel):
     """
     Github channel.
@@ -774,22 +790,24 @@ class GithubChannel(base.Channel):
 
     async def _process_events(
             self, repo: gh_repo.Repository, events: list[Event]) -> None:
-        issue_stati = self._issue_state_changes(events)
+        assignment_stati = self._issue_assignment_state_changes(events)
         for event in events:
             messages: list[mdl.IncomingMessage] = []
-            assigned, changed_in_event_id, changed_by_agent = (
-                issue_stati.get(event.issue.number, (True, None, None)))
+            assignment_status = assignment_stati.get(
+                event.issue.number,
+                IssueAssignmentStatus(
+                    is_assigned=True, changed_in_event_id=None,
+                    changed_by_agent=None))
             if isinstance(event.event, gh_issev.IssueEvent):
                 read_marker_key = self._issues_events_url(repo.full_name)
-                if event.event.id == changed_in_event_id:
-                    assert changed_by_agent is not None
+                if event.event.id == assignment_status.changed_in_event_id:
                     # This is the event of assignment state change.
                     messages += await asyncio.to_thread(
                         self._incoming_messages_for_assignment_change_sync,
-                        repo, event, assigned, changed_by_agent)
+                        repo, event, assignment_status)
             else:
                 assert isinstance(event.event, gh_tl.TimelineEvent)
-                if changed_in_event_id is not None:
+                if assignment_status.has_changed:
                     # Assignment of the issue changed during the poll, so the
                     # initial message dump should already contain everything
                     # the agent needs to know.
@@ -835,9 +853,8 @@ class GithubChannel(base.Channel):
             read_marker.last_event_ids.add(node_id)
         self._state.read_markers[endpoint_url] = read_marker
 
-    def _issue_state_changes(
-        self, events: list[Event]
-    ) -> dict[int, tuple[bool, int | None, bool | None]]:
+    def _issue_assignment_state_changes(
+            self, events: list[Event]) -> dict[int, IssueAssignmentStatus]:
         """
         Determine assignment/unassignment state and change.
 
@@ -846,12 +863,12 @@ class GithubChannel(base.Channel):
         the events. If an issues state changes multiple times such that its end
         state ends up as the start state, it is listed as not changed.
 
-        Returns a dict mapping each issue number to a tuple (assigned,
-        event_id, changed_by_agent), where event_id is the ID of the last event
-        in which the state changed and changed_by_agent indicates whether the
-        change in assignment state was changed by the agent themselves. If
-        event_id and changed_by_agent are None, this means the state hasn't
-        changed.
+        Returns a dict mapping each issue number to an IssueAssignmentStatus
+        that indicates whether the issue is currently assigned, whether the
+        assignment state has changed within the examined list of events and at
+        which event, and whether the agent themselves changed the state. If the
+        state hasn't changed, the changed_in_event_id and changed_by_agent
+        properties are None.
         """
         stati = {}
         for event in events:
@@ -859,14 +876,16 @@ class GithubChannel(base.Channel):
                 continue
             issue_event = event.event
             try:
-                assigned, event_id, changed_by_agent = (
-                    stati[issue_event.issue.number])
+                status = stati[issue_event.issue.number]
             except KeyError:
-                assigned = any(
+                is_assigned = any(
                     label.name == self.agent_assigned_label
                     for label in issue_event.issue.labels)
-                event_id = None
-                changed_by_agent = None
+                status = stati.setdefault(
+                    issue_event.issue.number,
+                    IssueAssignmentStatus(
+                        is_assigned=is_assigned, changed_in_event_id=None,
+                        changed_by_agent=None))
             label_added = (
                 issue_event.event == "labeled"
                 and issue_event.label.name == self.agent_assigned_label)
@@ -874,37 +893,37 @@ class GithubChannel(base.Channel):
                 issue_event.event == "unlabeled"
                 and issue_event.label.name == self.agent_assigned_label)
             assert not (label_added and label_removed)
-            if (assigned and label_added) or (not assigned and label_removed):
-                event_id = issue_event.id
-                changed_by_agent = (
+            if ((status.is_assigned and label_added)
+                    or (not status.is_assigned and label_removed)):
+                status.changed_in_event_id = issue_event.id
+                status.changed_by_agent = (
                     event.event.actor.login == self._client.login)
-            elif assigned and label_removed:
+            elif status.is_assigned and label_removed:
                 self._logger.debug(
                     f"Issue {issue_event.issue.number} is currently assigned, "
                     "but found label removed. Must have been added/removed "
                     "multiple times.")
-                event_id = None
-            elif not assigned and label_added:
+                status.changed_in_event_id = status.changed_by_agent = None
+            elif not status.is_assigned and label_added:
                 self._logger.debug(
                     f"Issue {issue_event.issue.number} is currently not "
                     "assigned, but found label added. Must have been "
                     "added/removed multiple times.")
-                event_id = None
-            stati[issue_event.issue.number] = (
-                assigned, event_id, changed_by_agent)
+                status.changed_in_event_id = status.changed_by_agent = None
         return stati
 
     def _incoming_messages_for_assignment_change_sync(
-            self, repo: gh_repo.Repository, event: Event, assigned: bool,
-            changed_by_agent: bool) -> list[mdl.IncomingMessage]:
+            self, repo: gh_repo.Repository, event: Event,
+            assignment_status: IssueAssignmentStatus
+    ) -> list[mdl.IncomingMessage]:
         assert isinstance(event.event, gh_issev.IssueEvent)
-        if changed_by_agent:
+        if assignment_status.changed_by_agent:
             self._logger.info(
                 "Not generating messages for issue assignment/unassignment "
                 "created by the agent themselves.")
             return []
         chat = self._make_chat_descriptor(repo, event.issue)
-        if not assigned:
+        if not assignment_status.is_assigned:
             content = self._message_templates["unassigned"].render(
                 chat=chat.model_dump_json(), issue_number=event.issue.number,
                 actor_login=event.event.actor.login,
