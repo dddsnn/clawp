@@ -449,6 +449,11 @@ class GithubChannel(base.Channel):
     def _issue_has_already_been_labeled_by_agent_sync(
             self, issue: gh_iss.Issue) -> bool:
         for timeline_event in issue.get_timeline():
+            if timeline_event.id is None:  # pyright: ignore [reportUnnecessaryComparison]
+                self._logger.warning(
+                    f"Skipping timeline event {timeline_event} "
+                    f"({timeline_event.event}) without an ID.")
+                continue
             is_label_event = timeline_event.event in ["labeled", "unlabeled"]
             is_our_event = timeline_event.actor.login == self._client.login
             if is_label_event and is_our_event:
