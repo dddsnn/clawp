@@ -792,40 +792,56 @@ class GithubChannel(base.Channel):
             self, repo: gh_repo.Repository, events: list[Event]) -> None:
         assignment_stati = self._issue_assignment_state_changes(events)
         for event in events:
-            messages: list[mdl.IncomingMessage] = []
             assignment_status = assignment_stati.get(
                 event.issue.number,
                 IssueAssignmentStatus(
                     is_assigned=True, changed_in_event_id=None,
                     changed_by_agent=None))
-            if isinstance(event.event, gh_issev.IssueEvent):
-                read_marker_key = self._issues_events_url(repo.full_name)
-                if event.event.id == assignment_status.changed_in_event_id:
-                    # This is the event of assignment state change.
-                    messages += await asyncio.to_thread(
-                        self._incoming_messages_for_assignment_change_sync,
-                        repo, event, assignment_status)
-            else:
-                assert isinstance(event.event, gh_tl.TimelineEvent)
-                if assignment_status.has_changed:
-                    # Assignment of the issue changed during the poll, so the
-                    # initial message dump should already contain everything
-                    # the agent needs to know.
-                    self._logger.debug(
-                        f"Ignoring {event.event.event} timeline event for "
-                        "issue that was newly assigned (initial info dump "
-                        "should have everything).")
-                    continue
-                read_marker_key = self._issue_timeline_url(
-                    repo.full_name, event.issue.number)
-                messages += await asyncio.to_thread(
-                    self._incoming_messages_for_timeline_event_sync, repo,
-                    event)
+            messages, read_marker_key = await self._process_event(
+                repo, event, assignment_status)
             for message in messages:
                 self._state.unread_messages.setdefault(
                     message.chat.chat_id, []).append(message)
                 await self._publisher.append(message)
             self._update_event_read_marker(read_marker_key, event)
+
+    async def _process_event(
+        self, repo: gh_repo.Repository, event: Event,
+        assignment_status: IssueAssignmentStatus
+    ) -> tuple[list[mdl.IncomingMessage], yarl.URL]:
+        """
+        Process an event.
+
+        :return: A tuple (messages, read_marker_key), where messages is a list
+            of messages that should be sent to the agent, and read_marker_key
+            is the URL that keys the read marker to update after successful
+            sending.
+        """
+        if isinstance(event.event, gh_issev.IssueEvent):
+            read_marker_key = self._issues_events_url(repo.full_name)
+            if event.event.id == assignment_status.changed_in_event_id:
+                # This is the event of assignment state change.
+                messages = await asyncio.to_thread(
+                    self._incoming_messages_for_assignment_change_sync, repo,
+                    event, assignment_status)
+                return messages, read_marker_key
+            else:
+                return [], read_marker_key
+        assert isinstance(event.event, gh_tl.TimelineEvent)
+        read_marker_key = self._issue_timeline_url(
+            repo.full_name, event.issue.number)
+        if assignment_status.has_changed:
+            # Assignment of the issue changed during the poll, so the initial
+            # message dump should already contain everything the agent needs to
+            # know.
+            self._logger.debug(
+                f"Ignoring {event.event.event} timeline event for issue that "
+                "was newly assigned (initial info dump should have "
+                "everything).")
+            return [], read_marker_key
+        messages = await asyncio.to_thread(
+            self._incoming_messages_for_timeline_event_sync, repo, event)
+        return messages, read_marker_key
 
     def _update_event_read_marker(
             self, endpoint_url: yarl.URL, event: Event) -> None:
