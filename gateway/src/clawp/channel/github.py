@@ -385,7 +385,8 @@ class GithubChannel(base.Channel):
                 "system_information/github_unassigned.md"),}
         self._progress_checkers = ProgressCheckers(self._client)
         await self._client.__aenter__()
-        await self._ensure_up_to_date_assigned_issues()
+        for repo in await self._client.list_installation_repositories():
+            await self._ensure_up_to_date_assigned_issues(repo)
         self._poll_task = asyncio.create_task(self._poll_forever())
         return self
 
@@ -402,12 +403,12 @@ class GithubChannel(base.Channel):
         await self._progress_checkers.aclose()
         return await super().__aexit__(*args)
 
-    async def _ensure_up_to_date_assigned_issues(self) -> None:
-        for repo in await self._client.list_installation_repositories():
-            # First check if the agent has created any issues which should
-            # automatically be labeled.
-            await self._assign_newly_created_own_issues(repo)
-            await self._ensure_labeled_issues_are_assigned(repo)
+    async def _ensure_up_to_date_assigned_issues(
+            self, repo: gh_repo.Repository) -> None:
+        # First check if the agent has created any issues which should
+        # automatically be labeled.
+        await self._assign_newly_created_own_issues(repo)
+        await self._ensure_labeled_issues_are_assigned(repo)
 
     async def _assign_newly_created_own_issues(
             self, repo: gh_repo.Repository) -> None:
@@ -668,6 +669,8 @@ class GithubChannel(base.Channel):
                     f"Error while polling repository {repo.full_name}.")
 
     async def _poll_repo(self, repo: gh_repo.Repository) -> None:
+        await self._ensure_up_to_date_assigned_issues(repo)
+        assert repo.full_name in self._assigned_issues
         async with contextlib.AsyncExitStack() as stack:
             async with asyncio.TaskGroup() as tg:
                 issue_events_task = tg.create_task(
@@ -702,8 +705,6 @@ class GithubChannel(base.Channel):
             self, repo: gh_repo.Repository,
             stack: contextlib.AsyncExitStack) -> list[Event]:
         tasks = []
-        await self._ensure_up_to_date_assigned_issues()
-        assert repo.full_name in self._assigned_issues
         async with asyncio.TaskGroup() as tg:
             for issue in self._assigned_issues[repo.full_name]:
                 tasks.append(
