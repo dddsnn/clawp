@@ -18,6 +18,7 @@
 import asyncio
 import contextlib
 import dataclasses as dc
+import datetime
 import functools as ft
 import itertools as it
 import logging
@@ -403,18 +404,71 @@ class GithubChannel(base.Channel):
 
     async def _ensure_up_to_date_assigned_issues(self) -> None:
         for repo in await self._client.list_installation_repositories():
-            async with self._assigned_issues_checker(
-                    repo.full_name) as assigned_issues_checker:
-                should_get_issues = (
-                    repo.full_name not in self._assigned_issues
-                    or assigned_issues_checker.has_changes)
-                if not should_get_issues:
-                    continue
-                self._logger.debug(
-                    f"Getting assigned issues for {repo.full_name}.")
-                self._assigned_issues[repo.full_name] = (
-                    await self._read_paginated_list(
-                        repo.get_issues, labels=[self.agent_assigned_label]))
+            # First check if the agent has created any issues which should
+            # automatically be labeled.
+            await self._assign_newly_created_own_issues(repo)
+            await self._ensure_labeled_issues_are_assigned(repo)
+
+    async def _assign_newly_created_own_issues(
+            self, repo: gh_repo.Repository) -> None:
+        """Automatically assign new issues the agent created."""
+        async with self._newest_issues_checker(
+                repo.full_name) as newest_issues_checker:
+            if newest_issues_checker.has_changes:
+                await asyncio.to_thread(
+                    self._label_newly_created_own_issues_sync, repo)
+
+    def _label_newly_created_own_issues_sync(
+            self, repo: gh_repo.Repository) -> None:
+        read_marker = self._state.read_markers.setdefault(
+            self._issues_url(repo.full_name), mdl.GithubEventReadMarker.min())
+        issues = []
+        for issue in repo.get_issues(sort="created", direction="desc"):
+            this_event_time = we.Instant(issue.created_at)
+            already_seen = (
+                this_event_time < read_marker.last_event_time
+                or issue.node_id in read_marker.last_event_ids)
+            if already_seen:
+                break
+            issues.append(issue)
+        # With all new issues collected, iterate from oldest to newest so we
+        # can update read markers as we go.
+        for issue in reversed(issues):
+            should_add_label = (
+                issue.user.login == self._client.login and
+                not self._issue_has_already_been_labeled_by_agent_sync(issue))
+            if should_add_label:
+                self._logger.info(
+                    f"Automatically assigning issue {repo.full_name}#"
+                    f"{issue.number} the agent created themselves.")
+                issue.add_to_labels(self.agent_assigned_label)
+            self._update_read_marker(
+                self._issues_url(repo.full_name), issue.node_id,
+                issue.created_at)
+
+    def _issue_has_already_been_labeled_by_agent_sync(
+            self, issue: gh_iss.Issue) -> bool:
+        for timeline_event in issue.get_timeline():
+            is_label_event = timeline_event.event in ["labeled", "unlabeled"]
+            is_our_event = timeline_event.actor.login == self._client.login
+            if is_label_event and is_our_event:
+                return True
+        return False
+
+    async def _ensure_labeled_issues_are_assigned(
+            self, repo: gh_repo.Repository) -> None:
+        async with self._assigned_issues_checker(
+                repo.full_name) as assigned_issues_checker:
+            should_get_issues = (
+                repo.full_name not in self._assigned_issues
+                or assigned_issues_checker.has_changes)
+            if not should_get_issues:
+                return
+            self._logger.debug(
+                f"Getting assigned issues for {repo.full_name}.")
+            self._assigned_issues[repo.full_name] = (
+                await self._read_paginated_list(
+                    repo.get_issues, labels=[self.agent_assigned_label]))
 
     async def _read_paginated_list(self, list_getter, *args, **kwargs) -> list:
         paginated_list = await asyncio.to_thread(list_getter, *args, **kwargs)
@@ -537,26 +591,17 @@ class GithubChannel(base.Channel):
         issue = repo.get_issue(chat.issue_number)
         return issue.create_comment(comment_body)
 
-    def _issues_events_url(self, repo_full_name: str) -> yarl.URL:
-        return yarl.URL(
-            f"https://api.github.com/repos/{repo_full_name}/issues/events")
-
-    def _assigned_issues_url(self, repo_full_name: str) -> yarl.URL:
-        return yarl.URL(
-            f"https://api.github.com/repos/{repo_full_name}/issues"
-            f"?labels={self.agent_assigned_label}")
-
-    def _issue_timeline_url(
-            self, repo_full_name: str, issue_number: int) -> yarl.URL:
-        return yarl.URL(
-            f"https://api.github.com/repos/{repo_full_name}/issues"
-            f"/{issue_number}/timeline")
-
-    def _issues_events_checker(self, repo_full_name: str) -> ProgressChecker:
-        # Issues events are sorted newest first, so look on the first page.
+    def _newest_issues_checker(self, repo_full_name: str) -> ProgressChecker:
+        # Sort issues so we get the last created one first, and then we only
+        # have to check the first page.
+        check_url = self._issues_url(repo_full_name)
+        check_url.update_query(sort="created", direction="desc")
         return self._progress_checkers.for_url(
-            self._issues_events_url(repo_full_name),
-            look_for_changes_in="first_page")
+            check_url, look_for_changes_in="first_page")
+
+    def _issues_url(self, repo_full_name: str) -> yarl.URL:
+        return yarl.URL(
+            f"https://api.github.com/repos/{repo_full_name}/issues")
 
     def _assigned_issues_checker(self, repo_full_name: str) -> ProgressChecker:
         # For the issues endpoint, sort issues so we get the last updated one
@@ -566,6 +611,21 @@ class GithubChannel(base.Channel):
         return self._progress_checkers.for_url(
             check_url, look_for_changes_in="first_page")
 
+    def _assigned_issues_url(self, repo_full_name: str) -> yarl.URL:
+        return yarl.URL(
+            f"https://api.github.com/repos/{repo_full_name}/issues"
+            f"?labels={self.agent_assigned_label}")
+
+    def _issues_events_checker(self, repo_full_name: str) -> ProgressChecker:
+        # Issues events are sorted newest first, so look on the first page.
+        return self._progress_checkers.for_url(
+            self._issues_events_url(repo_full_name),
+            look_for_changes_in="first_page")
+
+    def _issues_events_url(self, repo_full_name: str) -> yarl.URL:
+        return yarl.URL(
+            f"https://api.github.com/repos/{repo_full_name}/issues/events")
+
     def _issue_timeline_checker(
             self, repo_full_name: str, issue_number: int) -> ProgressChecker:
         # The issue timeline endpoint is sorted with the newest event at the
@@ -574,6 +634,12 @@ class GithubChannel(base.Channel):
         return self._progress_checkers.for_url(
             self._issue_timeline_url(repo_full_name, issue_number),
             look_for_changes_in="last_page")
+
+    def _issue_timeline_url(
+            self, repo_full_name: str, issue_number: int) -> yarl.URL:
+        return yarl.URL(
+            f"https://api.github.com/repos/{repo_full_name}/issues"
+            f"/{issue_number}/timeline")
 
     async def _poll_forever(self) -> None:
         while True:
@@ -736,14 +802,20 @@ class GithubChannel(base.Channel):
         but may also be the original one with the event's node ID added to the
         set.
         """
+        self._update_read_marker(endpoint_url, event.event.node_id, event.time)
+
+    def _update_read_marker(
+            self, endpoint_url: yarl.URL, node_id: str,
+            time: we.Instant | datetime.datetime) -> None:
+        if not isinstance(time, we.Instant):
+            time = we.Instant(time)
         read_marker = self._state.read_markers.setdefault(
             endpoint_url, mdl.GithubEventReadMarker.min())
-        if event.time > read_marker.last_event_time:
+        if time > read_marker.last_event_time:
             read_marker = mdl.GithubEventReadMarker(
-                last_event_time=event.time,
-                last_event_ids={event.event.node_id})
-        elif event.time == read_marker.last_event_time:
-            read_marker.last_event_ids.add(event.event.node_id)
+                last_event_time=time, last_event_ids={node_id})
+        elif time == read_marker.last_event_time:
+            read_marker.last_event_ids.add(node_id)
         self._state.read_markers[endpoint_url] = read_marker
 
     def _issue_state_changes(
