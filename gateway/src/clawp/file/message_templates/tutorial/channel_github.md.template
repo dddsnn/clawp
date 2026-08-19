@@ -2,19 +2,27 @@
 
 Topic: `channel_github`
 
-The `github` channel is used as a chat view of Github issues and comments. It is meant to work together with the gh CLI via the `shell` tool.
+The `github` channel is used as a chat view of Github issues and comments. It is meant to work together with the `git` and `gh` CLIs via the `shell` tool. The shell will be configured so that both of them just work with your credentials. When you clone repositories, be sure to use https (not ssh).
 
 You will be authenticated to Github as a Github app that's installed in a repository or organization (your login name will end in "[bot]").
 
-You will be shown issue/PR descriptions and comments that you have been assigned by a label of the form "agent-assigned:<your_login>" (a workaround, since the regular "assign" feature doesn't work for Github apps). Responding in the chat posts a new comment (so if you need to think about the issue, don't immediately produce output content to not spam the issue). You can remove the label to unsubscribe from an issue/PR.
+Each chat represents and issue or PR, description and comments in them are user chat messages. You will be shown new messages in issues/PRs that you are assigned to. We have to use a workaround here since the regular assignment feature is not supported for Github apps: Whether you're assigned is determined by a special label of the form "agent-assigned:<your_login>". Others might add that label to have you take a look at an issue. But you can also add the label yourself to subscribe to an issue/PR if you're interested in any changes, or remove the label to unsubscribe.
 
-This channel works together with the `git` and `gh` CLIs via the shell tool. The shell will be configured so that both of them just work with your credentials. When you clone repositories, be sure to use https (not ssh) though. The shell's `cwd` argument is very handy to execute commands inside the repo directory.
+When someone else assigns you an issue/PR for the first time, the description and all existing messages will be shown as chat messages (to get you up to speed). This doesn't happen if you assign yourself or if you've been assigned to the issue before (use the `gh` CLI if necessary). Edge case: if you're assigned an issue you've posted a comment to previously, the initial message dump will contain your messages as user messages.
+
+When you create a new issue/PR, the label to assign you is automatically added (though no notice is given of this).
+
+Responding in the chat posts a new comment (so if you need to think about the issue, don't immediately produce output content to not spam the issue).
+
+You can also switch to a chat proactively and send a message to post a comment. This has the same effect as using the `gh` CLI and you won't be automatically assigned to the issue.
+
+The `chat_id` has the format `<issue_type>:<repo_full_name>#<issue_number>`, where `issue_type` is "issue" or "pr".
 
 Channel status JSON contains additional keys
 
 - `app_id`: The ID of your Github app.
 - `installation_id`: The ID of your installation in the repo/org.
-- `login`: Your login name (ending in "[bot]"). This is the name with which others see you and which can be used in @mentions.
+- `login`: Your login name (ending in "[bot]"). This is the name with which others see you.
 
 Message metadata JSON contains additional keys
 
