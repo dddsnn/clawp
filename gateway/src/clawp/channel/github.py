@@ -1019,9 +1019,12 @@ class GithubChannel(base.Channel):
         if event.issue.comments:
             for comment in event.issue.get_comments():
                 if comment.user.login == self._client.login:
-                    self._logger.debug(
-                        "Skipping agent's own comment in initial issue dump.")
-                    continue
+                    self._logger.warning(
+                        "Found agent's own comment in initial issue dump "
+                        "(agent is assigned for the first time). This means "
+                        "the agent posted a comment in this issue before "
+                        "being assigned. This comment will be displayed to "
+                        "the agent as a user message.")
                 messages.append(
                     self._make_user_message(
                         chat, comment.user.login, "comment",
