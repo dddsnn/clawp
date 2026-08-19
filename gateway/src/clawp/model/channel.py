@@ -53,7 +53,6 @@ class GithubChatDescriptor(BasicChatDescriptor):
     _chat_id_regex: t.ClassVar[re.Pattern] = re.compile(
         r"""
         (?i)                   # Case-insensitive matching
-        ^(?P<type>issue|pr):   # Matches 'issue' or 'pr'
         (?P<owner>             # Github username rules:
           [a-z0-9]             # Starts with alphanumeric
           (?:[a-z0-9]|-(?=[a-z0-9])){0,38} # Max 39 chars, single hyphens only
@@ -79,28 +78,27 @@ class GithubChatDescriptor(BasicChatDescriptor):
     @pyd.model_validator(mode="after")
     def validate_chat_id(self) -> t.Self:
         valid_chat_id = self.create_chat_id(
-            self.issue_type, self.repo_full_name, self.issue_number)
+            self.repo_full_name, self.issue_number)
         if self.chat_id != valid_chat_id:
             raise ValueError(
                 f"invalid chat_id format (must be {valid_chat_id})")
         return self
 
     @staticmethod
-    def create_chat_id(issue_type, repo_full_name, issue_number):
-        return f"{issue_type}:{repo_full_name}#{issue_number}"
+    def create_chat_id(repo_full_name, issue_number):
+        return f"{repo_full_name}#{issue_number}"
 
     @classmethod
-    def parse_chat_id(
-            cls, chat_id: str) -> tuple[t.Literal["issue", "pr"], str, int]:
-        """Parse a chat_id into (issue_type, repo_full_name, issue_number)."""
+    def parse_chat_id(cls, chat_id: str) -> tuple[str, int]:
+        """Parse a chat_id into (repo_full_name, issue_number)."""
         match = cls._chat_id_regex.match(chat_id)
         if not match:
             raise ValueError(
                 "chat ID doesn't match format (must be like "
-                '"issue|pr:owner-name/repo-name#123"')
+                '"owner-name/repo-name#123"')
         repo_full_name = f"{match.group('owner')}/{match.group('repo')}"
         issue_number = int(match.group("number"))
-        return (match.group("type"), repo_full_name, issue_number)
+        return (repo_full_name, issue_number)
 
 
 ChatDescriptor = (

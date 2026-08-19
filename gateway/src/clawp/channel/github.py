@@ -648,12 +648,13 @@ class GithubChannel(base.Channel):
     async def get_chat_descriptor(
             self, chat_id: str) -> mdl.GithubChatDescriptor:
         try:
-            issue_type, repo_full_name, issue_number = (
+            repo_full_name, issue_number = (
                 mdl.GithubChatDescriptor.parse_chat_id(chat_id))
         except (ValueError, pyd.ValidationError) as e:
             raise base.ChatIdError("invalid chat ID") from e
         issue = await asyncio.to_thread(
             self._get_issue_sync, repo_full_name, issue_number)
+        issue_type = "issue" if issue.pull_request is None else "pr"
         return mdl.GithubChatDescriptor(
             chat_id=chat_id,
             issue_type=issue_type,
@@ -1151,7 +1152,7 @@ class GithubChannel(base.Channel):
         issue_type = "issue" if issue.pull_request is None else "pr"
         return mdl.GithubChatDescriptor(
             chat_id=mdl.GithubChatDescriptor.create_chat_id(
-                issue_type, repo.full_name, issue.number),
+                repo.full_name, issue.number),
             issue_type=issue_type,
             repo_full_name=repo.full_name,
             issue_number=issue.number,

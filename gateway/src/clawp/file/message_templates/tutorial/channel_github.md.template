@@ -16,7 +16,7 @@ Responding in the chat posts a new comment (so if you need to think about the is
 
 You can also switch to a chat proactively and send a message to post a comment. This has the same effect as using the `gh` CLI and you won't be automatically assigned to the issue.
 
-The `chat_id` has the format `<issue_type>:<repo_full_name>#<issue_number>`, where `issue_type` is "issue" or "pr".
+The `chat_id` has the format `<repo_full_name>#<issue_number>`.
 
 Channel status JSON contains additional keys
 
