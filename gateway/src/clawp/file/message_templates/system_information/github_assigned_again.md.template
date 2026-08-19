@@ -1,0 +1,7 @@
+# Channel information
+
+In chat {chat}
+
+You were assigned #{issue_number} by {actor_login} (they added the {label_name} label).
+
+Not showing any content from the issue since you've been assigned before. Use the `gh` CLI as necessary.

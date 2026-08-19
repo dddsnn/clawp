@@ -397,6 +397,8 @@ class GithubChannel(base.Channel):
         self._message_templates = {
             "assigned": await file.read_message_template(
                 "system_information/github_assigned.md"),
+            "assigned_again": await file.read_message_template(
+                "system_information/github_assigned_again.md"),
             "unassigned": await file.read_message_template(
                 "system_information/github_unassigned.md"),}
         self._progress_checkers = ProgressCheckers(self._client)
@@ -987,6 +989,17 @@ class GithubChannel(base.Channel):
                         comment.body))
             messages.append(unassignment_message)
             return messages
+        if self._issue_was_assigned_before_sync(event):
+            # Only show an assignment notification, no comment history.
+            assignment_message_content = (
+                self._message_templates["assigned_again"].render(
+                    chat=chat.model_dump_json(),
+                    issue_number=event.issue.number,
+                    actor_login=event.event.actor.login,
+                    label_name=event.event.label.name))
+            message = self._make_system_message(
+                chat, event.time, assignment_message_content)
+            return [message]
         assignment_message_content = (
             self._message_templates["assigned"].render(
                 chat=chat.model_dump_json(), issue_number=event.issue.number,
@@ -1014,6 +1027,22 @@ class GithubChannel(base.Channel):
                         chat, comment.user.login, "comment",
                         we.Instant(comment.created_at), comment.body))
         return messages
+
+    def _issue_was_assigned_before_sync(self, event: Event) -> bool:
+        """Check if the issue had been assigned before the given event."""
+        for timeline_event in event.issue.get_timeline():
+            is_earlier = we.Instant(timeline_event.created_at) < event.time
+            if timeline_event.event == "labeled" and is_earlier:
+                # We need to access raw_data because the github library doesn't
+                # parse the label attribute.
+                try:
+                    label = timeline_event.raw_data["label"]["name"]
+                except KeyError:
+                    raise ValueError(
+                        "missing label in 'labeled' timeline event")
+                if label == self.agent_assigned_label:
+                    return True
+        return False
 
     def _make_chat_descriptor(
             self, repo: gh_repo.Repository,
