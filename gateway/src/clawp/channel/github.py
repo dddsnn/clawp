@@ -710,8 +710,12 @@ class GithubChannel(base.Channel):
 
     def _create_comment_sync(
             self, chat: mdl.GithubChatDescriptor, comment_body: str):
+        if not comment_body or comment_body.isspace():
+            raise base.ChannelError("comment body must not be blank")
         repo = self._client.github.get_repo(chat.repo_full_name)
         issue = repo.get_issue(chat.issue_number)
+        if issue.state == "closed":
+            raise base.ChannelError("issue is closed, cannot add comment")
         return issue.create_comment(comment_body)
 
     def _newest_issues_checker(self, repo_full_name: str) -> ProgressChecker:
