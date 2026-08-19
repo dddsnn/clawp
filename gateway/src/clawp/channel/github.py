@@ -378,7 +378,8 @@ class GithubChannel(base.Channel):
     and the gh CLI.
     """
     _RELEVANT_ISSUE_EVENTS = ["labeled", "unlabeled"]
-    _RELEVANT_TIMELINE_ISSUE_EVENTS = ["commented"]
+    _RELEVANT_TIMELINE_ISSUE_EVENTS = [
+        "closed", "commented", "merged", "reopened"]
 
     def __init__(
             self, config: mdl.GithubAccountConfig,
@@ -397,8 +398,14 @@ class GithubChannel(base.Channel):
         self._message_templates = {
             "assigned": await file.read_message_template(
                 "system_information/github_assigned.md"),
-            "assigned_again": await file.read_message_template(
-                "system_information/github_assigned_again.md"),
+            "reassigned": await file.read_message_template(
+                "system_information/github_reassigned.md"),
+            "closed": await
+            file.read_message_template("system_information/github_closed.md"),
+            "merged": await
+            file.read_message_template("system_information/github_merged.md"),
+            "reopened": await file.read_message_template(
+                "system_information/github_reopened.md"),
             "unassigned": await file.read_message_template(
                 "system_information/github_unassigned.md"),}
         self._progress_checkers = ProgressCheckers(self._client)
@@ -1001,7 +1008,7 @@ class GithubChannel(base.Channel):
         if self._issue_was_assigned_before_sync(event):
             # Only show an assignment notification, no comment history.
             assignment_message_content = (
-                self._message_templates["assigned_again"].render(
+                self._message_templates["reassigned"].render(
                     chat=chat.model_dump_json(),
                     issue_number=event.issue.number,
                     actor_login=event.event.actor.login,
@@ -1093,13 +1100,29 @@ class GithubChannel(base.Channel):
             self, repo: gh_repo.Repository,
             event: Event) -> list[mdl.IncomingMessage]:
         assert isinstance(event.event, gh_tl.TimelineEvent)
-        assert event.event.event == "commented"
-        assert event.event.body is not None
         if event.event.actor.login == self._client.login:
-            self._logger.debug("Skipping agent's own new comment.")
+            self._logger.debug(
+                f"Skipping agent's own '{event.event.event}' timeline event.")
             return []
         chat = self._make_chat_descriptor(repo, event.issue)
-        return [
-            self._make_user_message(
-                chat, event.event.actor.login, "comment", event.time,
-                event.event.body)]
+        if event.event.event == "closed":
+            content = self._message_templates["closed"].render(
+                chat=chat.model_dump_json(), issue_number=event.issue.number,
+                actor_login=event.event.actor.login)
+            return [self._make_system_message(chat, event.time, content)]
+        elif event.event.event == "commented":
+            assert event.event.body is not None
+            return [
+                self._make_user_message(
+                    chat, event.event.actor.login, "comment", event.time,
+                    event.event.body)]
+        elif event.event.event == "merged":
+            content = self._message_templates["merged"].render(
+                chat=chat.model_dump_json(), issue_number=event.issue.number,
+                actor_login=event.event.actor.login)
+            return [self._make_system_message(chat, event.time, content)]
+        assert event.event.event == "reopened"
+        content = self._message_templates["reopened"].render(
+            chat=chat.model_dump_json(), issue_number=event.issue.number,
+            actor_login=event.event.actor.login)
+        return [self._make_system_message(chat, event.time, content)]
