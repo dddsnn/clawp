@@ -16,6 +16,7 @@
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 import asyncio
+import collections.abc as cl_abc
 import contextlib
 import dataclasses as dc
 import datetime
@@ -341,8 +342,103 @@ class ProgressCheckers:
 
 
 @dc.dataclass
+class TimelineEventBase:
+    node_id: str
+    created_at: we.Instant
+
+
+@dc.dataclass
+class TimelineEventSimple(TimelineEventBase):
+    id: int
+    event: t.Literal["closed", "merged", "reopened"]
+    actor_login: str
+
+
+@dc.dataclass
+class TimelineEventLabeling(TimelineEventBase):
+    id: int
+    event: t.Literal["labeled", "unlabeled"]
+    actor_login: str
+    label_name: str
+
+
+@dc.dataclass
+class TimelineEventCommented(TimelineEventBase):
+    id: int
+    event: t.Literal["commented"]
+    actor_login: str
+    body: str
+
+
+@dc.dataclass
+class TimelineEventCommitted(TimelineEventBase):
+    id: None
+    event: t.Literal["committed"]
+    committer_name: str
+
+
+TimelineEvent = (
+    TimelineEventSimple | TimelineEventLabeling | TimelineEventCommented
+    | TimelineEventCommitted)
+
+
+def iterate_timeline(issue: gh_iss.Issue,
+                     reverse: bool = False) -> cl_abc.Generator[TimelineEvent]:
+    """
+    Iterate over an issue's timeline.
+
+    This is essentially a wrapper around the github library, which doesn't
+    parse all timeline events properly.
+
+    Only yields events of types that are valid for TimelineEvent.event, others
+    are discarded.
+    """
+    iterator = issue.get_timeline()
+    if reverse:
+        iterator = reversed(
+            iterator)  # pyright: ignore [reportArgumentType, reportCallIssue]
+    for e in iterator:
+        assert isinstance(e, gh_tl.TimelineEvent)
+        if e.event in ["closed", "merged", "reopened"]:
+            yield TimelineEventSimple(
+                node_id=e.node_id,
+                id=e.id,
+                event=e.event,  # pyright: ignore [reportArgumentType]
+                created_at=we.Instant(e.created_at),
+                actor_login=e.actor.login,
+            )
+        elif e.event in ["labeled", "unlabeled"]:
+            yield TimelineEventLabeling(
+                node_id=e.node_id,
+                id=e.id,
+                event=e.event,  # pyright: ignore [reportArgumentType]
+                created_at=we.Instant(e.created_at),
+                actor_login=e.actor.login,
+                label_name=e.raw_data["label"]["name"],
+            )
+        elif e.event == "commented":
+            assert e.body is not None
+            yield TimelineEventCommented(
+                node_id=e.node_id,
+                id=e.id,
+                event=e.event,
+                created_at=we.Instant(e.created_at),
+                actor_login=e.actor.login,
+                body=e.body,
+            )
+        elif e.event == "committed":
+            yield TimelineEventCommitted(
+                node_id=e.node_id,
+                id=None,
+                event=e.event,
+                created_at=we.Instant(e.raw_data["committer"]["date"]),
+                committer_name=e.raw_data["committer"]["name"],
+            )
+
+
+@dc.dataclass
 class Event:
-    event: gh_issev.IssueEvent | gh_tl.TimelineEvent
+    event: gh_issev.IssueEvent | TimelineEvent
     issue: gh_iss.Issue
     time: we.Instant
 
@@ -378,8 +474,6 @@ class GithubChannel(base.Channel):
     and the gh CLI.
     """
     _RELEVANT_ISSUE_EVENTS = ["labeled", "unlabeled"]
-    _RELEVANT_TIMELINE_ISSUE_EVENTS = [
-        "closed", "commented", "merged", "reopened"]
 
     def __init__(
             self, config: mdl.GithubAccountConfig,
@@ -402,6 +496,8 @@ class GithubChannel(base.Channel):
                 "system_information/github_reassigned.md"),
             "closed": await
             file.read_message_template("system_information/github_closed.md"),
+            "committed": await file.read_message_template(
+                "system_information/github_committed.md"),
             "merged": await
             file.read_message_template("system_information/github_merged.md"),
             "reopened": await file.read_message_template(
@@ -474,15 +570,11 @@ class GithubChannel(base.Channel):
 
     def _issue_has_already_been_labeled_by_agent_sync(
             self, issue: gh_iss.Issue) -> bool:
-        for timeline_event in issue.get_timeline():
-            if timeline_event.id is None:  # pyright: ignore [reportUnnecessaryComparison]
-                self._logger.warning(
-                    f"Skipping timeline event {timeline_event} "
-                    f"({timeline_event.event}) without an ID.")
-                continue
-            is_label_event = timeline_event.event in ["labeled", "unlabeled"]
-            is_our_event = timeline_event.actor.login == self._client.login
-            if is_label_event and is_our_event:
+        for timeline_event in iterate_timeline(issue):
+            is_agents_own_label_event = (
+                isinstance(timeline_event, TimelineEventLabeling)
+                and timeline_event.actor_login == self._client.login)
+            if is_agents_own_label_event:
                 return True
         return False
 
@@ -776,25 +868,16 @@ class GithubChannel(base.Channel):
             self._issue_timeline_url(repo.full_name, issue.number),
             mdl.GithubEventReadMarker.min())
         new_events: list[Event] = []
-        for timeline_event in reversed(issue.get_timeline()):
-            # Issue timeline events are sorted in chronological order (oldest
-            # first), so iterate in reverse and collect them until we come
-            # across the first event we've already seen.
-            if timeline_event.id is None:
-                self._logger.warning(
-                    f"Skipping timeline event {timeline_event} "
-                    f"({timeline_event.event}) without an ID.")
-                continue
-            this_event_time = we.Instant(timeline_event.created_at)
+        for timeline_event in iterate_timeline(issue, reverse=True):
             already_seen = (
-                this_event_time < read_marker.last_event_time
+                timeline_event.created_at < read_marker.last_event_time
                 or timeline_event.node_id in read_marker.last_event_ids)
             if already_seen:
                 break
-            if timeline_event.event in self._RELEVANT_TIMELINE_ISSUE_EVENTS:
-                event = Event(
-                    event=timeline_event, issue=issue, time=this_event_time)
-                new_events.append(event)
+            event = Event(
+                event=timeline_event, issue=issue,
+                time=timeline_event.created_at)
+            new_events.append(event)
         return new_events
 
     async def _process_events(
@@ -836,7 +919,7 @@ class GithubChannel(base.Channel):
                 return messages, read_marker_key
             else:
                 return [], read_marker_key
-        assert isinstance(event.event, gh_tl.TimelineEvent)
+        assert isinstance(event.event, TimelineEvent)
         read_marker_key = self._issue_timeline_url(
             repo.full_name, event.issue.number)
         if assignment_status.has_changed:
@@ -1048,19 +1131,13 @@ class GithubChannel(base.Channel):
 
     def _issue_was_assigned_before_sync(self, event: Event) -> bool:
         """Check if the issue had been assigned before the given event."""
-        for timeline_event in event.issue.get_timeline():
+        for timeline_event in iterate_timeline(event.issue):
             is_earlier_labeling = (
                 timeline_event.event == "labeled"
-                and we.Instant(timeline_event.created_at) < event.time)
+                and timeline_event.created_at < event.time)
             if is_earlier_labeling:
-                # We need to access raw_data because the github library doesn't
-                # parse the label attribute.
-                try:
-                    label = timeline_event.raw_data["label"]["name"]
-                except KeyError:
-                    raise ValueError(
-                        "missing label in 'labeled' timeline event")
-                if label == self.agent_assigned_label:
+                assert isinstance(timeline_event, TimelineEventLabeling)
+                if timeline_event.label_name == self.agent_assigned_label:
                     return True
         return False
 
@@ -1099,8 +1176,15 @@ class GithubChannel(base.Channel):
     def _incoming_messages_for_timeline_event_sync(
             self, repo: gh_repo.Repository,
             event: Event) -> list[mdl.IncomingMessage]:
-        assert isinstance(event.event, gh_tl.TimelineEvent)
-        if event.event.actor.login == self._client.login:
+        assert isinstance(event.event, TimelineEvent)
+        if isinstance(event.event, TimelineEventCommitted):
+            # 'committed' events don't have an actor, but agents set their name
+            # to their login, so we can use that to detect whether this is the
+            # agent's own event.
+            actor_login = event.event.committer_name
+        else:
+            actor_login = event.event.actor_login
+        if actor_login == self._client.login:
             self._logger.debug(
                 f"Skipping agent's own '{event.event.event}' timeline event.")
             return []
@@ -1108,21 +1192,25 @@ class GithubChannel(base.Channel):
         if event.event.event == "closed":
             content = self._message_templates["closed"].render(
                 chat=chat.model_dump_json(), issue_number=event.issue.number,
-                actor_login=event.event.actor.login)
+                actor_login=event.event.actor_login)
             return [self._make_system_message(chat, event.time, content)]
-        elif event.event.event == "commented":
-            assert event.event.body is not None
-            return [
-                self._make_user_message(
-                    chat, event.event.actor.login, "comment", event.time,
-                    event.event.body)]
         elif event.event.event == "merged":
             content = self._message_templates["merged"].render(
                 chat=chat.model_dump_json(), issue_number=event.issue.number,
-                actor_login=event.event.actor.login)
+                actor_login=event.event.actor_login)
             return [self._make_system_message(chat, event.time, content)]
-        assert event.event.event == "reopened"
-        content = self._message_templates["reopened"].render(
-            chat=chat.model_dump_json(), issue_number=event.issue.number,
-            actor_login=event.event.actor.login)
-        return [self._make_system_message(chat, event.time, content)]
+        elif event.event.event == "reopened":
+            content = self._message_templates["reopened"].render(
+                chat=chat.model_dump_json(), issue_number=event.issue.number,
+                actor_login=event.event.actor_login)
+            return [self._make_system_message(chat, event.time, content)]
+        elif isinstance(event.event, TimelineEventCommitted):
+            content = self._message_templates["committed"].render(
+                chat=chat.model_dump_json(), issue_number=event.issue.number,
+                committer_name=event.event.committer_name)
+            return [self._make_system_message(chat, event.time, content)]
+        assert isinstance(event.event, TimelineEventCommented)
+        return [
+            self._make_user_message(
+                chat, event.event.actor_login, "comment", event.time,
+                event.event.body)]
