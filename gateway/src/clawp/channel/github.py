@@ -1060,10 +1060,11 @@ class GithubChannel(base.Channel):
     def _make_chat_descriptor(
             self, repo: gh_repo.Repository,
             issue: gh_iss.Issue) -> mdl.GithubChatDescriptor:
+        issue_type = "issue" if issue.pull_request is None else "pr"
         return mdl.GithubChatDescriptor(
             chat_id=mdl.GithubChatDescriptor.create_chat_id(
-                "issue", repo.full_name, issue.number),
-            issue_type="issue",
+                issue_type, repo.full_name, issue.number),
+            issue_type=issue_type,
             repo_full_name=repo.full_name,
             issue_number=issue.number,
             issue_title=issue.title,
