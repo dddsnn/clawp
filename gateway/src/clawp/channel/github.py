@@ -940,55 +940,64 @@ class GithubChannel(base.Channel):
                 "Not generating messages for issue assignment/unassignment "
                 "created by the agent themselves.")
             return []
-        chat = self._make_chat_descriptor(repo, event.issue)
-        messages: list[mdl.IncomingMessage] = []
         if not assignment_status.is_assigned:
-            unassignment_message_content = (
-                self._message_templates["unassigned"].render(
-                    chat=chat.model_dump_json(),
-                    issue_number=event.issue.number,
-                    actor_login=event.event.actor.login,
-                    label_name=event.event.label.name))
-            unassignment_message = self._make_system_message(
-                chat, event.time, unassignment_message_content)
-            try:
-                # We want to get any remaining comments that have been added
-                # after the last poll but before we were unassigned and deliver
-                # them before the unassignment notification. Check the read
-                # marker of the timeline, which is where we ususally get
-                # comments from so we know where we have to start.
-                read_marker = self._state.read_markers[
-                    self._issue_timeline_url(
-                        repo.full_name, event.issue.number)]
-            except KeyError:
-                # There is no read marker, which means never polled that
-                # endpoint. Deliver just the notification.
-                return [unassignment_message]
-            # We're using the time of the read marker plus a millisecond as a
-            # lower bound here so we don't get the last message we sent again
-            # (yes, this is a bit of a hack).
-            since = read_marker.last_event_time.add(milliseconds=1)
-            for comment in event.issue.get_comments(since=since.to_stdlib()):
-                if comment.created_at < since.to_stdlib():
-                    # The github library rounds down our added millisecond so
-                    # we have to manually filter out comments before our lower
-                    # bound.
-                    continue
-                comment_time = we.Instant(comment.created_at)
-                if comment_time > event.time:
-                    # Comment is after the unassignment.
-                    continue
-                if comment.user.login == self._client.login:
-                    self._logger.debug(
-                        "Skipping agent's own comment in last messages before "
-                        "unassignment.")
-                    continue
-                messages.append(
-                    self._make_user_message(
-                        chat, comment.user.login, "comment", comment_time,
-                        comment.body))
-            messages.append(unassignment_message)
-            return messages
+            return self._incoming_messages_for_unassignment_sync(repo, event)
+        else:
+            return self._incoming_messages_for_assignment_sync(repo, event)
+
+    def _incoming_messages_for_unassignment_sync(
+            self, repo: gh_repo.Repository,
+            event: Event) -> list[mdl.IncomingMessage]:
+        assert isinstance(event.event, gh_issev.IssueEvent)
+        messages: list[mdl.IncomingMessage] = []
+        chat = self._make_chat_descriptor(repo, event.issue)
+        unassignment_message_content = (
+            self._message_templates["unassigned"].render(
+                chat=chat.model_dump_json(), issue_number=event.issue.number,
+                actor_login=event.event.actor.login,
+                label_name=event.event.label.name))
+        unassignment_message = self._make_system_message(
+            chat, event.time, unassignment_message_content)
+        try:
+            # We want to get any remaining comments that have been added after
+            # the last poll but before we were unassigned and deliver them
+            # before the unassignment notification. Check the read marker of
+            # the timeline, which is where we ususally get comments from so we
+            # know where we have to start.
+            read_marker = self._state.read_markers[self._issue_timeline_url(
+                repo.full_name, event.issue.number)]
+        except KeyError:
+            # There is no read marker, which means never polled that endpoint.
+            # Deliver just the notification.
+            return [unassignment_message]
+        # We're using the time of the read marker plus a millisecond as a lower
+        # bound here so we don't get the last message we sent again (yes, this
+        # is a bit of a hack).
+        since = read_marker.last_event_time.add(milliseconds=1)
+        for comment in event.issue.get_comments(since=since.to_stdlib()):
+            if comment.created_at < since.to_stdlib():
+                # The github library rounds down our added millisecond so we
+                # have to manually filter out comments before our lower bound.
+                continue
+            comment_time = we.Instant(comment.created_at)
+            if comment_time > event.time:
+                # Comment is after the unassignment.
+                continue
+            if comment.user.login == self._client.login:
+                continue
+            messages.append(
+                self._make_user_message(
+                    chat, comment.user.login, "comment", comment_time,
+                    comment.body))
+        messages.append(unassignment_message)
+        return messages
+
+    def _incoming_messages_for_assignment_sync(
+            self, repo: gh_repo.Repository,
+            event: Event) -> list[mdl.IncomingMessage]:
+        assert isinstance(event.event, gh_issev.IssueEvent)
+        messages: list[mdl.IncomingMessage] = []
+        chat = self._make_chat_descriptor(repo, event.issue)
         if self._issue_was_assigned_before_sync(event):
             # Only show an assignment notification, no comment history.
             assignment_message_content = (
@@ -1016,19 +1025,18 @@ class GithubChannel(base.Channel):
             self._make_user_message(
                 chat, event.event.actor.login, "description", event.time,
                 description_content))
-        if event.issue.comments:
-            for comment in event.issue.get_comments():
-                if comment.user.login == self._client.login:
-                    self._logger.warning(
-                        "Found agent's own comment in initial issue dump "
-                        "(agent is assigned for the first time). This means "
-                        "the agent posted a comment in this issue before "
-                        "being assigned. This comment will be displayed to "
-                        "the agent as a user message.")
-                messages.append(
-                    self._make_user_message(
-                        chat, comment.user.login, "comment",
-                        we.Instant(comment.created_at), comment.body))
+        for comment in event.issue.get_comments():
+            if comment.user.login == self._client.login:
+                self._logger.warning(
+                    "Found agent's own comment in initial issue dump (agent "
+                    "is assigned for the first time). This means the agent "
+                    "posted a comment in this issue before being assigned. "
+                    "This comment will be displayed to the agent as a user "
+                    "message.")
+            messages.append(
+                self._make_user_message(
+                    chat, comment.user.login, "comment",
+                    we.Instant(comment.created_at), comment.body))
         return messages
 
     def _issue_was_assigned_before_sync(self, event: Event) -> bool:
