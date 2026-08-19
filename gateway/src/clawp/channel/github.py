@@ -1042,8 +1042,10 @@ class GithubChannel(base.Channel):
     def _issue_was_assigned_before_sync(self, event: Event) -> bool:
         """Check if the issue had been assigned before the given event."""
         for timeline_event in event.issue.get_timeline():
-            is_earlier = we.Instant(timeline_event.created_at) < event.time
-            if timeline_event.event == "labeled" and is_earlier:
+            is_earlier_labeling = (
+                timeline_event.event == "labeled"
+                and we.Instant(timeline_event.created_at) < event.time)
+            if is_earlier_labeling:
                 # We need to access raw_data because the github library doesn't
                 # parse the label attribute.
                 try:
