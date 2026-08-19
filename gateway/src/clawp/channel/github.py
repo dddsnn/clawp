@@ -831,12 +831,12 @@ class GithubChannel(base.Channel):
         read_marker_key = self._issue_timeline_url(
             repo.full_name, event.issue.number)
         if assignment_status.has_changed:
-            # Assignment of the issue changed during the poll, so the initial
-            # message dump should already contain everything the agent needs to
-            # know.
+            # Assignment of the issue changed during the poll, so any necessary
+            # messages should be delivered with the assignment/unassignment
+            # notification.
             self._logger.debug(
-                f"Ignoring {event.event.event} timeline event for issue that "
-                "was newly assigned (initial info dump should have "
+                f"Ignoring '{event.event.event}' timeline event for issue "
+                "that was newly assigned (notification should have "
                 "everything).")
             return [], read_marker_key
         messages = await asyncio.to_thread(
@@ -939,19 +939,60 @@ class GithubChannel(base.Channel):
                 "created by the agent themselves.")
             return []
         chat = self._make_chat_descriptor(repo, event.issue)
+        messages: list[mdl.IncomingMessage] = []
         if not assignment_status.is_assigned:
-            content = self._message_templates["unassigned"].render(
-                chat=chat.model_dump_json(), issue_number=event.issue.number,
-                actor_login=event.event.actor.login,
-                label_name=event.event.label.name)
-            return [self._make_system_message(chat, event.time, content)]
+            unassignment_message_content = (
+                self._message_templates["unassigned"].render(
+                    chat=chat.model_dump_json(),
+                    issue_number=event.issue.number,
+                    actor_login=event.event.actor.login,
+                    label_name=event.event.label.name))
+            unassignment_message = self._make_system_message(
+                chat, event.time, unassignment_message_content)
+            try:
+                # We want to get any remaining comments that have been added
+                # after the last poll but before we were unassigned and deliver
+                # them before the unassignment notification. Check the read
+                # marker of the timeline, which is where we ususally get
+                # comments from so we know where we have to start.
+                read_marker = self._state.read_markers[
+                    self._issue_timeline_url(
+                        repo.full_name, event.issue.number)]
+            except KeyError:
+                # There is no read marker, which means never polled that
+                # endpoint. Deliver just the notification.
+                return [unassignment_message]
+            # We're using the time of the read marker plus a millisecond as a
+            # lower bound here so we don't get the last message we sent again
+            # (yes, this is a bit of a hack).
+            since = read_marker.last_event_time.add(milliseconds=1)
+            for comment in event.issue.get_comments(since=since.to_stdlib()):
+                if comment.created_at < since.to_stdlib():
+                    # The github library rounds down our added millisecond so
+                    # we have to manually filter out comments before our lower
+                    # bound.
+                    continue
+                comment_time = we.Instant(comment.created_at)
+                if comment_time > event.time:
+                    # Comment is after the unassignment.
+                    continue
+                if comment.user.login == self._client.login:
+                    self._logger.debug(
+                        "Skipping agent's own comment in last messages before "
+                        "unassignment.")
+                    continue
+                messages.append(
+                    self._make_user_message(
+                        chat, comment.user.login, "comment", comment_time,
+                        comment.body))
+            messages.append(unassignment_message)
+            return messages
         assignment_message_content = (
             self._message_templates["assigned"].render(
                 chat=chat.model_dump_json(), issue_number=event.issue.number,
                 actor_login=event.event.actor.login,
                 label_name=event.event.label.name,
                 num_messages=event.issue.comments))
-        messages: list[mdl.IncomingMessage] = []
         messages.append(
             self._make_system_message(
                 chat, event.time, assignment_message_content))
