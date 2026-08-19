@@ -42,6 +42,12 @@ from .. import message as msg
 from .. import model as mdl
 from . import base
 
+# This module makes use of the PyGithub library, which is a synchronous API
+# wrapper. Since we run async functions, we don't want to block the event loop
+# with synchronous calls, instead wrapping functions in asyncio.to_thread().
+# These functions that call the library are marked by the suffix _sync to make
+# it more clear that they shouldn't be called directly from an async function.
+
 
 class GithubAppClient:
     """Github client authenticating as a Github app."""
