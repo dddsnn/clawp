@@ -57,4 +57,6 @@ class AgentPersonalityWithFileContents(AgentPersonality):
 class AgentInformation(base.BaseModel):
     """Immutable agent information."""
     id: uuid.UUID
+    name: t.Annotated[
+        str, pyd.StringConstraints(strip_whitespace=True, min_length=1)]
     personality: AgentPersonality

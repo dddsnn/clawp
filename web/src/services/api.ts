@@ -49,8 +49,12 @@ export async function fetchAgents(): Promise<AgentInformation[]> {
   return AgentsResponseSchema.parse(rawData);
 }
 
-export async function hatchAgent(personalityName: string): Promise<AgentInformation> {
-  const response = await fetch(`/api/v1/agents/hatch?personality_name=${encodeURIComponent(personalityName)}`);
+export async function hatchAgent(agentName: string, personalityName: string): Promise<AgentInformation> {
+  const params = new URLSearchParams({
+    agent_name: agentName,
+    personality_name: personalityName,
+  });
+  const response = await fetch(`/api/v1/agents/hatch?${params}`);
   if (!response.ok) {
     throw new Error(`HTTP error! status: ${response.status}`);
   }

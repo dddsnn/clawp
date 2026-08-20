@@ -309,6 +309,7 @@ export type UserInputMessage = z.infer<typeof UserInputMessageSchema>;
 
 export const AgentInformationSchema = z.object({
   id: z.string().uuid(),
+  name: z.string(),
 });
 
 export type AgentInformation = z.infer<typeof AgentInformationSchema>;

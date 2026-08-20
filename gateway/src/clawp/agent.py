@@ -1125,13 +1125,14 @@ class AgentRepository:
             self, agent_base_dir: pathlib.Path) -> pathlib.Path:
         return agent_base_dir / "agent_channel"
 
-    async def hatch_agent(self, personality_name: str) -> Agent:
+    async def hatch_agent(
+            self, agent_name: str, personality_name: str) -> Agent:
         """Hatch a new agent."""
         if not self._running:
             raise RuntimeError("not running, can't hatch a new agent")
         agent_id = uuid.uuid4()
         agent_base_dir = await self._initialize_agent_files(
-            agent_id, personality_name)
+            agent_id, agent_name, personality_name)
         agent = self._instantiate_agent(agent_base_dir)
         self._logger.info(f"Starting new {agent}.")
         try:
@@ -1141,7 +1142,8 @@ class AgentRepository:
             raise
         return self._agents[agent.information.id]
 
-    async def _initialize_agent_files(self, agent_id, personality_name):
+    async def _initialize_agent_files(
+            self, agent_id, agent_name, personality_name):
         try:
             personality_with_contents = (
                 await
@@ -1159,6 +1161,7 @@ class AgentRepository:
         agent_base_dir.mkdir(parents=True, exist_ok=True)
         agent_information = mdl.AgentInformation(
             id=agent_id,
+            name=agent_name,
             personality=personality_with_contents.get_personality(),
         )
         self._agent_information_file(agent_base_dir).write_text(

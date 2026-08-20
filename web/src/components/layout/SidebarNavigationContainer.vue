@@ -60,6 +60,7 @@ const {
 
 const isHatchModalOpen = ref(false);
 const hatchPersonalityName = ref<string>('');
+const hatchAgentName = ref<string>('');
 const hatchError = ref<string | null>(null);
 const isHatching = ref(false);
 
@@ -102,6 +103,7 @@ const openHatchModal = () => {
 
   hatchError.value = null;
   hatchPersonalityName.value = personalities.value[0]?.name ?? '';
+  hatchAgentName.value = '';
   isHatchModalOpen.value = true;
 };
 
@@ -113,6 +115,7 @@ const closeHatchModalInternal = (force = false) => {
   isHatchModalOpen.value = false;
   hatchError.value = null;
   hatchPersonalityName.value = '';
+  hatchAgentName.value = '';
 };
 
 const closeHatchModal = () => {
@@ -120,7 +123,8 @@ const closeHatchModal = () => {
 };
 
 const submitHatchAgent = async () => {
-  if (!hatchPersonalityName.value || isHatching.value) {
+  const agentName = hatchAgentName.value.trim();
+  if (!hatchPersonalityName.value || !agentName || isHatching.value) {
     return;
   }
 
@@ -128,7 +132,7 @@ const submitHatchAgent = async () => {
   hatchError.value = null;
 
   try {
-    const newAgent = await hatchAgent(hatchPersonalityName.value);
+    const newAgent = await hatchAgent(agentName, hatchPersonalityName.value);
     agentStore.addAgent(newAgent);
     closeHatchModalInternal(true);
     emit('selectAgent', newAgent.id);
@@ -199,11 +203,24 @@ watch(
       </div>
 
       <div class="space-y-3 px-4 py-4">
+        <div>
+          <label class="block text-sm font-medium text-slate-700" for="hatch-agent-name">Name</label>
+          <input
+            id="hatch-agent-name"
+            v-model="hatchAgentName"
+            type="text"
+            class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            :disabled="isHatching"
+            required
+          />
+        </div>
+
+        <div>
         <label class="block text-sm font-medium text-slate-700" for="hatch-personality">Personality</label>
         <select
           id="hatch-personality"
           v-model="hatchPersonalityName"
-          class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+          class="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
           :disabled="isHatching"
         >
           <option value="" disabled>Select a personality</option>
@@ -211,6 +228,7 @@ watch(
             {{ personality.name }}
           </option>
         </select>
+        </div>
 
         <p v-if="hatchError" class="text-sm text-red-600">
           Failed to hatch agent: {{ hatchError }}
@@ -227,7 +245,7 @@ watch(
         </button>
         <button
           class="inline-flex items-center rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-blue-300"
-          :disabled="!hatchPersonalityName || isHatching"
+          :disabled="!hatchPersonalityName || !hatchAgentName.trim() || isHatching"
           @click="submitHatchAgent"
         >
           <span v-if="isHatching">Hatching...</span>

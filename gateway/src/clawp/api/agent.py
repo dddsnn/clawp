@@ -21,7 +21,7 @@ import enum
 import logging
 import typing as t
 
-import fastapi
+import fastapi as fa
 import fastapi.exceptions as fa_exc
 import whenever as we
 
@@ -35,7 +35,7 @@ if t.TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-router = fastapi.APIRouter(prefix="/agents")
+router = fa.APIRouter(prefix="/agents")
 
 
 class WebsocketCloseCode(enum.IntEnum):
@@ -63,6 +63,7 @@ async def list_agents(
 @router.get("/hatch")
 async def hatch_new_agent(
         agent_repo: dep.AgentRepository,
+        agent_name: t.Annotated[str, fa.Query(min_length=1)],
         personality_name: str) -> mdl.AgentInformation:
     """
     Hatch a new agent.
@@ -70,7 +71,7 @@ async def hatch_new_agent(
     Create a new agent with the given personality and return its info.
     """
     try:
-        agent = await agent_repo.hatch_agent(personality_name)
+        agent = await agent_repo.hatch_agent(agent_name, personality_name)
     except file.PersonalityNotFoundError:
         raise fa_exc.HTTPException(
             status_code=404,
@@ -104,7 +105,7 @@ async def get_messages(
 @router.websocket(
     "/{agent_id}/stream/{cachebuster_to_circumvent_reconnection_delay}")
 async def websocket_stream(
-        websocket: fastapi.WebSocket, agent: dep.Agent,
+        websocket: fa.WebSocket, agent: dep.Agent,
         cachebuster_to_circumvent_reconnection_delay: str) -> None:
     """
     Open a websocket to stream messages.
@@ -146,7 +147,7 @@ async def websocket_stream(
         while True:
             input_json = await websocket.receive_json()
             await _handle_websocket_input(input_json, agent)
-    except fastapi.WebSocketDisconnect:
+    except fa.WebSocketDisconnect:
         # The client closed the connection.
         return
     except asyncio.CancelledError:
@@ -163,7 +164,7 @@ async def websocket_stream(
 
 
 async def _send_websocket(
-        websocket: fastapi.WebSocket,
+        websocket: fa.WebSocket,
         message_iter: cl_abc.AsyncIterable["agt.MessageInSession"]) -> None:
     try:
         async for message_in_session in message_iter:
@@ -250,7 +251,7 @@ async def _handle_websocket_input(input_json, agent: "agt.Agent") -> None:
 
 
 async def _try_close_websocket(
-        websocket: fastapi.WebSocket, close_code: WebsocketCloseCode) -> None:
+        websocket: fa.WebSocket, close_code: WebsocketCloseCode) -> None:
     try:
         async with asyncio.timeout(5):
             await websocket.close(code=close_code)
