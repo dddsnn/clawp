@@ -37,6 +37,7 @@ import pydantic as pyd
 import whenever as we
 import yarl
 
+from .. import agent as agt
 from .. import file, util
 from .. import message as msg
 from .. import model as mdl
@@ -493,8 +494,8 @@ class GithubChannel(base.Channel):
         self._message_templates: dict[str, file.Template] = None
         self._assigned_issues: dict[str, list[gh_iss.Issue]] = {}
 
-    async def __aenter__(self) -> t.Self:
-        await super().__aenter__()
+    async def start(self, agent: agt.Agent) -> None:
+        await super().start(agent)
         self._message_templates = {
             "assigned": await file.read_message_template(
                 "system_information/github_assigned.md"),
@@ -515,9 +516,8 @@ class GithubChannel(base.Channel):
         for repo in await self._client.list_installation_repositories():
             await self._ensure_up_to_date_assigned_issues(repo)
         self._poll_task = asyncio.create_task(self._poll_forever())
-        return self
 
-    async def __aexit__(self, *args) -> bool:
+    async def stop(self) -> None:
         assert self._poll_task is not None
         self._poll_task.cancel()
         try:
@@ -526,9 +526,9 @@ class GithubChannel(base.Channel):
             pass
         except Exception:
             self._logger.exception("Github poll task failed while stopping.")
-        await self._client.__aexit__(*args)
+        await self._client.__aexit__(None, None, None)
         await self._progress_checkers.aclose()
-        return await super().__aexit__(*args)
+        await super().stop()
 
     async def _ensure_up_to_date_assigned_issues(
             self, repo: gh_repo.Repository) -> None:

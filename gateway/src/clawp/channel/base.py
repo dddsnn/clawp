@@ -20,6 +20,7 @@ import collections.abc as cl_abc
 import logging
 import typing as t
 
+from .. import agent as agt
 from .. import message as msg
 from .. import model as mdl
 from .. import util
@@ -71,13 +72,13 @@ class Channel(MessageSender):
         self._type: mdl.ChannelType = channel_type
         self._publisher = util.Publisher()
 
-    async def __aenter__(self) -> t.Self:
+    async def start(self, agent: agt.Agent) -> None:
+        self._agent = agent
         await self._publisher.__aenter__()
-        return self
 
-    async def __aexit__(self, *args) -> bool:
-        await self._publisher.__aexit__(*args)
-        return False
+    async def stop(self) -> None:
+        await self._publisher.__aexit__(None, None, None)
+        del self._agent
 
     @property
     def type(self) -> mdl.ChannelType:

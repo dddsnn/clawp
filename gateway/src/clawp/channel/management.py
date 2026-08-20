@@ -21,6 +21,7 @@ import dataclasses as dc
 import logging
 import typing as t
 
+from .. import agent as agt
 from .. import message as msg
 from .. import model as mdl
 from .. import util
@@ -55,7 +56,7 @@ class ChannelRouter(base.MessageSender):
     and agent must exist, or an exception is raised.
 
     The asynchronous context manager takes control of the contexts of the
-    channels, i.e. it expects them to not have been entered and instead
+    channels, i.e. it expects them to not have been started and instead
     controls their lifecycles.
     """
     @dc.dataclass
@@ -63,8 +64,9 @@ class ChannelRouter(base.MessageSender):
         channel: base.Channel
         read_task: t.Optional[asyncio.Task] = None
 
-    def __init__(self, channels: list[base.Channel]) -> None:
+    def __init__(self, agent: agt.Agent, channels: list[base.Channel]) -> None:
         self._logger = logging.getLogger(type(self).__name__)
+        self._agent = agent
         self._publisher = util.Publisher()
         self._is_running = False
         self._stati = {}
@@ -93,9 +95,9 @@ class ChannelRouter(base.MessageSender):
             await self._stop_channel(status)
         return False
 
-    async def _start_channel(self, status):
+    async def _start_channel(self, status: ChannelStatus):
         assert status.read_task is None
-        await status.channel.__aenter__()
+        await status.channel.start(self._agent)
         status.read_task = asyncio.create_task(
             self._read_channel(status.channel))
 
@@ -116,13 +118,13 @@ class ChannelRouter(base.MessageSender):
                 self._logger.exception("Error waiting for final publish.")
                 publish_task.cancel()
 
-    async def _stop_channel(self, status):
+    async def _stop_channel(self, status: ChannelStatus):
         assert status.read_task is not None
         status.read_task.cancel()
         try:
             async with asyncio.timeout(60):
                 await status.read_task
-                await status.channel.__aexit__(None, None, None)
+                await status.channel.stop()
         except Exception:
             self._logger.exception(
                 f"Error waiting for shutdown of {status.channel.type}.")

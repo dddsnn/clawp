@@ -520,8 +520,7 @@ class Agent:
             self, agent_information: mdl.AgentInformation,
             agent_state: mdl.AgentState, *, config: mdl.GatewayConfig,
             workspace_dir: pathlib.Path, message_store: store.MessageStore,
-            memory_store: store.MemoryStore,
-            channel_router: chan.ChannelRouter,
+            memory_store: store.MemoryStore, channels: list[chan.Channel],
             provider: "prov.Provider") -> None:
         self._logger = logging.getLogger(type(self).__name__)
         if not workspace_dir.is_dir():
@@ -534,10 +533,10 @@ class Agent:
         self._mcp_client = tool.Client(
             config=config, agent=self,
             extra_env_getter=self._collect_channel_extra_env)
-        self._channel_router = channel_router
+        self._channel_router = chan.ChannelRouter(self, channels)
         self._session_factory = ft.partial(
             Session, model_config=config.openrouter.model,
-            message_sender=channel_router, provider=provider,
+            message_sender=self._channel_router, provider=provider,
             mcp_client=self._mcp_client)
         self._session = None
         self._lock = asyncio.Lock()
@@ -1072,8 +1071,7 @@ class AgentRepository:
         return Agent(
             agent_information, agent_state, config=self._config,
             workspace_dir=workspace_dir, message_store=message_store,
-            memory_store=memory_store,
-            channel_router=chan.ChannelRouter(channels),
+            memory_store=memory_store, channels=channels,
             provider=self._provider)
 
     def _load_agent_files(

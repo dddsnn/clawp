@@ -23,6 +23,7 @@ import typing as t
 import nio
 import whenever as we
 
+from .. import agent as agt
 from .. import message as msg
 from .. import model as mdl
 from . import base
@@ -58,16 +59,15 @@ class MatrixChannel(base.Channel):
         self._unread_message_events: dict[
             str, list[MatrixChannel.RoomMessageEvent]] = {}
 
-    async def __aenter__(self) -> t.Self:
-        await super().__aenter__()
+    async def start(self, agent: agt.Agent) -> None:
+        await super().start(agent)
         await self._client.login(self._config.password.value)
         self._client.load_store()
         self._sync_forever_task = asyncio.create_task(
             self._client.sync_forever())
-        return self
 
-    async def __aexit__(self, *args) -> bool:
-        await super().__aexit__(*args)
+    async def stop(self) -> None:
+        await super().stop()
         try:
             self._client.stop_sync_forever()
             self._sync_forever_task.cancel()
@@ -83,7 +83,6 @@ class MatrixChannel(base.Channel):
         except Exception:
             self._logger.exception(
                 "Error closing underlying network connection.")
-        return False
 
     @property
     def id(self) -> str:

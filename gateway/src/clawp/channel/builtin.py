@@ -57,19 +57,18 @@ class WebUiChannel(base.Channel):
         self._messages_io = store.JsonlIO(
             messages_dir / self._MESSAGES_FILE_NAME, mdl.MessageTypeAdapter)
 
-    async def __aenter__(self) -> t.Self:
-        await super().__aenter__()
+    async def start(self, agent: agt.Agent) -> None:
+        await super().start(agent)
         await self._load_messages_from_disk()
         if not 0 <= self._read_offset <= len(self._messages):
             self._logger.error(
                 f"Read offset on disk is invalid (was {self._read_offset}, "
                 f"with {len(self._messages)} messages. Resetting to end.")
             self._read_offset = len(self._messages)
-        return self
 
-    async def __aexit__(self, *args) -> bool:
+    async def stop(self) -> None:
         await self._messages_io.close()
-        return await super().__aexit__(*args)
+        await super().stop()
 
     @property
     def _read_offset(self) -> int:
@@ -213,16 +212,15 @@ class AgentChannel(base.Channel):
                              list[mdl.UserMessage | mdl.AgentMessage]] = {}
         self._chat_ios: dict[uuid.UUID, store.JsonlIO] = {}
 
-    async def __aenter__(self) -> t.Self:
-        await super().__aenter__()
+    async def start(self, agent: agt.Agent) -> None:
+        await super().start(agent)
         await self._load_messages_from_disk()
-        return self
 
-    async def __aexit__(self, *args) -> bool:
+    async def stop(self) -> None:
         for io in self._chat_ios.values():
             await io.close()
         self._chat_ios.clear()
-        return await super().__aexit__(*args)
+        await super().stop()
 
     def _messages_path(self, peer_agent_id: uuid.UUID):
         return self._messages_dir / f"{peer_agent_id}.jsonl"
