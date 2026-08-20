@@ -24,6 +24,7 @@ import functools as ft
 import itertools as it
 import logging
 import operator as op
+import shlex
 import typing as t
 import urllib.parse
 
@@ -382,6 +383,7 @@ class TimelineEventCommitted(TimelineEventBase):
     id: None
     event: t.Literal["committed"]
     committer_name: str
+    committer_email: str
 
 
 TimelineEvent = (
@@ -440,6 +442,7 @@ def iterate_timeline(issue: gh_iss.Issue,
                 event=e.event,
                 created_at=we.Instant(e.raw_data["committer"]["date"]),
                 committer_name=e.raw_data["committer"]["name"],
+                committer_email=e.raw_data["committer"]["email"],
             )
 
 
@@ -647,9 +650,10 @@ class GithubChannel(base.Channel):
             "GIT_CONFIG_KEY_0": url_rewrite_config_key,
             "GIT_CONFIG_VALUE_0": "https://github.com/",
             "GIT_CONFIG_KEY_1": "user.name",
-            "GIT_CONFIG_VALUE_1": self._client.login,
+            "GIT_CONFIG_VALUE_1": shlex.quote(
+                self._agent.information.name_with_agent_tag),
             "GIT_CONFIG_KEY_2": "user.email",
-            "GIT_CONFIG_VALUE_2": self._config.agent_email,}
+            "GIT_CONFIG_VALUE_2": shlex.quote(self._config.agent_email),}
 
     async def get_chat_descriptor(
             self, chat_id: str) -> mdl.GithubChatDescriptor:
@@ -1189,13 +1193,14 @@ class GithubChannel(base.Channel):
             event: Event) -> list[mdl.IncomingMessage]:
         assert isinstance(event.event, TimelineEvent)
         if isinstance(event.event, TimelineEventCommitted):
-            # 'committed' events don't have an actor, but agents set their name
-            # to their login, so we can use that to detect whether this is the
+            # 'committed' events don't have an actor, but agents set their
+            # email for git, so we can use that to detect whether this is the
             # agent's own event.
-            actor_login = event.event.committer_name
+            is_agents_own_event = (
+                event.event.committer_email == self._config.agent_email)
         else:
-            actor_login = event.event.actor_login
-        if actor_login == self._client.login:
+            is_agents_own_event = event.event.actor_login == self._client.login
+        if is_agents_own_event:
             self._logger.debug(
                 f"Skipping agent's own '{event.event.event}' timeline event.")
             return []
@@ -1218,7 +1223,8 @@ class GithubChannel(base.Channel):
         elif isinstance(event.event, TimelineEventCommitted):
             content = self._message_templates["committed"].render(
                 chat=chat.model_dump_json(), issue_number=event.issue.number,
-                committer_name=event.event.committer_name)
+                committer_name=event.event.committer_name,
+                committer_email=event.event.committer_email)
             return [self._make_system_message(chat, event.time, content)]
         assert isinstance(event.event, TimelineEventCommented)
         return [

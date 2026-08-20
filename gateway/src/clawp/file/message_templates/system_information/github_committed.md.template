@@ -2,4 +2,4 @@
 
 In chat {chat}
 
-New commits were pushed to #{issue_number} by {committer_name}.
+New commits were pushed to #{issue_number} by {committer_name} ({committer_email}).
