@@ -24,6 +24,7 @@ import typing as t
 import mcp.types
 import openrouter
 import openrouter.components as or_comp
+import openrouter.errors
 import openrouter.utils.eventstreaming as or_stream
 
 from . import message as msg
@@ -80,6 +81,10 @@ class Provider(abc.ABC):
         raise NotImplementedError
 
 
+class OpenrouterRequestError(ProviderError):
+    """Raised when there is an error in a request to Openrouter."""
+
+
 class OpenrouterChunkError(MessageStreamError):
     """Raised when there is an error in an Openrouter message chunk."""
     def __init__(self, message: str, error_code: int) -> None:
@@ -105,10 +110,17 @@ class OpenrouterProvider(Provider):
             self, message_parts: util.StreamableList,
             messages: cl_abc.Iterable[msg.Message],
             tools: cl_abc.Iterable[mcp.types.Tool]) -> cl_abc.Coroutine[None]:
-        stream = await self._openrouter_client.chat.send_async(
-            messages=await self._as_openrouter_messages(messages),
-            model=self._config.model.name,
-            tools=self._as_openrouter_tools(tools), stream=True)
+        try:
+            stream = await self._openrouter_client.chat.send_async(
+                messages=await self._as_openrouter_messages(messages),
+                model=self._config.model.name,
+                tools=self._as_openrouter_tools(tools), stream=True)
+        except openrouter.errors.BadRequestResponseError as e:
+            raise OpenrouterRequestError(
+                f"error {e.data.error.code} in request: "
+                f"{e.data.error.message}") from e
+        except Exception as e:
+            raise OpenrouterRequestError("error in request") from e
         stream_reader = OpenrouterStreamReader(message_parts, stream)
         return stream_reader.read_message()
 
