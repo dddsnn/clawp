@@ -60,3 +60,8 @@ class AgentInformation(base.BaseModel):
     name: t.Annotated[
         str, pyd.StringConstraints(strip_whitespace=True, min_length=1)]
     personality: AgentPersonality
+
+    @property
+    def name_with_agent_tag(self) -> str:
+        """Agent name with a tag denoting it as an agent."""
+        return f"{self.name} [Clawp agent]"

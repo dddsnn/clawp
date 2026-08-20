@@ -65,6 +65,8 @@ class MatrixChannel(base.Channel):
         self._client.load_store()
         self._sync_forever_task = asyncio.create_task(
             self._client.sync_forever())
+        await self._client.set_displayname(
+            self._agent.information.name_with_agent_tag)
 
     async def stop(self) -> None:
         await super().stop()
@@ -127,7 +129,8 @@ class MatrixChannel(base.Channel):
         if chat.channel != "matrix":
             raise ValueError(f"got descriptor for {chat.channel}")
         start_metadata = mdl.MatrixStartMessageMetadata(
-            chat=chat, sender_id=self.id, sender_name=None)
+            chat=chat, sender_id=self.id,
+            sender_name=self._agent.information.name_with_agent_tag)
         return start_metadata, mdl.MatrixChatMessageMetadata
 
     async def send(self, message: msg.AgentMessage) -> None:
