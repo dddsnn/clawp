@@ -80,6 +80,53 @@ uv --project gateway run pytest gateway
 Clawp is mostly configured via a configuration file. See `config.yaml.example`.
 Some values (secrets) are specified as references to environment variables.
 
+### Channels
+
+#### Github
+
+The github channel contains chats that represent Github issues and PRs for
+agents to interact with. It gives agents access credentials to Github to use via
+`git` and `gh` in the `shell` tool.
+
+Agents are authenticated as Github apps (that's the users with a "[bot]" after
+the login name). For each channel account, a separate Github app has to be
+created (settings -> applications). The name of the app will be the login name
+of the agent on Github. Webhooks should be disabled (Clawp uses polling via the
+REST API). The app needs at least these repository permissions to work:
+
+- contents (read-write)
+- metadata (read-only)
+- issues (read-write)
+- pull requests (read-write)
+
+The app then needs to be installed into an organization to gain access to one or
+more repositories. It might make sense to create an organization just for Clawp
+agents.
+
+The app needs to be configured as a github channel in Clawp by specifying
+
+- `app_id`: Shown in the app settings.
+- `installation_id`: This identifies the installation of the app in the
+  organization and is (annoyingly) not displayed explicitly. However, it's part
+  of the URL of the app configuration page (org settings -> Github apps ->
+  configure):
+  `/organizations/<org_name>/settings/installations/<installation_id>`
+- `private_key`: `.pem` file that acts as credentials. Created in the app
+  settings.
+- `organization`: Name of the organization where the app is installed.
+- `agent_email`: Email address for the agent to use for commits. The agent
+  doesn't need to receive/send emails, it's just used to configure git's
+  user.email.
+
+Github apps don't have quite the same features as regular users. Crucially, they
+can't be assigned an issue. To work around this, Clawp uses special labels of
+the format `agent-assigned:<agent_login>`, where `agent_login` is the agent's
+login name including the "[bot]" suffix. E.g., if the app is called
+"clawp-agent-avery", the label would be "agent-assigned:clawp-agent-avery[bot]".
+This label needs to be manually created in each repository or once in the
+organization. Clawp treats the existence of this label on an issue like
+assignment and informs the agent of any updates.
+
 ### Tools
 
 #### Shell sandbox
