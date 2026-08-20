@@ -1066,7 +1066,7 @@ class AgentRepository:
                 agent_state.web_ui_channel))
         channels.append(
             chan.AgentChannel(
-                agent_information.id, self, self._agent_channel_state_dir(dir),
+                self, self._agent_channel_state_dir(dir),
                 agent_state.agent_channel))
         return Agent(
             agent_information, agent_state, config=self._config,

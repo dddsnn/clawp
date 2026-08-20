@@ -196,7 +196,7 @@ class AgentChannel(base.Channel):
     _MESSAGES_VERSION = 0
 
     def __init__(
-            self, agent_id: uuid.UUID, agent_repo: "agt.AgentRepository",
+            self, agent_repo: "agt.AgentRepository",
             messages_dir: pathlib.Path, state: mdl.AgentChannelState) -> None:
         """
         :param state: A config object storing persistent state. This contains
@@ -204,7 +204,6 @@ class AgentChannel(base.Channel):
             be persisted externally.
         """
         super().__init__("agent")
-        self._agent_id = agent_id
         self._agent_repo = agent_repo
         self._messages_dir = messages_dir
         self._state = state
@@ -292,7 +291,7 @@ class AgentChannel(base.Channel):
 
     @property
     def id(self) -> str:
-        return str(self._agent_id)
+        return str(self._agent.information.id)
 
     @property
     async def status(self) -> mdl.AgentChannelStatus:
@@ -309,7 +308,7 @@ class AgentChannel(base.Channel):
             agent_id = uuid.UUID(chat_id)
         except ValueError:
             raise base.ChatIdError(f"{chat_id} is not a valid UUID")
-        if agent_id == self._agent_id:
+        if agent_id == self._agent.information.id:
             raise base.ChatIdError("sender and recipient IDs are equal")
         try:
             return self._agent_repo.get_agent(agent_id)
@@ -374,7 +373,7 @@ class AgentChannel(base.Channel):
         await self._append_message(recipient.information.id, chat_message)
         self._set_read_offset(recipient.information.id, len(messages))
         await recipient_channel.add_incoming_agent_message(
-            message, self._agent_id)
+            message, self._agent.information.id)
 
     async def add_incoming_agent_message(
             self, message: msg.AgentMessage, sender_id: uuid.UUID) -> None:
