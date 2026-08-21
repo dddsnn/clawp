@@ -62,14 +62,9 @@ const sendMessage = () => {
 
   if (text) {
     emit('send', { type: 'message_content', content: text });
-    input.value = ''; // Reset input
+    input.value = '';
   } else {
     emit('send', { type: 'request_response' });
-  }
-
-  // Small hack to force reset size
-  if (textarea.value) {
-    textarea.value.style.height = 'auto';
   }
 };
 </script>
@@ -83,7 +78,7 @@ const sendMessage = () => {
         @keydown="handleKeydown"
         :disabled="!isConnected"
         :placeholder="isConnected ? 'Type a message... (Shift+Enter for new line)' : 'Connecting to chat...'"
-        class="w-full bg-slate-100 border border-slate-300 rounded-xl px-4 py-3 min-h-[48px] max-h-[200px] resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-all text-slate-800 placeholder-slate-400 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-200"
+        class="w-full bg-slate-100 border border-slate-300 rounded-xl px-4 py-3 min-h-[48px] max-h-[200px] resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 transition-colors text-slate-800 placeholder-slate-400 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-200"
         rows="1"
       ></textarea>
 
