@@ -106,15 +106,16 @@ const handleOpenHatchModal = () => {
               v-for="agent in agents"
               :key="agent.id"
               @click="handleSelectAgent(agent.id)"
-              class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition-all duration-200 truncate font-mono"
+              class="w-full rounded-lg px-3 py-2.5 text-left transition-all duration-200"
               :class="[
                 activeSelectionType === 'agent' && selectedAgentId === agent.id
                   ? 'bg-blue-50 text-blue-700 font-medium shadow-sm ring-1 ring-blue-500/20'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
               ]"
-              :title="agent.id"
+              :title="`${agent.name} (${agent.id})`"
             >
-              {{ agent.id }}
+              <span class="block truncate text-sm font-medium">{{ agent.name }}</span>
+              <span class="block truncate font-mono text-xs opacity-70">{{ agent.id }}</span>
             </button>
           </template>
         </div>
