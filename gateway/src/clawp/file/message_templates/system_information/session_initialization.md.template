@@ -1,5 +1,7 @@
 # System information
 
+Hello {name}.
 This is the start of a new session.
 Reason: Initialization (this is your first session ever).
+Information about yourself: {information}
 You are talking in chat {active_chat}.

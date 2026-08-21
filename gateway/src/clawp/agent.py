@@ -673,6 +673,8 @@ class Agent:
         await tx.append_internal_message(
             msg.SystemMessage, await file.render_message_template(
                 "system_information/session_initialization.md",
+                name=self.information.name,
+                information=self.information.model_dump_json(),
                 active_chat=tx.active_chat.model_dump_json()))
 
     async def _onboarding_messages(self) -> cl_abc.AsyncGenerator[str]:
