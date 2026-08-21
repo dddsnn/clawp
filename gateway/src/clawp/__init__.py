@@ -16,5 +16,3 @@
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 from .main import run
-
-__all__ = ["run"]

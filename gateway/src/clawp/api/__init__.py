@@ -16,5 +16,3 @@
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 from .api import Api
-
-__all__ = ["Api"]
