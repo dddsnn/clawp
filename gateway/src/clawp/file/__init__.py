@@ -48,4 +48,5 @@ __all__ = [
     "render_message_send_error",
     "render_message_template",
     "render_tutorial",
-    "render_workspace_info",]
+    "render_workspace_info",
+]

@@ -59,6 +59,7 @@ class ChannelRouter(base.MessageSender):
     channels, i.e. it expects them to not have been started and instead
     controls their lifecycles.
     """
+
     @dc.dataclass
     class ChannelStatus:
         channel: base.Channel
@@ -80,8 +81,8 @@ class ChannelRouter(base.MessageSender):
 
     async def __aenter__(self) -> t.Self:
         self._logger.info(
-            "Starting channel router with channels "
-            f"{sorted(self._stati)}.")
+            f"Starting channel router with channels {sorted(self._stati)}."
+        )
         await self._publisher.__aenter__()
         for status in self._stati.values():
             await self._start_channel(status)
@@ -99,14 +100,16 @@ class ChannelRouter(base.MessageSender):
         assert status.read_task is None
         await status.channel.start(self._agent)
         status.read_task = asyncio.create_task(
-            self._read_channel(status.channel))
+            self._read_channel(status.channel)
+        )
 
     async def _read_channel(self, channel: base.Channel):
         publish_task = None
         try:
             async for message in channel.incoming_messages():
                 publish_task = asyncio.create_task(
-                    self._publisher.append(message))
+                    self._publisher.append(message)
+                )
                 await asyncio.shield(publish_task)
         except asyncio.CancelledError:
             if not publish_task:
@@ -127,7 +130,8 @@ class ChannelRouter(base.MessageSender):
                 await status.channel.stop()
         except Exception:
             self._logger.exception(
-                f"Error waiting for shutdown of {status.channel.type}.")
+                f"Error waiting for shutdown of {status.channel.type}."
+            )
 
     async def add_channel(self, channel: base.Channel) -> None:
         """
@@ -186,7 +190,8 @@ class ChannelRouter(base.MessageSender):
         return await channel.num_unread_messages(chat.chat_id)
 
     async def get_unread_messages(
-            self, chat: mdl.ChatDescriptor) -> list[mdl.IncomingMessage]:
+        self, chat: mdl.ChatDescriptor
+    ) -> list[mdl.IncomingMessage]:
         """
         Get messages that haven't yet been read.
 
@@ -239,7 +244,8 @@ class ChannelRouter(base.MessageSender):
             raise SendError(f"error sending message: {e}") from e
 
     async def unread_message_chats(
-            self) -> cl_abc.AsyncGenerator[mdl.ChatDescriptor]:
+        self,
+    ) -> cl_abc.AsyncGenerator[mdl.ChatDescriptor]:
         """Iterate over chats with unread messages."""
         async for message in self._publisher.subscribe():
             assert isinstance(message, mdl.IncomingMessage)
@@ -260,42 +266,54 @@ class ChannelPool:
     Creates channels from the channels config, and makes them available. Each
     channel can only be acquired once at a time.
     """
+
     def __init__(
-            self, config: mdl.ChannelsConfig,
-            gateway_state: mdl.GatewayState) -> None:
+        self, config: mdl.ChannelsConfig, gateway_state: mdl.GatewayState
+    ) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._gateway_state = gateway_state
         self._channels = {
             "github": self._make_github_channels(config.github),
-            "matrix": self._make_matrix_channels(config.matrix)}
+            "matrix": self._make_matrix_channels(config.matrix),
+        }
 
     def _make_github_channels(
-            self, config: mdl.GithubConfig) -> dict[str, github.GithubChannel]:
+        self, config: mdl.GithubConfig
+    ) -> dict[str, github.GithubChannel]:
         channels = {}
         for account in config.accounts:
             try:
                 channel_state = self._gateway_state.github_channels[
-                    account.installation_id]
+                    account.installation_id
+                ]
             except KeyError:
                 self._logger.info(
                     f"Github account {account} has no channel state yet, "
-                    "creating a new one.")
+                    "creating a new one."
+                )
                 channel_state = self._gateway_state.github_channels.setdefault(
-                    account.installation_id, mdl.GithubChannelState())
+                    account.installation_id, mdl.GithubChannelState()
+                )
             channel_status = PoolChannelStatus(
                 channel=github.GithubChannel(
-                    config=account, state=channel_state), config=account)
+                    config=account, state=channel_state
+                ),
+                config=account,
+            )
             channels[account.id] = channel_status
         return channels
 
     def _make_matrix_channels(
-            self, config: mdl.MatrixConfig) -> dict[str, matrix.MatrixChannel]:
+        self, config: mdl.MatrixConfig
+    ) -> dict[str, matrix.MatrixChannel]:
         channels = {}
         for account in config.accounts:
             channel_status = PoolChannelStatus(
                 channel=matrix.MatrixChannel(
-                    store_dir=config.store_dir, config=account),
-                config=account)
+                    store_dir=config.store_dir, config=account
+                ),
+                config=account,
+            )
             channels[account.id] = channel_status
         return channels
 
@@ -313,8 +331,8 @@ class ChannelPool:
             yield from channels_of_type.values()
 
     def acquire(
-            self, channel_type: mdl.ChannelType,
-            channel_id: str) -> PoolChannelStatus:
+        self, channel_type: mdl.ChannelType, channel_id: str
+    ) -> PoolChannelStatus:
         """
         Acquire a specific channel.
 
@@ -325,7 +343,8 @@ class ChannelPool:
             status = self._channels[channel_type][channel_id]
         except KeyError:
             raise NoSuchChannelError(
-                f"channel {channel_type}:{channel_id} doesn't exist")
+                f"channel {channel_type}:{channel_id} doesn't exist"
+            )
         if status.status != "available":
             raise ChannelStateError("channel has already been acquired")
         status.status = "acquired"

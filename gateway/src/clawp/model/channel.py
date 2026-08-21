@@ -61,7 +61,9 @@ class GithubChatDescriptor(BasicChatDescriptor):
         (?P<repo>[a-z0-9_.-]+) # Repository name
         \#                     # Literal octothorpe
         (?P<number>\d+)        # The issue/PR number
-    """, re.VERBOSE)
+    """,
+        re.VERBOSE,
+    )
 
     channel: t.Literal["github"] = "github"
     repo_full_name: str
@@ -78,10 +80,12 @@ class GithubChatDescriptor(BasicChatDescriptor):
     @pyd.model_validator(mode="after")
     def validate_chat_id(self) -> t.Self:
         valid_chat_id = self.create_chat_id(
-            self.repo_full_name, self.issue_number)
+            self.repo_full_name, self.issue_number
+        )
         if self.chat_id != valid_chat_id:
             raise ValueError(
-                f"invalid chat_id format (must be {valid_chat_id})")
+                f"invalid chat_id format (must be {valid_chat_id})"
+            )
         return self
 
     @staticmethod
@@ -95,17 +99,21 @@ class GithubChatDescriptor(BasicChatDescriptor):
         if not match:
             raise ValueError(
                 "chat ID doesn't match format (must be like "
-                '"owner-name/repo-name#123"')
+                '"owner-name/repo-name#123"'
+            )
         repo_full_name = f"{match.group('owner')}/{match.group('repo')}"
         issue_number = int(match.group("number"))
         return (repo_full_name, issue_number)
 
 
 ChatDescriptor = (
-    BasicChatDescriptor | GithubChatDescriptor | MatrixChatDescriptor)
+    BasicChatDescriptor | GithubChatDescriptor | MatrixChatDescriptor
+)
 
-ChannelConfig = t.Annotated[cfg.GithubAccountConfig | cfg.MatrixAccountConfig,
-                            pyd.Field(discriminator="type")]
+ChannelConfig = t.Annotated[
+    cfg.GithubAccountConfig | cfg.MatrixAccountConfig,
+    pyd.Field(discriminator="type"),
+]
 
 
 class BaseChannelStatus(base.BaseModel):
@@ -133,10 +141,13 @@ class MatrixChannelStatus(BaseChannelStatus):
     username: str
 
 
-ChannelStatus = t.Annotated[WebUiChannelStatus
-                            | AgentChannelStatus | GithubChannelStatus
-                            | MatrixChannelStatus,
-                            pyd.Field(discriminator="type")]
+ChannelStatus = t.Annotated[
+    WebUiChannelStatus
+    | AgentChannelStatus
+    | GithubChannelStatus
+    | MatrixChannelStatus,
+    pyd.Field(discriminator="type"),
+]
 
 
 class ChannelInformation(base.BaseModel):

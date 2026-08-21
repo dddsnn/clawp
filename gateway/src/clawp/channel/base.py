@@ -67,6 +67,7 @@ class Channel(MessageSender):
     read. Every call to get_unread_messages() will return only those messages
     never returned by it before. Afterwards, they're marked as read.
     """
+
     def __init__(self, channel_type: mdl.ChannelType) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._type: mdl.ChannelType = channel_type
@@ -136,8 +137,9 @@ class Channel(MessageSender):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def get_unread_messages(self,
-                                  chat_id: str) -> list[mdl.IncomingMessage]:
+    async def get_unread_messages(
+        self, chat_id: str
+    ) -> list[mdl.IncomingMessage]:
         """
         Get messages that haven't yet been read.
 

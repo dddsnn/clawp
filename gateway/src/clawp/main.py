@@ -35,17 +35,35 @@ from . import state as st
 _log_fmt = "%(asctime)s|%(module)s|%(name)s|%(levelname)s: %(message)s"
 _loggers_with_reduced_level = {
     "INFO": [
-        "fabric", "httpcore", "invoke", "mcp.server.lowlevel.server", "nio",
-        "paramiko.transport", "peewee", "urllib3.connectionpool"],
-    "WARNING": ["httpx"]}
-logging.config.dictConfig({
-    "version": 1, "formatters": {"simple": {"format": _log_fmt}}, "handlers": {
-        "stream_handler": {
-            "class": "logging.StreamHandler", "formatter": "simple"}},
-    "root": {"level": "DEBUG", "handlers": ["stream_handler"]}, "loggers": {
-        logger_name: {"level": level, "handlers": ["stream_handler"]}
-        for level, loggers in _loggers_with_reduced_level.items()
-        for logger_name in loggers}})
+        "fabric",
+        "httpcore",
+        "invoke",
+        "mcp.server.lowlevel.server",
+        "nio",
+        "paramiko.transport",
+        "peewee",
+        "urllib3.connectionpool",
+    ],
+    "WARNING": ["httpx"],
+}
+logging.config.dictConfig(
+    {
+        "version": 1,
+        "formatters": {"simple": {"format": _log_fmt}},
+        "handlers": {
+            "stream_handler": {
+                "class": "logging.StreamHandler",
+                "formatter": "simple",
+            }
+        },
+        "root": {"level": "DEBUG", "handlers": ["stream_handler"]},
+        "loggers": {
+            logger_name: {"level": level, "handlers": ["stream_handler"]}
+            for level, loggers in _loggers_with_reduced_level.items()
+            for logger_name in loggers
+        },
+    }
+)
 logger = logging.getLogger(__name__)
 
 
@@ -55,16 +73,19 @@ def shutdown(shutdown_event: asyncio.Event):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        prog="clawp", description="AI agent framework")
+        prog="clawp", description="AI agent framework"
+    )
     parser.add_argument(
-        "-c", "--config-file", type=pathlib.Path, default="config.yaml")
+        "-c", "--config-file", type=pathlib.Path, default="config.yaml"
+    )
     return parser.parse_args()
 
 
 async def main(config: mdl.GatewayConfig):
     shutdown_event = asyncio.Event()
     asyncio.get_running_loop().add_signal_handler(
-        signal.SIGTERM, shutdown, shutdown_event)
+        signal.SIGTERM, shutdown, shutdown_event
+    )
     state_manager = st.GatewayStateManager(config.files_base_dir)
     openrouter_provider = prov.OpenrouterProvider(config.openrouter)
     async with contextlib.AsyncExitStack() as stack:
@@ -73,10 +94,15 @@ async def main(config: mdl.GatewayConfig):
         await stack.enter_async_context(openrouter_provider)
         agent_repo = await stack.enter_async_context(
             agt.AgentRepository(
-                base_dir=config.agents_base_dir, channel_pool=channel_pool,
-                provider=openrouter_provider, config=config))
+                base_dir=config.agents_base_dir,
+                channel_pool=channel_pool,
+                provider=openrouter_provider,
+                config=config,
+            )
+        )
         await stack.enter_async_context(
-            api.Api(config.api, agent_repo, channel_pool))
+            api.Api(config.api, agent_repo, channel_pool)
+        )
         await shutdown_event.wait()
 
 

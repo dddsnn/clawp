@@ -23,7 +23,9 @@ import whenever as we
 Iso8601Millis = t.Annotated[
     we.Instant,
     pyd.PlainSerializer(
-        lambda i: i.format_iso(unit="millisecond"), return_type=str)]
+        lambda i: i.format_iso(unit="millisecond"), return_type=str
+    ),
+]
 
 
 class BaseModel(pyd.BaseModel):

@@ -52,4 +52,5 @@ __all__ = [
     "PoolChannelStatus",
     "SendError",
     # matrix
-    "MatrixChannel",]
+    "MatrixChannel",
+]

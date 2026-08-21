@@ -214,4 +214,5 @@ __all__ = [
     "GithubEventReadMarker",
     "WebUiChannelState",
     # tool
-    "ShellResult",]
+    "ShellResult",
+]

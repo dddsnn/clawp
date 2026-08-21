@@ -37,13 +37,20 @@ def matrix_channel_matching_config(config: mdl.MatrixConfig, username: str):
     expected_channel = all_of(
         instance_of(chan.MatrixChannel),
         has_properties(
-            id=username, _config=account, _client=has_properties(
+            id=username,
+            _config=account,
+            _client=has_properties(
                 store_path=str(config.store_dir.resolve()),
-                homeserver=account.homeserver, user=username,
-                device_id=account.device_id)))
+                homeserver=account.homeserver,
+                user=username,
+                device_id=account.device_id,
+            ),
+        ),
+    )
     return all_of(
         instance_of(chan.PoolChannelStatus),
-        has_properties(channel=expected_channel, config=account))
+        has_properties(channel=expected_channel, config=account),
+    )
 
 
 @dc.dataclass
@@ -54,20 +61,27 @@ class MockChannel:
 
 class TestChannelPool:
     def make_channels_config(
-            self, matrix_usernames: list[str]) -> mdl.ChannelsConfig:
+        self, matrix_usernames: list[str]
+    ) -> mdl.ChannelsConfig:
         matrix_accounts = []
         for username in matrix_usernames:
             os.environ[f"PW_{username}"] = f"password_{username}"
             matrix_accounts.append(
                 mdl.MatrixAccountConfig(
-                    homeserver=f"homeserver_{username}", username=username,
+                    homeserver=f"homeserver_{username}",
+                    username=username,
                     password=mdl.EnvironmentSecretValue(
-                        variable_name=f"PW_{username}"),
-                    device_id=f"device_id_{username}"))
+                        variable_name=f"PW_{username}"
+                    ),
+                    device_id=f"device_id_{username}",
+                )
+            )
         return mdl.ChannelsConfig(
             matrix=mdl.MatrixConfig(
-                store_dir=pathlib.Path("store/dir"), accounts=matrix_accounts),
-            github=mdl.GithubConfig(accounts=[]))
+                store_dir=pathlib.Path("store/dir"), accounts=matrix_accounts
+            ),
+            github=mdl.GithubConfig(accounts=[]),
+        )
 
     def _make_pool(self, config):
         return chan.ChannelPool(config, mdl.GatewayState())
@@ -92,7 +106,8 @@ class TestChannelPool:
         pool = self._make_pool(config)
         assert_that(
             pool.acquire("matrix", "id1"),
-            matrix_channel_matching_config(config.matrix, "id1"))
+            matrix_channel_matching_config(config.matrix, "id1"),
+        )
 
     async def test_acquire_raises_if_channel_has_been_acquired(self):
         config = self.make_channels_config(["id1"])
@@ -134,8 +149,10 @@ class TestChannelPool:
         matrix_accounts = channels_config.matrix.accounts
         expected_stati = [
             has_properties(
-                channel=has_properties(id=a.id), config=a, status="available")
-            for a in matrix_accounts]
+                channel=has_properties(id=a.id), config=a, status="available"
+            )
+            for a in matrix_accounts
+        ]
         assert_that(list(pool), contains_inanyorder(*expected_stati))
 
     async def test_iter_shows_channels_acquired(self):
@@ -145,7 +162,10 @@ class TestChannelPool:
         pool.acquire("matrix", "id1")
         expected_stati = [
             has_properties(
-                channel=has_properties(id=a.id), config=a,
-                status="acquired" if a.id == "id1" else "available")
-            for a in matrix_accounts]
+                channel=has_properties(id=a.id),
+                config=a,
+                status="acquired" if a.id == "id1" else "available",
+            )
+            for a in matrix_accounts
+        ]
         assert_that(list(pool), contains_inanyorder(*expected_stati))

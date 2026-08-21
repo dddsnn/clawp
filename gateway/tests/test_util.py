@@ -91,7 +91,8 @@ class TestStreamableList:
         await ls.wait_finalized()
 
     async def test_timeout_in_wait_finalize_doesnt_cancel_other_waiters(
-            self, ls):
+        self, ls
+    ):
         wait_task_1 = asyncio.create_task(ls.wait_finalized())
         wait_task_2 = asyncio.create_task(ls.wait_finalized())
         with pytest.raises(asyncio.TimeoutError):
@@ -112,7 +113,8 @@ class TestStreamableList:
         await stream_task
 
     async def test_stream_blocks_while_not_finalized(
-            self, ls, stream_into_list):
+        self, ls, stream_into_list
+    ):
         stream_task = asyncio.create_task(stream_into_list([]))
         with pytest.raises(TimeoutError):
             async with asyncio.timeout(10**-3):
@@ -137,9 +139,11 @@ class TestStreamableList:
         await ls.append(1)
         continue_condition = asyncio.Condition()
         read_task = asyncio.create_task(
-            read_then_wait(continue_condition, asyncio.Queue()))
+            read_then_wait(continue_condition, asyncio.Queue())
+        )
         finalize_task = asyncio.create_task(
-            ls.finalize(compact=lambda ls: [sum(ls) + 0.5]))
+            ls.finalize(compact=lambda ls: [sum(ls) + 0.5])
+        )
         with pytest.raises(TimeoutError):
             async with asyncio.timeout(10**-3):
                 await asyncio.shield(finalize_task)
@@ -151,21 +155,25 @@ class TestStreamableList:
         assert list(ls) == [1.5]
 
     async def test_compact_waits_if_new_reader_is_added_later(
-            self, ls, read_then_wait):
+        self, ls, read_then_wait
+    ):
         await ls.append(1)
         await ls.append(2)
         continue_condition = asyncio.Condition()
         queue_1 = asyncio.Queue()
         read_task_1 = asyncio.create_task(
-            read_then_wait(continue_condition, queue_1))
+            read_then_wait(continue_condition, queue_1)
+        )
         await queue_1.get()
         async with continue_condition:
             continue_condition.notify_all()
         finalize_task = asyncio.create_task(
-            ls.finalize(compact=lambda ls: [sum(ls) + 0.5]))
+            ls.finalize(compact=lambda ls: [sum(ls) + 0.5])
+        )
         queue_2 = asyncio.Queue()
         read_task_2 = asyncio.create_task(
-            read_then_wait(continue_condition, queue_2))
+            read_then_wait(continue_condition, queue_2)
+        )
         await queue_1.get()
         await queue_2.get()
         async with continue_condition:
@@ -189,8 +197,9 @@ class TestPublisher:
                 await asyncio.sleep(10**-3)
 
     async def stream_into_list(self, publisher, output, stream_start_event):
-        async for element in self.aiter_with_start_event(publisher.subscribe(),
-                                                         stream_start_event):
+        async for element in self.aiter_with_start_event(
+            publisher.subscribe(), stream_start_event
+        ):
             output.append(element)
         output.append("end")
 
@@ -208,10 +217,11 @@ class TestPublisher:
                 break
 
     async def stream_with_manual_continue(
-            self, publisher, output_queue, stream_start_event,
-            continue_condition):
-        async for element in self.aiter_with_start_event(publisher.subscribe(),
-                                                         stream_start_event):
+        self, publisher, output_queue, stream_start_event, continue_condition
+    ):
+        async for element in self.aiter_with_start_event(
+            publisher.subscribe(), stream_start_event
+        ):
             async with continue_condition:
                 await output_queue.put(element)
                 await continue_condition.wait()
@@ -245,7 +255,8 @@ class TestPublisher:
         subscription_task = None
         async with util.Publisher() as publisher:
             subscription_task = asyncio.create_task(
-                self.stream_into_list(publisher, output, stream_start_event))
+                self.stream_into_list(publisher, output, stream_start_event)
+            )
             await stream_start_event.wait()
             await publisher.append(1)
             await self.wait_for_list_content(output, [1])
@@ -261,7 +272,8 @@ class TestPublisher:
         async with util.Publisher() as publisher:
             await publisher.append("old")
             subscription_task = asyncio.create_task(
-                self.stream_into_list(publisher, output, stream_start_event))
+                self.stream_into_list(publisher, output, stream_start_event)
+            )
             await stream_start_event.wait()
             await publisher.append("new")
             await self.wait_for_list_content(output, ["new"])
@@ -277,12 +289,16 @@ class TestPublisher:
         async with util.Publisher() as publisher:
             subscription_task_1 = asyncio.create_task(
                 self.stream_into_list(
-                    publisher, output_1, stream_start_event_1))
+                    publisher, output_1, stream_start_event_1
+                )
+            )
             await stream_start_event_1.wait()
             await publisher.append("a")
             subscription_task_2 = asyncio.create_task(
                 self.stream_into_list(
-                    publisher, output_2, stream_start_event_2))
+                    publisher, output_2, stream_start_event_2
+                )
+            )
             await stream_start_event_2.wait()
             await publisher.append("b")
             await self.wait_for_list_content(output_1, ["a", "b"])
@@ -305,11 +321,15 @@ class TestPublisher:
         async with util.Publisher() as publisher:
             slow_task = asyncio.create_task(
                 self.stream_with_manual_continue(
-                    publisher, slow_element_queue, slow_start_event,
-                    continue_condition))
+                    publisher,
+                    slow_element_queue,
+                    slow_start_event,
+                    continue_condition,
+                )
+            )
             fast_task = asyncio.create_task(
-                self.stream_into_list(
-                    publisher, fast_output, fast_start_event))
+                self.stream_into_list(publisher, fast_output, fast_start_event)
+            )
             await fast_start_event.wait()
             await slow_start_event.wait()
             await publisher.append(1)
@@ -343,8 +363,12 @@ class TestPublisher:
         async with util.Publisher() as publisher:
             read_task = asyncio.create_task(
                 self.stream_with_manual_continue(
-                    publisher, element_queue, stream_start_event,
-                    continue_condition))
+                    publisher,
+                    element_queue,
+                    stream_start_event,
+                    continue_condition,
+                )
+            )
             await stream_start_event.wait()
             await publisher.append(1)
             await publisher.append(2)
@@ -373,20 +397,26 @@ class TestPublisher:
         async with util.Publisher() as publisher:
             read_task = asyncio.create_task(
                 self.stream_with_manual_continue(
-                    publisher, element_queue, stream_start_event,
-                    asyncio.Condition()))
+                    publisher,
+                    element_queue,
+                    stream_start_event,
+                    asyncio.Condition(),
+                )
+            )
             await stream_start_event.wait()
             await publisher.append(1)
             await publisher.append(2)
             await self.wait_until(lambda: len(publisher._history) == 2)
             await self.wait_until(
-                lambda: len(publisher._subscriber_next_seq) == 1)
+                lambda: len(publisher._subscriber_next_seq) == 1
+            )
             read_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await read_task
             await self.wait_until(lambda: len(publisher._history) == 0)
             await self.wait_until(
-                lambda: len(publisher._subscriber_next_seq) == 0)
+                lambda: len(publisher._subscriber_next_seq) == 0
+            )
 
     async def test_subscriptions_exit_on_aexit(self):
         output = []
@@ -394,7 +424,8 @@ class TestPublisher:
         subscription_task = None
         async with util.Publisher() as publisher:
             subscription_task = asyncio.create_task(
-                self.stream_into_list(publisher, output, stream_start_event))
+                self.stream_into_list(publisher, output, stream_start_event)
+            )
             await stream_start_event.wait()
             with pytest.raises(TimeoutError):
                 async with asyncio.timeout(10**-3):
@@ -494,7 +525,8 @@ class TestTtlCache:
 
     async def test_doesnt_reset_refresh_timer_after_failure(self):
         refresh = um.AsyncMock(
-            side_effect=["first", RuntimeError("failed"), "second"])
+            side_effect=["first", RuntimeError("failed"), "second"]
+        )
         cache = util.TtlCache(60, refresh)
 
         assert await cache.get() == "first"

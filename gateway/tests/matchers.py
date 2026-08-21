@@ -32,7 +32,8 @@ class JsonEquivalentMatcher(hamcrest.core.base_matcher.BaseMatcher):
 
     def describe_to(self, description):
         description.append_text(
-            "string parsing to JSON").append_description_of(self.json_data)
+            "string parsing to JSON"
+        ).append_description_of(self.json_data)
 
 
 def json_equivalent(json_data):

@@ -28,11 +28,13 @@ from . import message as msg
 
 class WebUiChannelState(base.BaseModel):
     """Persistent state for the built-in web_ui channel."""
+
     read_offset: int = 0
 
 
 class AgentChannelState(base.BaseModel):
     """Persistent state for the built-in agent channel."""
+
     read_offsets: dict[uuid.UUID, int] = pyd.Field(default_factory=dict)
 
 
@@ -45,6 +47,7 @@ class GithubEventReadMarker(base.BaseModel):
     they are use to disambiguate in case there are multiple events with the
     same timestamp).
     """
+
     last_event_time: base.Iso8601Millis
     last_event_ids: set[str]
 
@@ -52,13 +55,16 @@ class GithubEventReadMarker(base.BaseModel):
     def min() -> GithubEventReadMarker:
         """Minimum value."""
         return GithubEventReadMarker(
-            last_event_time=we.Instant.MIN, last_event_ids=set())
+            last_event_time=we.Instant.MIN, last_event_ids=set()
+        )
 
 
 class GithubChannelState(base.BaseModel):
     """Persistent state for the Github channel."""
+
     read_markers: dict[yarl.URL, GithubEventReadMarker] = pyd.Field(
-        default_factory=dict)
+        default_factory=dict
+    )
     """
     Read markers for the channel.
 
@@ -66,14 +72,17 @@ class GithubChannelState(base.BaseModel):
     read marker of the last event processed from that endpoint.
     """
     unread_messages: dict[str, list[msg.IncomingMessage]] = pyd.Field(
-        default_factory=dict)
+        default_factory=dict
+    )
     """Unread messages, by chat_id."""
 
 
 class AgentState(base.BaseModel):
     """Mutable agent state."""
-    claimed_channels: dict[chan.ChannelType, str] = (
-        pyd.Field(default_factory=dict))
+
+    claimed_channels: dict[chan.ChannelType, str] = pyd.Field(
+        default_factory=dict
+    )
     """
     Channels claimed by the agent.
 
@@ -86,6 +95,8 @@ class AgentState(base.BaseModel):
 
 class GatewayState(base.BaseModel):
     """Mutable state of the entire gateway."""
+
     github_channels: dict[int, GithubChannelState] = pyd.Field(
-        default_factory=dict)
+        default_factory=dict
+    )
     """State of Github accounts."""

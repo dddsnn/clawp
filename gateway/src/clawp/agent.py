@@ -62,6 +62,7 @@ class SessionTransaction:
     must be used exactly once (or it won't show as completed), and it can't be
     reused.
     """
+
     def __init__(self, session: "Session") -> None:
         self._session = session
         self._is_active = False
@@ -116,7 +117,8 @@ class SessionTransaction:
         return self._session.num_messages
 
     async def append_incoming_message(
-            self, incoming_message: mdl.IncomingMessage) -> None:
+        self, incoming_message: mdl.IncomingMessage
+    ) -> None:
         if not self._is_active:
             raise RuntimeError("transaction is not active")
         await self._session._append_incoming_message(incoming_message)
@@ -127,15 +129,17 @@ class SessionTransaction:
         await self._session._request_responses()
 
     async def append_internal_message(
-            self, message_class: type[msg.InternalMessage], content: str,
-            **kwargs) -> None:
+        self, message_class: type[msg.InternalMessage], content: str, **kwargs
+    ) -> None:
         if not self._is_active:
             raise RuntimeError("transaction is not active")
         await self._session._append_internal_message(
-            message_class, content, **kwargs)
+            message_class, content, **kwargs
+        )
 
     async def append_agent_message(
-            self, message_parts: util.StreamableList) -> None:
+        self, message_parts: util.StreamableList
+    ) -> None:
         if not self._is_active:
             raise RuntimeError("transaction is not active")
         await self._session._append_agent_message(message_parts)
@@ -172,11 +176,18 @@ class Session:
 
     Pure read operations (e.g. messages()) can be done on the session itself.
     """
+
     def __init__(
-            self, session_seq: int, *, model_config: mdl.ModelConfig,
-            message_store: store.SessionMessageStore,
-            message_sender: chan.MessageSender, provider: "prov.Provider",
-            mcp_client: tool.Client, active_chat: mdl.ChatDescriptor) -> None:
+        self,
+        session_seq: int,
+        *,
+        model_config: mdl.ModelConfig,
+        message_store: store.SessionMessageStore,
+        message_sender: chan.MessageSender,
+        provider: "prov.Provider",
+        mcp_client: tool.Client,
+        active_chat: mdl.ChatDescriptor,
+    ) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._session_seq = session_seq
         self._model_config = model_config
@@ -195,10 +206,13 @@ class Session:
         return self
 
     async def __aexit__(self, *args) -> bool:
-        if (self._active_transaction
-                and not self._active_transaction.is_complete()):
+        if (
+            self._active_transaction
+            and not self._active_transaction.is_complete()
+        ):
             self._logger.debug(
-                "Waiting for ongoing transaction to complete before exiting.")
+                "Waiting for ongoing transaction to complete before exiting."
+            )
             await self._active_transaction.wait()
         await self._publisher.__aexit__(*args)
         return False
@@ -215,7 +229,8 @@ class Session:
             if not self._active_transaction.is_complete():
                 self._logger.debug(
                     "Waiting for ongoing transaction to complete before "
-                    "starting the next one.")
+                    "starting the next one."
+                )
             await self._active_transaction.wait()
         self._active_transaction = SessionTransaction(self)
         return self._active_transaction
@@ -226,7 +241,8 @@ class Session:
         return len(self._messages or [])
 
     async def _append_incoming_message(
-            self, incoming_message: mdl.IncomingMessage) -> None:
+        self, incoming_message: mdl.IncomingMessage
+    ) -> None:
         """
         Append an incoming message to this session.
 
@@ -246,26 +262,32 @@ class Session:
             await self._add_metadata_for_user_message(message)
             message = msg.UserMessage(
                 msg.ChatMessageMetadata.from_model(message.metadata),
-                content=message.content)
+                content=message.content,
+            )
         else:
             assert isinstance(message, mdl.SystemMessage)
             message = msg.SystemMessage(
                 msg.InternalMessageMetadata(time=message.metadata.time),
-                content=message.content)
+                content=message.content,
+            )
         await self._append_message(message)
 
     async def _add_metadata_for_user_message(
-            self, user_message: mdl.UserMessage):
+        self, user_message: mdl.UserMessage
+    ):
         message_content = await file.render_message_template(
             "message_metadata.txt",
-            metadata_json=user_message.metadata.model_dump_json())
+            metadata_json=user_message.metadata.model_dump_json(),
+        )
         if user_message.metadata.chat.channel == "agent":
             # This message will be sent to at least one other agent, remind the
             # agent on how to end the conversation.
             message_content += await file.render_message_template(
-                "fragments/agent_to_agent_comm_reminder.txt")
+                "fragments/agent_to_agent_comm_reminder.txt"
+            )
         await self._append_internal_message(
-            msg.SystemMessage, content=message_content)
+            msg.SystemMessage, content=message_content
+        )
 
     async def _append_message(self, message: msg.Message):
         """
@@ -293,7 +315,8 @@ class Session:
             self._logger.exception(
                 "Error storing message in persistent store. The message was "
                 "added and is being processed in memory, but will likely not "
-                "be present when reloading from the persistent store.")
+                "be present when reloading from the persistent store."
+            )
 
     async def _request_responses(self) -> None:
         """
@@ -311,7 +334,8 @@ class Session:
         while num_requests < self._model_config.doom_loop_max_requests:
             try:
                 async with asyncio.timeout(
-                        self._model_config.request_timeout.total("seconds")):
+                    self._model_config.request_timeout.total("seconds")
+                ):
                     need_another_request = await self._request_response()
                     if not need_another_request:
                         break
@@ -321,7 +345,8 @@ class Session:
             num_requests += 1
         else:
             self._logger.warning(
-                f"Breaking out of request loop after {num_requests} requests.")
+                f"Breaking out of request loop after {num_requests} requests."
+            )
 
     async def _request_response(self) -> bool:
         message, stream_coro = await self._request_agent_message()
@@ -329,28 +354,34 @@ class Session:
         # or sending.
         try:
             await stream_coro
-        except (Exception, asyncio.CancelledError):
+        except Exception, asyncio.CancelledError:
             self._logger.exception(
-                f"Error streaming {message}. Not attempting any further "
-                "processing.")
+                f"Error streaming {message}. Not attempting any further processing."
+            )
             raise
         assert message.finalized()
         need_another_request = await self._process_finalized_agent_message(
-            message)
+            message
+        )
         return need_another_request
 
     async def _request_agent_message(self):
         start_metadata, full_metadata_class = (
             self._message_sender.make_outgoing_start_metadata(
-                self._active_chat))
+                self._active_chat
+            )
+        )
         metadata = msg.ChatMessageMetadata.from_start_metadata(
-            start_metadata, full_metadata_class)
+            start_metadata, full_metadata_class
+        )
         parts = util.StreamableList()
         message = msg.AgentMessage(metadata, parts)
         stream_coro = await self._provider.stream_agent_message(
-            parts, self._messages, self._mcp_client.tools.values())
+            parts, self._messages, self._mcp_client.tools.values()
+        )
         combined_stream_coro = self._stream_and_append_agent_message(
-            message, stream_coro)
+            message, stream_coro
+        )
         return message, combined_stream_coro
 
     async def _stream_and_append_agent_message(self, message, stream_coro):
@@ -359,7 +390,8 @@ class Session:
             tg.create_task(self._append_message(message))
 
     async def _process_finalized_agent_message(
-            self, message: msg.AgentMessage) -> bool:
+        self, message: msg.AgentMessage
+    ) -> bool:
         """
         Do processing on an agent message once it's fully received.
 
@@ -378,14 +410,17 @@ class Session:
         need_another_request = await self._handle_tool_calls(message)
         try:
             async with asyncio.timeout(
-                    self._model_config.message_send_timeout.total("seconds")):
+                self._model_config.message_send_timeout.total("seconds")
+            ):
                 await send_task
         except Exception as e:
             self._logger.exception(
-                "Error sending message. Informing the agent to allow a retry.")
+                "Error sending message. Informing the agent to allow a retry."
+            )
             await self._append_internal_message(
-                msg.SystemMessage, content=await
-                file.render_message_send_error(message, e))
+                msg.SystemMessage,
+                content=await file.render_message_send_error(message, e),
+            )
             need_another_request = True
         return need_another_request
 
@@ -396,31 +431,38 @@ class Session:
             self._logger.debug(f"Handling tool call {tool_call}.")
             try:
                 with self._mcp_client.with_session_transaction(
-                        self._active_transaction) as tx_client:
+                    self._active_transaction
+                ) as tx_client:
                     await self._handle_tool_call(tool_call, tx_client)
             except Exception as e:
                 await self._append_internal_message(
-                    msg.ToolMessage, content="Error in tool call: " + str(e),
-                    tool_call_id=tool_call.id)
+                    msg.ToolMessage,
+                    content="Error in tool call: " + str(e),
+                    tool_call_id=tool_call.id,
+                )
                 self._logger.exception("Error in tool call.")
         return True
 
     async def _handle_tool_call(
-            self, tool_call: msg.ToolCall,
-            tx_client: tool.ClientSessionTransactionContext) -> None:
+        self,
+        tool_call: msg.ToolCall,
+        tx_client: tool.ClientSessionTransactionContext,
+    ) -> None:
         arguments = json.loads(tool_call.function.arguments)
         result = await tx_client.call_tool(tool_call.function.name, arguments)
         await self._append_internal_message(
-            msg.ToolMessage, content=result.content_string,
-            tool_call_id=tool_call.id)
+            msg.ToolMessage,
+            content=result.content_string,
+            tool_call_id=tool_call.id,
+        )
         if isinstance(result, tool.SessionOperationToolResult):
             # The tool result wants us to call a function on the
             # session.
             await result.operation(self._active_transaction)
 
     async def _append_internal_message(
-            self, message_class: type[msg.InternalMessage], content: str,
-            **kwargs) -> None:
+        self, message_class: type[msg.InternalMessage], content: str, **kwargs
+    ) -> None:
         """
         Append an internal message to this session.
 
@@ -435,12 +477,16 @@ class Session:
         assert issubclass(message_class, msg.InternalMessage)
         message = message_class(
             msg.InternalMessageMetadata(
-                time=util.ImmediateValue(we.Instant.now())), content=content,
-            **kwargs)
+                time=util.ImmediateValue(we.Instant.now())
+            ),
+            content=content,
+            **kwargs,
+        )
         await self._append_message(message)
 
     async def _append_agent_message(
-            self, message_parts: util.StreamableList) -> None:
+        self, message_parts: util.StreamableList
+    ) -> None:
         """
         Append an agent message to this session.
 
@@ -456,9 +502,12 @@ class Session:
         """
         start_metadata, full_metadata_class = (
             self._message_sender.make_outgoing_start_metadata(
-                self._active_chat))
+                self._active_chat
+            )
+        )
         metadata = msg.ChatMessageMetadata.from_start_metadata(
-            start_metadata, full_metadata_class)
+            start_metadata, full_metadata_class
+        )
         message = msg.AgentMessage(metadata, message_parts)
         await self._append_message(message)
         assert message.finalized()
@@ -476,9 +525,11 @@ class Session:
         """
         for message_seq, message in enumerate(self._messages):
             message_offset = mdl.MessageOffset(
-                session_seq=self._session_seq, message_seq=message_seq)
+                session_seq=self._session_seq, message_seq=message_seq
+            )
             yield MessageInSession(
-                message=message, message_offset=message_offset)
+                message=message, message_offset=message_offset
+            )
 
     async def subscribe(self) -> cl_abc.AsyncGenerator[MessageInSession]:
         """
@@ -493,9 +544,11 @@ class Session:
             message_seq = len(self._messages) - 1
             assert message_seq >= 0
             message_offset = mdl.MessageOffset(
-                session_seq=self._session_seq, message_seq=message_seq)
+                session_seq=self._session_seq, message_seq=message_seq
+            )
             yield MessageInSession(
-                message=message, message_offset=message_offset)
+                message=message, message_offset=message_offset
+            )
 
 
 class Agent:
@@ -516,12 +569,19 @@ class Agent:
     to persist messages in its session, manages its MCP client, and ensures
     sessions are properly opened and closed.
     """
+
     def __init__(
-            self, agent_information: mdl.AgentInformation,
-            agent_state: mdl.AgentState, *, config: mdl.GatewayConfig,
-            workspace_dir: pathlib.Path, message_store: store.MessageStore,
-            memory_store: store.MemoryStore, channels: list[chan.Channel],
-            provider: "prov.Provider") -> None:
+        self,
+        agent_information: mdl.AgentInformation,
+        agent_state: mdl.AgentState,
+        *,
+        config: mdl.GatewayConfig,
+        workspace_dir: pathlib.Path,
+        message_store: store.MessageStore,
+        memory_store: store.MemoryStore,
+        channels: list[chan.Channel],
+        provider: "prov.Provider",
+    ) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         if not workspace_dir.is_dir():
             raise ValueError("workspace doesn't exist")
@@ -531,13 +591,18 @@ class Agent:
         self._message_store = message_store
         self.memory_store = memory_store
         self._mcp_client = tool.Client(
-            config=config, agent=self,
-            extra_env_getter=self._collect_channel_extra_env)
+            config=config,
+            agent=self,
+            extra_env_getter=self._collect_channel_extra_env,
+        )
         self._channel_router = chan.ChannelRouter(self, channels)
         self._session_factory = ft.partial(
-            Session, model_config=config.openrouter.model,
-            message_sender=self._channel_router, provider=provider,
-            mcp_client=self._mcp_client)
+            Session,
+            model_config=config.openrouter.model,
+            message_sender=self._channel_router,
+            provider=provider,
+            mcp_client=self._mcp_client,
+        )
         self._session = None
         self._lock = asyncio.Lock()
 
@@ -550,7 +615,8 @@ class Agent:
         return self._agent_state
 
     def switch_active_chat(
-            self, chat: mdl.ChatDescriptor, tx: SessionTransaction) -> None:
+        self, chat: mdl.ChatDescriptor, tx: SessionTransaction
+    ) -> None:
         """
         Switch the active chat.
 
@@ -593,7 +659,8 @@ class Agent:
         await self._channel_router.__aenter__()
         async with self._lock:
             self._process_unread_chats_task = asyncio.create_task(
-                self._process_unread_chats())
+                self._process_unread_chats()
+            )
             await self._ensure_active_session_locked()
             return self
 
@@ -630,10 +697,13 @@ class Agent:
 
     def _make_session(self, session_seq: int) -> Session:
         message_store = self._message_store.get_session_message_store(
-            session_seq)
+            session_seq
+        )
         return self._session_factory(
-            session_seq, message_store=message_store,
-            active_chat=self.state.active_chat)
+            session_seq,
+            message_store=message_store,
+            active_chat=self.state.active_chat,
+        )
 
     async def _ensure_active_session_locked(self):
         active_session_seq = self._message_store.get_active_session_seq()
@@ -642,21 +712,23 @@ class Agent:
         async with await self._session.transaction() as tx:
             if active_session_seq == 0 and not tx.num_messages:
                 self._logger.info(
-                    f"Existing agent {self} has no sessions. Starting the "
-                    "first one.")
+                    f"Existing agent {self} has no sessions. Starting the first one."
+                )
                 await self._send_session_init_messages_locked(tx)
 
     async def _start_new_session_locked(self):
         if self._session:
             await self._session.__aexit__(None, None, None)
         self._session = self._make_session(
-            self._message_store.get_active_session_seq() + 1)
+            self._message_store.get_active_session_seq() + 1
+        )
         await self._session.__aenter__()
         async with await self._session.transaction() as tx:
             await self._send_session_init_messages_locked(tx)
 
     async def _send_session_init_messages_locked(
-            self, tx: SessionTransaction) -> None:
+        self, tx: SessionTransaction
+    ) -> None:
         async for message in self._onboarding_messages():
             await tx.append_internal_message(msg.DeveloperMessage, message)
         # Tell the agent about available channels.
@@ -664,18 +736,23 @@ class Agent:
             await self._add_channel_status_message_locked(channel, tx)
         # Tell the agent about their workspace and personality files.
         await tx.append_internal_message(
-            msg.SystemMessage, await file.render_workspace_info(self))
+            msg.SystemMessage, await file.render_workspace_info(self)
+        )
         for pf in self.information.personality.personality_files:
             await tx.append_internal_message(
-                msg.SystemMessage, await
-                file.render_file_content(self.workspace_dir, pf.path))
+                msg.SystemMessage,
+                await file.render_file_content(self.workspace_dir, pf.path),
+            )
         # Tell the agent that this is a new session.
         await tx.append_internal_message(
-            msg.SystemMessage, await file.render_message_template(
+            msg.SystemMessage,
+            await file.render_message_template(
                 "system_information/session_initialization.md",
                 name=self.information.name,
                 information=self.information.model_dump_json(),
-                active_chat=tx.active_chat.model_dump_json()))
+                active_chat=tx.active_chat.model_dump_json(),
+            ),
+        )
 
     async def _onboarding_messages(self) -> cl_abc.AsyncGenerator[str]:
         """
@@ -694,15 +771,20 @@ class Agent:
             "channel_agent",
             "channel_github",
             "channel_matrix",
-            "system_workspace_memory",]
+            "system_workspace_memory",
+        ]
         for topic in tutorial_topics:
             yield await file.render_tutorial(topic)
 
     async def _add_channel_status_message_locked(
-            self, channel: chan.Channel, tx: SessionTransaction) -> None:
+        self, channel: chan.Channel, tx: SessionTransaction
+    ) -> None:
         await tx.append_internal_message(
-            msg.SystemMessage, await file.render_channel_status(
-                channel, available=channel.type in self.channels))
+            msg.SystemMessage,
+            await file.render_channel_status(
+                channel, available=channel.type in self.channels
+            ),
+        )
 
     async def _process_unread_chats(self) -> None:
         """
@@ -736,15 +818,18 @@ class Agent:
                     # Use eager_start in here to make sure we get a message or
                     # the lock immediately if available.
                     get_chat_task = tg.create_task(
-                        anext(unread_chats_iter), eager_start=True)
+                        anext(unread_chats_iter), eager_start=True
+                    )
                     if not unread_chats:
                         # Need at least one chat with unread messages.
                         await get_chat_task
                     acquire_lock_task = tg.create_task(
-                        self._lock.acquire(), eager_start=True)
+                        self._lock.acquire(), eager_start=True
+                    )
                     done, _ = await asyncio.wait(
                         {get_chat_task, acquire_lock_task},
-                        return_when=asyncio.FIRST_COMPLETED)
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
                     if get_chat_task in done:
                         unread_chats.append(get_chat_task.result())
                     else:
@@ -756,7 +841,8 @@ class Agent:
                         # reading and adding chats until we get the lock.
                         continue
                     unread_chats = await self._handle_unread_chats_locked(
-                        unread_chats)
+                        unread_chats
+                    )
             except ExceptionGroup as e:
                 _, other_exceptions = e.split(StopAsyncIteration)
                 if not other_exceptions:
@@ -764,7 +850,8 @@ class Agent:
                     return
                 self._logger.exception(
                     "Error processing unread chats (current unread_chats "
-                    f"{unread_chats}).")
+                    f"{unread_chats})."
+                )
             finally:
                 if acquire_lock_task is not None:
                     try:
@@ -777,7 +864,7 @@ class Agent:
                         pass
 
     async def _handle_unread_chats_locked(
-            self, unread_chats: list[mdl.ChatDescriptor]
+        self, unread_chats: list[mdl.ChatDescriptor]
     ) -> list[mdl.ChatDescriptor]:
         """
         Handle messages from the first of a list of unread chats.
@@ -790,7 +877,8 @@ class Agent:
         try:
             async with await self._session.transaction() as tx:
                 handle_task = asyncio.create_task(
-                    self._handle_first_unread_chat_locked(unread_chats, tx))
+                    self._handle_first_unread_chat_locked(unread_chats, tx)
+                )
                 await asyncio.shield(handle_task)
             return [c for c in unread_chats if c != unread_chats[0]]
         except asyncio.CancelledError:
@@ -800,12 +888,13 @@ class Agent:
                     await handle_task
             except Exception:
                 self._logger.exception(
-                    "Error waiting to process final chat messages.")
+                    "Error waiting to process final chat messages."
+                )
             raise
 
     async def _handle_first_unread_chat_locked(
-            self, unread_chats: list[mdl.ChatDescriptor],
-            tx: SessionTransaction) -> None:
+        self, unread_chats: list[mdl.ChatDescriptor], tx: SessionTransaction
+    ) -> None:
         chat = unread_chats[0]
         try:
             if await self._channel_router.num_unread_messages(chat) == 0:
@@ -817,7 +906,8 @@ class Agent:
                 return
             if chat != self.state.active_chat:
                 await self._append_unread_message_overview_locked(
-                    unread_chats, tx)
+                    unread_chats, tx
+                )
                 # We've received a message in a chat other than the active
                 # chat. Inject messages into the session that make it look
                 # like the agent switched to that chat in response to it.
@@ -827,7 +917,8 @@ class Agent:
                 # If we don't switch, we just have to append the messages
                 # to the session.
                 incoming_messages = (
-                    await self._channel_router.get_unread_messages(chat))
+                    await self._channel_router.get_unread_messages(chat)
+                )
                 assert len(incoming_messages) > 0
                 for incoming_message in incoming_messages:
                     assert incoming_message.chat == chat
@@ -837,8 +928,8 @@ class Agent:
             self._logger.exception("Error handling unread chat messages.")
 
     async def _append_unread_message_overview_locked(
-            self, unread_chats: list[mdl.ChatDescriptor],
-            tx: SessionTransaction):
+        self, unread_chats: list[mdl.ChatDescriptor], tx: SessionTransaction
+    ):
         assert unread_chats[0] != self.state.active_chat
         message_counts = {}
         for chat in unread_chats:
@@ -846,11 +937,13 @@ class Agent:
             message_counts[chat] += 1
         overview = "\n".join(
             f"{count} unread message(s) in chat {chat.model_dump_json()}"
-            for chat, count in message_counts.items())
+            for chat, count in message_counts.items()
+        )
         await tx.append_internal_message(msg.SystemMessage, content=overview)
 
     async def _fake_agent_switch_message_locked(
-            self, chat: mdl.ChatDescriptor, tx: SessionTransaction) -> None:
+        self, chat: mdl.ChatDescriptor, tx: SessionTransaction
+    ) -> None:
         """
         Insert a chat switch tool call on behalf of the agent.
 
@@ -860,7 +953,8 @@ class Agent:
         tool_part = msg.AgentMessageToolPart()
         function = msg.ToolCallFunction(
             name="clawp_switch_chat",
-            arguments=chat.model_dump_json(include=("channel", "chat_id")))
+            arguments=chat.model_dump_json(include=("channel", "chat_id")),
+        )
         # A random ID will be generated automatically.
         await tool_part.append(msg.ToolCall(function=function))
         await tool_part.finalize()
@@ -868,8 +962,8 @@ class Agent:
 
     async def _collect_channel_extra_env(self) -> dict[str, str]:
         env_by_channel = {
-            t: await c.get_extra_shell_env()
-            for t, c in self.channels.items()}
+            t: await c.get_extra_shell_env() for t, c in self.channels.items()
+        }
         for t1, t2 in it.combinations(env_by_channel.keys(), 2):
             env1 = env_by_channel[t1]
             env2 = env_by_channel[t2]
@@ -878,11 +972,11 @@ class Agent:
                     f"Extra environment variables specified by channels {t1} "
                     f"and {t2} are not disjoint ({list(env1)} vs. "
                     f"{list(env2)}). Actual environment will be "
-                    "non-deterministic.")
+                    "non-deterministic."
+                )
         return {
-            k: v
-            for env in env_by_channel.values()
-            for k, v in env.items()}
+            k: v for env in env_by_channel.values() for k, v in env.items()
+        }
 
     async def request_response(self) -> None:
         """
@@ -932,7 +1026,8 @@ class Agent:
         async with await self._session.transaction() as tx, self._lock:
             if channel.type in self.state.claimed_channels:
                 raise ValueError(
-                    f"agent already has a channel of type {channel.type}")
+                    f"agent already has a channel of type {channel.type}"
+                )
             await self._channel_router.add_channel(channel)
             self.state.claimed_channels[channel.type] = channel.id
             await self._add_channel_status_message_locked(channel, tx)
@@ -947,9 +1042,10 @@ class Agent:
             try:
                 channel = self.channels[channel_type]
                 assert channel_type in self.state.claimed_channels
-            except (KeyError, AssertionError):
+            except KeyError, AssertionError:
                 raise ValueError(
-                    f"agent has no channel of type {channel_type}")
+                    f"agent has no channel of type {channel_type}"
+                )
             await self._channel_router.remove_channel(channel_type)
             del self.state.claimed_channels[channel_type]
             await self._add_channel_status_message_locked(channel, tx)
@@ -964,9 +1060,15 @@ class AgentRepository:
     context manager discovering/starting/stopping agents on
     __aenter__/__aexit__. It can also hatch new agents.
     """
+
     def __init__(
-            self, *, base_dir: pathlib.Path, channel_pool: chan.ChannelPool,
-            provider: "prov.Provider", config: mdl.GatewayConfig) -> None:
+        self,
+        *,
+        base_dir: pathlib.Path,
+        channel_pool: chan.ChannelPool,
+        provider: "prov.Provider",
+        config: mdl.GatewayConfig,
+    ) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._base_dir = base_dir
         self._channel_pool = channel_pool
@@ -1006,14 +1108,16 @@ class AgentRepository:
         for agent in self._agents.values():
             agent_base_dir = self._agent_base_dir(agent.information.id)
             self._agent_state_file(agent_base_dir).write_text(
-                agent.state.model_dump_json())
+                agent.state.model_dump_json()
+            )
         self._agents.clear()
         return False
 
     async def _stop_agents(self):
         stop_tasks = {
             asyncio.create_task(a.__aexit__(None, None, None))
-            for a in self._agents.values()}
+            for a in self._agents.values()
+        }
         if not stop_tasks:
             stop_tasks.add(util.create_done_future(None))
         done, pending = await asyncio.wait(stop_tasks, timeout=120)
@@ -1023,7 +1127,8 @@ class AgentRepository:
         for task in done:
             if task.exception():
                 self._logger.error(
-                    "Error shutting down agent.", exc_info=task.exception())
+                    "Error shutting down agent.", exc_info=task.exception()
+                )
 
     def _agent_base_dir(self, agent_id: uuid.UUID) -> pathlib.Path:
         return self._base_dir / str(agent_id)
@@ -1037,7 +1142,8 @@ class AgentRepository:
                 yield self._instantiate_agent(d)
             except ValueError:
                 self._logger.exception(
-                    f"Ignoring invalid agent directory {d}.")
+                    f"Ignoring invalid agent directory {d}."
+                )
 
     def _instantiate_agent(self, dir: pathlib.Path) -> Agent:
         agent_information, agent_state = self._load_agent_files(dir)
@@ -1060,21 +1166,31 @@ class AgentRepository:
             except chan.ChannelError as e:
                 self._logger.warning(
                     f"Agent {agent_information.id} claims channel "
-                    f"{ch_type}:{ch_id}, but it's not available: {e}.")
+                    f"{ch_type}:{ch_id}, but it's not available: {e}."
+                )
         # Add the builtin web_ui and agent channels.
         channels.append(
             chan.WebUiChannel(
-                self._web_ui_channel_state_dir(dir),
-                agent_state.web_ui_channel))
+                self._web_ui_channel_state_dir(dir), agent_state.web_ui_channel
+            )
+        )
         channels.append(
             chan.AgentChannel(
-                self, self._agent_channel_state_dir(dir),
-                agent_state.agent_channel))
+                self,
+                self._agent_channel_state_dir(dir),
+                agent_state.agent_channel,
+            )
+        )
         return Agent(
-            agent_information, agent_state, config=self._config,
-            workspace_dir=workspace_dir, message_store=message_store,
-            memory_store=memory_store, channels=channels,
-            provider=self._provider)
+            agent_information,
+            agent_state,
+            config=self._config,
+            workspace_dir=workspace_dir,
+            message_store=message_store,
+            memory_store=memory_store,
+            channels=channels,
+            provider=self._provider,
+        )
 
     def _load_agent_files(
         self, agent_base_dir: pathlib.Path
@@ -1086,23 +1202,27 @@ class AgentRepository:
         agent_information_file = self._agent_information_file(agent_base_dir)
         try:
             agent_information = mdl.AgentInformation.model_validate_json(
-                agent_information_file.read_bytes())
+                agent_information_file.read_bytes()
+            )
         except Exception as e:
             raise ValueError("invalid agent information file") from e
         agent_state_file = self._agent_state_file(agent_base_dir)
         try:
             agent_state = mdl.AgentState.model_validate_json(
-                agent_state_file.read_bytes())
+                agent_state_file.read_bytes()
+            )
         except Exception as e:
             raise ValueError("invalid agent state file") from e
         if agent_information.id != agent_id:
             raise ValueError(
                 f"agent ID in information file ({agent_information.id}) "
-                f"doesn't match the one in the directory name ({agent_id})")
+                f"doesn't match the one in the directory name ({agent_id})"
+            )
         return agent_information, agent_state
 
     def _agent_information_file(
-            self, agent_base_dir: pathlib.Path) -> pathlib.Path:
+        self, agent_base_dir: pathlib.Path
+    ) -> pathlib.Path:
         return agent_base_dir / "agent_information.json"
 
     def _agent_state_file(self, agent_base_dir: pathlib.Path) -> pathlib.Path:
@@ -1118,21 +1238,25 @@ class AgentRepository:
         return agent_base_dir / "memory_store"
 
     def _web_ui_channel_state_dir(
-            self, agent_base_dir: pathlib.Path) -> pathlib.Path:
+        self, agent_base_dir: pathlib.Path
+    ) -> pathlib.Path:
         return agent_base_dir / "web_ui_channel"
 
     def _agent_channel_state_dir(
-            self, agent_base_dir: pathlib.Path) -> pathlib.Path:
+        self, agent_base_dir: pathlib.Path
+    ) -> pathlib.Path:
         return agent_base_dir / "agent_channel"
 
     async def hatch_agent(
-            self, agent_name: str, personality_name: str) -> Agent:
+        self, agent_name: str, personality_name: str
+    ) -> Agent:
         """Hatch a new agent."""
         if not self._running:
             raise RuntimeError("not running, can't hatch a new agent")
         agent_id = uuid.uuid4()
         agent_base_dir = await self._initialize_agent_files(
-            agent_id, agent_name, personality_name)
+            agent_id, agent_name, personality_name
+        )
         agent = self._instantiate_agent(agent_base_dir)
         self._logger.info(f"Starting new {agent}.")
         try:
@@ -1143,21 +1267,26 @@ class AgentRepository:
         return self._agents[agent.information.id]
 
     async def _initialize_agent_files(
-            self, agent_id, agent_name, personality_name):
+        self, agent_id, agent_name, personality_name
+    ):
         try:
             personality_with_contents = (
-                await
-                file.read_personality_with_file_contents(personality_name))
+                await file.read_personality_with_file_contents(
+                    personality_name
+                )
+            )
         except file.PersonalityNotFoundError:
             raise
         except Exception as e:
             raise ValueError(
-                f"can't use personality {personality_name}") from e
+                f"can't use personality {personality_name}"
+            ) from e
         self._logger.info(f"Setting up files for new agent {agent_id}.")
         agent_base_dir = self._base_dir / str(agent_id)
         if agent_base_dir.exists():
             raise ValueError(
-                f"agent base directory {agent_base_dir} already exists")
+                f"agent base directory {agent_base_dir} already exists"
+            )
         agent_base_dir.mkdir(parents=True, exist_ok=True)
         agent_information = mdl.AgentInformation(
             id=agent_id,
@@ -1165,24 +1294,29 @@ class AgentRepository:
             personality=personality_with_contents.get_personality(),
         )
         self._agent_information_file(agent_base_dir).write_text(
-            agent_information.model_dump_json())
+            agent_information.model_dump_json()
+        )
         agent_state = mdl.AgentState(
             active_chat=mdl.BasicChatDescriptor(channel="web_ui", chat_id=""),
             web_ui_channel=mdl.WebUiChannelState(),
             agent_channel=mdl.AgentChannelState(),
         )
         self._agent_state_file(agent_base_dir).write_text(
-            agent_state.model_dump_json())
+            agent_state.model_dump_json()
+        )
         self._logger.info(f"Created new agent state {agent_state}.")
         self._message_store_dir(agent_base_dir).mkdir(
-            parents=True, exist_ok=True)
+            parents=True, exist_ok=True
+        )
         self._memory_store_dir(agent_base_dir).mkdir(
-            parents=True, exist_ok=True)
+            parents=True, exist_ok=True
+        )
         workspace_dir = self._workspace_dir(agent_base_dir)
         workspace_dir.mkdir(parents=True, exist_ok=True)
         for pf in personality_with_contents.personality_files:
-            file_content = (
-                personality_with_contents.personality_file_contents[pf.path])
+            file_content = personality_with_contents.personality_file_contents[
+                pf.path
+            ]
             if file_content is None:
                 # File shouldn't exist.
                 continue

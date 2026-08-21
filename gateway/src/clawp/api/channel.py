@@ -34,15 +34,17 @@ router = fastapi.APIRouter(prefix="/channels")
 
 @router.get("")
 async def list_channels(
-        channel_pool: dep.ChannelPool,
-        agent_repo: dep.AgentRepository) -> list[mdl.ChannelInformation]:
+    channel_pool: dep.ChannelPool, agent_repo: dep.AgentRepository
+) -> list[mdl.ChannelInformation]:
     """Get a list of available channel accounts."""
     channel_assignments = _channel_assignments(agent_repo)
     infos = []
     for channel_status in channel_pool:
         try:
             channel_key = (
-                channel_status.channel.type, channel_status.channel.id)
+                channel_status.channel.type,
+                channel_status.channel.id,
+            )
             assigned_to_agent = channel_assignments[channel_key]
             assigned_to_agent_id = assigned_to_agent.information.id
         except KeyError:
@@ -54,12 +56,13 @@ async def list_channels(
                 config=channel_status.config,
                 status=await channel_status.channel.status,
                 assigned_to_agent=assigned_to_agent_id,
-            ))
+            )
+        )
     return infos
 
 
 def _channel_assignments(
-        agent_repo: "agt.AgentRepository"
+    agent_repo: "agt.AgentRepository",
 ) -> dict[tuple[str, str], "agt.Agent"]:
     channel_assignments = {}
     for agent in agent_repo.iter_agents():
@@ -72,7 +75,8 @@ def _channel_assignments(
                 existing_assignment = channel_assignments[channel_key]
                 logger.warning(
                     f"Found {channel} assigned to both {existing_assignment} "
-                    f"and {agent}.")
+                    f"and {agent}."
+                )
                 continue
             except KeyError:
                 channel_assignments[channel_key] = agent
@@ -80,19 +84,28 @@ def _channel_assignments(
 
 
 @router.post(
-    "/{channel_type}/{channel_id}/assignment/{agent_id}", responses={
+    "/{channel_type}/{channel_id}/assignment/{agent_id}",
+    responses={
         200: {
             "model": mdl.ChannelInformation,
-            "description": "Channel assigned successfully"},
+            "description": "Channel assigned successfully",
+        },
         404: {
             "model": mdl.ErrorResponse,
-            "description": "The channel or agent doesn't exist"},
+            "description": "The channel or agent doesn't exist",
+        },
         409: {
             "model": mdl.ErrorResponse,
-            "description": "The channel has already been assigned"},})
+            "description": "The channel has already been assigned",
+        },
+    },
+)
 async def assign_channel(
-        channel_pool: dep.ChannelPool, agent: dep.Agent, channel_type: str,
-        channel_id: str) -> mdl.ChannelInformation:
+    channel_pool: dep.ChannelPool,
+    agent: dep.Agent,
+    channel_type: str,
+    channel_id: str,
+) -> mdl.ChannelInformation:
     """
     Assign a channel to an agent.
 
@@ -104,16 +117,19 @@ async def assign_channel(
     if channel_type in ["agent", "web_ui"]:
         raise fastapi.HTTPException(
             status_code=409,
-            detail="Assignment of built-in channels can't be changed.")
+            detail="Assignment of built-in channels can't be changed.",
+        )
     try:
         channel_status = channel_pool.acquire(channel_type, channel_id)
     except chan.NoSuchChannelError:
         raise fastapi.HTTPException(
             status_code=404,
-            detail=f"Channel {channel_type}:{channel_id} doesn't exist.")
+            detail=f"Channel {channel_type}:{channel_id} doesn't exist.",
+        )
     except chan.ChannelStateError:
         raise fastapi.HTTPException(
-            status_code=409, detail="Channel has already been assigned.")
+            status_code=409, detail="Channel has already been assigned."
+        )
     await agent.add_channel(channel_status.channel)
     return mdl.ChannelInformation(
         type=channel_status.channel.type,
@@ -125,17 +141,25 @@ async def assign_channel(
 
 
 @router.delete(
-    "/{channel_type}/{channel_id}/assignment/{agent_id}", responses={
+    "/{channel_type}/{channel_id}/assignment/{agent_id}",
+    responses={
         204: {"description": "Assignment deleted successfully"},
         404: {
             "model": mdl.ErrorResponse,
-            "description": "The channel or agent doesn't exist"},
+            "description": "The channel or agent doesn't exist",
+        },
         409: {
             "model": mdl.ErrorResponse,
-            "description": "The agent has no such channel assigned"},})
+            "description": "The agent has no such channel assigned",
+        },
+    },
+)
 async def unassign_channel(
-        channel_pool: dep.ChannelPool, agent: dep.Agent, channel_type: str,
-        channel_id: str) -> None:
+    channel_pool: dep.ChannelPool,
+    agent: dep.Agent,
+    channel_type: str,
+    channel_id: str,
+) -> None:
     """
     Remove an assignment of a channel from an agent.
 
@@ -144,23 +168,27 @@ async def unassign_channel(
     if channel_type in ["agent", "web_ui"]:
         raise fastapi.HTTPException(
             status_code=409,
-            detail="Assignment of built-in channels can't be changed.")
+            detail="Assignment of built-in channels can't be changed.",
+        )
     try:
         channel = agent.channels[channel_type]
     except KeyError:
         raise fastapi.HTTPException(
             status_code=409,
-            detail=f"The agent has no channel of type {channel_type}.")
+            detail=f"The agent has no channel of type {channel_type}.",
+        )
     if channel.id != channel_id:
         raise fastapi.HTTPException(
             status_code=409,
             detail=f"The agent has channel of type {channel_type}, but with a "
-            f"different ID ({channel.id}).")
+            f"different ID ({channel.id}).",
+        )
     await agent.remove_channel(channel_type)
     try:
         channel_pool.release(channel)
-    except (chan.NoSuchChannelError, chan.ChannelStateError):
+    except chan.NoSuchChannelError, chan.ChannelStateError:
         logger.exception(
             f"Removed {channel} from {agent}, but the channel pool doesn't "
-            "know the channel or it wasn't assigned.")
+            "know the channel or it wasn't assigned."
+        )
     return fastapi.Response(status_code=204)

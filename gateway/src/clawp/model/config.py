@@ -44,7 +44,8 @@ class EnvironmentSecretValue(BaseSecretValue):
             self._value = os.environ[self.variable_name]
         except KeyError:
             raise ValueError(
-                f"environment variable {self.variable_name} doesn't exist")
+                f"environment variable {self.variable_name} doesn't exist"
+            )
         return self
 
     @property
@@ -96,7 +97,8 @@ class ModelConfig(pyd.BaseModel):
     def check_timeout_proportions(self) -> t.Self:
         if self.message_send_timeout >= self.request_timeout:
             raise ValueError(
-                "request timeout must be greater than message send timeout")
+                "request timeout must be greater than message send timeout"
+            )
         return self
 
 
@@ -118,6 +120,7 @@ class GithubAccountConfig(Account):
 
     This can be overridden by Github's X-Poll-Interval header.
     """
+
     @property
     def id(self) -> str:
         return f"{self.app_id}:{self.installation_id}"
@@ -153,8 +156,9 @@ class ChannelsConfig(pyd.BaseModel):
 class ApiConfig(pyd.BaseModel):
     host: pyd.IPvAnyAddress
     port: int
-    log_level: t.Literal["critical", "error", "warning", "info", "debug",
-                         "trace"]
+    log_level: t.Literal[
+        "critical", "error", "warning", "info", "debug", "trace"
+    ]
 
 
 class ShellSshConfig(pyd.BaseModel):

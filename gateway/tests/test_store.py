@@ -46,7 +46,8 @@ def create_file(path: pathlib.Path, lines: list[str] | None = None) -> None:
 
 
 def write_file_content(
-        path: pathlib.Path, lines: list[str] | None = None) -> None:
+    path: pathlib.Path, lines: list[str] | None = None
+) -> None:
     if not path.parent.is_dir():
         path.parent.mkdir(parents=True)
     if not path.is_file():
@@ -63,11 +64,12 @@ def read_file_content(path: pathlib.Path) -> list[str]:
 def session_file_header(session_seq, version=store.MessageStore.VERSION):
     return {
         "version": version,
-        "session_seq": session_seq,}
+        "session_seq": session_seq,
+    }
 
 
 def session_file_for_base_dir(base_dir, session_seq):
-    return (base_dir / "sessions" / f"{session_seq}.jsonl")
+    return base_dir / "sessions" / f"{session_seq}.jsonl"
 
 
 class MockMessageModel(pyd.BaseModel):
@@ -95,7 +97,8 @@ class MockMessage:
 def mock_message(monkeypatch):
     monkeypatch.setattr(msg, "Message", MockMessage)
     monkeypatch.setattr(
-        mdl, "MessageTypeAdapter", pyd.TypeAdapter(MockMessageModel))
+        mdl, "MessageTypeAdapter", pyd.TypeAdapter(MockMessageModel)
+    )
 
 
 @pytest.fixture
@@ -137,14 +140,16 @@ class TestJsonlIO:
         assert await jsonl_io.header == header
         assert_that(
             read_file_content(jsonl_path),
-            contains_exactly(json_equivalent(header)))
+            contains_exactly(json_equivalent(header)),
+        )
 
     async def test_create_raises_on_header_without_version(self, jsonl_io):
         with pytest.raises(ValueError):
             await jsonl_io.create({"not_version": 0})
 
     async def test_create_raises_on_header_with_non_int_version(
-            self, jsonl_io):
+        self, jsonl_io
+    ):
         with pytest.raises(ValueError):
             await jsonl_io.create({"version": "not an int"})
 
@@ -193,8 +198,10 @@ class TestJsonlIO:
         async with store.JsonlIO(jsonl_path, type_adapter) as jsonl_io:
             await jsonl_io.create({"version": 0})
             await jsonl_io.append(MockMessageModel(payload="a"))
-            assert_that([m async for m in jsonl_io.read_all()],
-                        contains_exactly(has_properties(payload="a")))
+            assert_that(
+                [m async for m in jsonl_io.read_all()],
+                contains_exactly(has_properties(payload="a")),
+            )
 
     async def test_close(self, jsonl_io):
         await jsonl_io.create({"version": 0})
@@ -223,7 +230,8 @@ class TestJsonlIO:
         assert_that([m async for m in jsonl_io.read_all()], [model1, model2])
 
     async def test_upgrade_and_validate_does_nothing_on_current_version(
-            self, jsonl_io, jsonl_path):
+        self, jsonl_io, jsonl_path
+    ):
         await jsonl_io.create({"version": 1})
         await jsonl_io.append(MockMessageModel(payload="a"))
         await jsonl_io.close()
@@ -236,10 +244,13 @@ class TestJsonlIO:
             read_file_content(jsonl_path),
             contains_exactly(
                 json_equivalent({"version": 1}),
-                json_equivalent({"payload": "a"})))
+                json_equivalent({"payload": "a"}),
+            ),
+        )
 
     async def test_upgrade_and_validate_does_nothing_without_upgraders(
-            self, jsonl_io, jsonl_path):
+        self, jsonl_io, jsonl_path
+    ):
         await jsonl_io.create({"version": 0})
         await jsonl_io.append(MockMessageModel(payload="a"))
         await jsonl_io.close()
@@ -248,10 +259,13 @@ class TestJsonlIO:
             read_file_content(jsonl_path),
             contains_exactly(
                 json_equivalent({"version": 0}),
-                json_equivalent({"payload": "a"})))
+                json_equivalent({"payload": "a"}),
+            ),
+        )
 
     async def test_upgrade_and_validate_applies_one_upgrade(
-            self, jsonl_io, jsonl_path):
+        self, jsonl_io, jsonl_path
+    ):
         await jsonl_io.create({"version": 0})
         await jsonl_io.append(MockMessageModel(payload="a"))
         await jsonl_io.close()
@@ -261,22 +275,27 @@ class TestJsonlIO:
                 read_file_content(path),
                 contains_exactly(
                     json_equivalent({"version": 0}),
-                    json_equivalent({"payload": "a"})))
+                    json_equivalent({"payload": "a"}),
+                ),
+            )
             write_file_content(
                 path,
-                [json.dumps({"version": 1}),
-                 json.dumps({"payload": "b"})])
+                [json.dumps({"version": 1}), json.dumps({"payload": "b"})],
+            )
 
         await jsonl_io.upgrade_and_validate({0: upgrade_0_to_1})
         assert_that(
             read_file_content(jsonl_path),
             contains_exactly(
                 json_equivalent({"version": 1}),
-                json_equivalent({"payload": "b"})))
+                json_equivalent({"payload": "b"}),
+            ),
+        )
         assert await jsonl_io.header == {"version": 1}
 
     async def test_upgrade_and_validate_applies_multiple_upgrades(
-            self, jsonl_io, jsonl_path):
+        self, jsonl_io, jsonl_path
+    ):
         await jsonl_io.create({"version": 0})
         await jsonl_io.append(MockMessageModel(payload="a"))
         await jsonl_io.close()
@@ -286,34 +305,42 @@ class TestJsonlIO:
                 read_file_content(path),
                 contains_exactly(
                     json_equivalent({"version": 0}),
-                    json_equivalent({"payload": "a"})))
+                    json_equivalent({"payload": "a"}),
+                ),
+            )
             write_file_content(
                 path,
-                [json.dumps({"version": 1}),
-                 json.dumps({"payload": "b"})])
+                [json.dumps({"version": 1}), json.dumps({"payload": "b"})],
+            )
 
         def upgrade_1_to_2(path):
             assert_that(
                 read_file_content(jsonl_path),
                 contains_exactly(
                     json_equivalent({"version": 1}),
-                    json_equivalent({"payload": "b"})))
+                    json_equivalent({"payload": "b"}),
+                ),
+            )
             write_file_content(
                 path,
-                [json.dumps({"version": 2}),
-                 json.dumps({"payload": "v"})])
+                [json.dumps({"version": 2}), json.dumps({"payload": "v"})],
+            )
 
-        await jsonl_io.upgrade_and_validate({
-            0: upgrade_0_to_1, 1: upgrade_1_to_2})
+        await jsonl_io.upgrade_and_validate(
+            {0: upgrade_0_to_1, 1: upgrade_1_to_2}
+        )
         assert_that(
             read_file_content(jsonl_path),
             contains_exactly(
                 json_equivalent({"version": 2}),
-                json_equivalent({"payload": "v"})))
+                json_equivalent({"payload": "v"}),
+            ),
+        )
         assert await jsonl_io.header == {"version": 2}
 
     async def test_upgrade_and_validate_starts_upgrade_at_right_version(
-            self, jsonl_io, jsonl_path):
+        self, jsonl_io, jsonl_path
+    ):
         await jsonl_io.create({"version": 1})
         await jsonl_io.append(MockMessageModel(payload="a"))
         await jsonl_io.close()
@@ -326,22 +353,28 @@ class TestJsonlIO:
                 read_file_content(jsonl_path),
                 contains_exactly(
                     json_equivalent({"version": 1}),
-                    json_equivalent({"payload": "a"})))
+                    json_equivalent({"payload": "a"}),
+                ),
+            )
             write_file_content(
                 path,
-                [json.dumps({"version": 2}),
-                 json.dumps({"payload": "b"})])
+                [json.dumps({"version": 2}), json.dumps({"payload": "b"})],
+            )
 
-        await jsonl_io.upgrade_and_validate({
-            0: upgrade_0_to_1, 1: upgrade_1_to_2})
+        await jsonl_io.upgrade_and_validate(
+            {0: upgrade_0_to_1, 1: upgrade_1_to_2}
+        )
         assert_that(
             read_file_content(jsonl_path),
             contains_exactly(
                 json_equivalent({"version": 2}),
-                json_equivalent({"payload": "b"})))
+                json_equivalent({"payload": "b"}),
+            ),
+        )
 
     async def test_upgrade_and_validate_raises_on_future_version(
-            self, jsonl_io):
+        self, jsonl_io
+    ):
         await jsonl_io.create({"version": 2})
         await jsonl_io.append(MockMessageModel(payload="a"))
         await jsonl_io.close()
@@ -353,11 +386,15 @@ class TestJsonlIO:
             await jsonl_io.upgrade_and_validate({0: upgrade_0_to_1})
 
     async def test_upgrade_and_validate_applies_upgrade_before_validation(
-            self, jsonl_io, jsonl_path):
+        self, jsonl_io, jsonl_path
+    ):
         write_file_content(
-            jsonl_path, [
+            jsonl_path,
+            [
                 json.dumps({"version": 0}),
-                json.dumps({"old_name_for_payload": "a"})])
+                json.dumps({"old_name_for_payload": "a"}),
+            ],
+        )
 
         def upgrade_0_to_1(path):
             lines = [json.dumps({"version": 1})]
@@ -367,78 +404,96 @@ class TestJsonlIO:
             write_file_content(path, lines)
 
         await jsonl_io.upgrade_and_validate({0: upgrade_0_to_1})
-        assert_that([m async for m in jsonl_io.read_all()],
-                    contains_exactly(has_properties(payload="a")))
+        assert_that(
+            [m async for m in jsonl_io.read_all()],
+            contains_exactly(has_properties(payload="a")),
+        )
 
     async def test_upgrade_and_validate_raises_on_missing_header(
-            self, jsonl_io, jsonl_path):
+        self, jsonl_io, jsonl_path
+    ):
         write_file_content(jsonl_path, [json.dumps({"payload": "a"})])
         with pytest.raises(store.StoreFormatError):
             await jsonl_io.upgrade_and_validate({})
 
     async def test_upgrade_and_validate_raises_on_invalid_header(
-            self, jsonl_io, jsonl_path):
+        self, jsonl_io, jsonl_path
+    ):
         write_file_content(
-            jsonl_path, [
+            jsonl_path,
+            [
                 json.dumps({"version": "not an int"}),
-                json.dumps({"payload": "a"})])
+                json.dumps({"payload": "a"}),
+            ],
+        )
         with pytest.raises(store.StoreFormatError):
             await jsonl_io.upgrade_and_validate({})
 
     async def test_upgrade_and_validate_raises_on_invalid_model(
-            self, jsonl_io, jsonl_path):
+        self, jsonl_io, jsonl_path
+    ):
         write_file_content(
-            jsonl_path, [
+            jsonl_path,
+            [
                 json.dumps({"version": 0}),
                 json.dumps({"not_payload": "a"}),
-                json.dumps({"payload": "a"})])
+                json.dumps({"payload": "a"}),
+            ],
+        )
         with pytest.raises(store.StoreFormatError):
             await jsonl_io.upgrade_and_validate({})
 
     async def test_upgrade_and_validate_raises_on_empty_line(
-            self, jsonl_io, jsonl_path):
+        self, jsonl_io, jsonl_path
+    ):
         write_file_content(
             jsonl_path,
-            [json.dumps({"version": 0}), "",
-             json.dumps({"payload": "a"})])
+            [json.dumps({"version": 0}), "", json.dumps({"payload": "a"})],
+        )
         with pytest.raises(store.StoreFormatError):
             await jsonl_io.upgrade_and_validate({})
 
     async def test_upgrade_and_validate_raises_on_invalid_model_last_line(
-            self, jsonl_io, jsonl_path):
+        self, jsonl_io, jsonl_path
+    ):
         write_file_content(
             jsonl_path,
-            [json.dumps({"version": 0}),
-             json.dumps({"not_payload": "a"})])
+            [json.dumps({"version": 0}), json.dumps({"not_payload": "a"})],
+        )
         with pytest.raises(store.StoreFormatError):
             await jsonl_io.upgrade_and_validate({})
 
     async def test_upgrade_and_validate_raises_on_empty_line_last_line(
-            self, jsonl_io, jsonl_path):
+        self, jsonl_io, jsonl_path
+    ):
         write_file_content(jsonl_path, [json.dumps({"version": 0}), ""])
         with pytest.raises(store.StoreFormatError):
             await jsonl_io.upgrade_and_validate({})
 
     async def test_upgrade_and_validate_discards_corrupt_unterminated_line(
-            self, jsonl_io, jsonl_path):
+        self, jsonl_io, jsonl_path
+    ):
         write_file_content(
             jsonl_path,
-            [json.dumps({"version": 0}),
-             json.dumps({"payload": "a"})])
+            [json.dumps({"version": 0}), json.dumps({"payload": "a"})],
+        )
         with jsonl_path.open("a") as f:
             # Use raw write() so we don't write a newline and terminate the
             # line.
             f.write("not { valid json")
         await jsonl_io.upgrade_and_validate({})
-        assert_that([m async for m in jsonl_io.read_all()],
-                    contains_exactly(has_properties(payload="a")))
+        assert_that(
+            [m async for m in jsonl_io.read_all()],
+            contains_exactly(has_properties(payload="a")),
+        )
 
     async def test_upgrade_and_validate_deletes_corrupt_unterminated_line(
-            self, jsonl_io, jsonl_path):
+        self, jsonl_io, jsonl_path
+    ):
         write_file_content(
             jsonl_path,
-            [json.dumps({"version": 0}),
-             json.dumps({"payload": "a"})])
+            [json.dumps({"version": 0}), json.dumps({"payload": "a"})],
+        )
         with jsonl_path.open("a") as f:
             # Use raw write() so we don't write a newline and terminate the
             # line.
@@ -448,14 +503,17 @@ class TestJsonlIO:
             read_file_content(jsonl_path),
             contains_exactly(
                 json_equivalent({"version": 0}),
-                json_equivalent({"payload": "a"})))
+                json_equivalent({"payload": "a"}),
+            ),
+        )
 
     async def test_upgrade_and_validate_works_with_type_adapter(
-            self, jsonl_path):
+        self, jsonl_path
+    ):
         write_file_content(
             jsonl_path,
-            [json.dumps({"version": 0}),
-             json.dumps({"payload": "a"})])
+            [json.dumps({"version": 0}), json.dumps({"payload": "a"})],
+        )
         type_adapter = pyd.TypeAdapter(MockMessageModel)
         async with store.JsonlIO(jsonl_path, type_adapter) as jsonl_io:
             await jsonl_io.upgrade_and_validate({})
@@ -470,14 +528,16 @@ class TestMessageStore:
         return getter
 
     async def test_append_message_creates_file_with_header(
-            self, message_store, session_file):
+        self, message_store, session_file
+    ):
         await message_store.append_message(0, MockMessage(payload="a"))
         lines = read_file_content(session_file(0))
         assert len(lines) == 2
         assert json.loads(lines[0]) == session_file_header(0)
 
     async def test_append_message_raises_if_previous_file_doesnt_exist(
-            self, message_store):
+        self, message_store
+    ):
         with pytest.raises(store.StoreFormatError):
             await message_store.append_message(1, MockMessage(payload="a"))
 
@@ -486,8 +546,12 @@ class TestMessageStore:
         await message_store.append_message(0, message)
         lines = read_file_content(session_file(0))
         assert len(lines) == 2
-        assert MockMessage.from_model(
-            MockMessageModel.model_validate_json(lines[1])) == message
+        assert (
+            MockMessage.from_model(
+                MockMessageModel.model_validate_json(lines[1])
+            )
+            == message
+        )
 
     async def test_append_multiple_messages(self, message_store):
         message1 = MockMessage(payload="a")
@@ -498,33 +562,45 @@ class TestMessageStore:
         assert messages == [message1, message2]
 
     async def test_append_message_creates_base_dir(
-            self, message_store, base_dir, session_file):
+        self, message_store, base_dir, session_file
+    ):
         shutil.rmtree(base_dir)
         message = MockMessage(payload="a")
         await message_store.append_message(0, message)
         lines = read_file_content(session_file(0))
         assert len(lines) == 2
-        assert MockMessage.from_model(
-            MockMessageModel.model_validate_json(lines[1])) == message
+        assert (
+            MockMessage.from_model(
+                MockMessageModel.model_validate_json(lines[1])
+            )
+            == message
+        )
 
     async def test_append_message_creates_sessions_dir(
-            self, message_store, base_dir, session_file):
+        self, message_store, base_dir, session_file
+    ):
         shutil.rmtree(base_dir / "sessions")
         message = MockMessage(payload="a")
         await message_store.append_message(0, message)
         lines = read_file_content(session_file(0))
         assert len(lines) == 2
-        assert MockMessage.from_model(
-            MockMessageModel.model_validate_json(lines[1])) == message
+        assert (
+            MockMessage.from_model(
+                MockMessageModel.model_validate_json(lines[1])
+            )
+            == message
+        )
 
     async def test_read_session_messages_empty_if_no_base_dir(
-            self, message_store, base_dir):
+        self, message_store, base_dir
+    ):
         shutil.rmtree(base_dir)
         messages = await message_store.read_session_messages(0)
         assert messages == []
 
     async def test_read_session_messages_empty_if_no_sessions_dir(
-            self, message_store, base_dir):
+        self, message_store, base_dir
+    ):
         shutil.rmtree(base_dir / "sessions")
         messages = await message_store.read_session_messages(0)
         assert messages == []
@@ -534,24 +610,29 @@ class TestMessageStore:
         assert messages == []
 
     async def test_read_session_messages_empty_session(
-            self, message_store, session_file):
+        self, message_store, session_file
+    ):
         write_file_content(
-            session_file(0), [json.dumps(session_file_header(0))])
+            session_file(0), [json.dumps(session_file_header(0))]
+        )
         messages = await message_store.read_session_messages(0)
         assert messages == []
 
     async def test_get_active_session_seq_0_if_no_base_dir(
-            self, message_store, base_dir):
+        self, message_store, base_dir
+    ):
         shutil.rmtree(base_dir)
         assert message_store.get_active_session_seq() == 0
 
     async def test_get_active_session_seq_0_if_no_sessions_dir(
-            self, message_store, base_dir):
+        self, message_store, base_dir
+    ):
         shutil.rmtree(base_dir / "sessions")
         assert message_store.get_active_session_seq() == 0
 
     async def test_get_active_session_seq_0_if_no_sessions(
-            self, message_store, session_file):
+        self, message_store, session_file
+    ):
         sessions_dir = session_file(0).parent
         assert not list(sessions_dir.iterdir())
         assert message_store.get_active_session_seq() == 0
@@ -563,14 +644,16 @@ class TestMessageStore:
         assert message_store.get_active_session_seq() == 2
 
     async def test_get_active_session_seq_returns_latest_even_if_some_missing(
-            self, message_store, session_file):
+        self, message_store, session_file
+    ):
         create_file(session_file(3))
         create_file(session_file(0))
         create_file(session_file(1))
         assert message_store.get_active_session_seq() == 3
 
     async def test_get_active_session_seq_ignores_non_session_files(
-            self, message_store, session_file):
+        self, message_store, session_file
+    ):
         create_file(session_file(0))
         sessions_dir = session_file(0).parent
         create_file(sessions_dir / "1.not_jsonl")
@@ -602,7 +685,8 @@ class TestMessageStore:
             assert messages == [message]
 
     async def test_only_one_instance_can_be_active_per_directory(
-            self, tmp_path):
+        self, tmp_path
+    ):
         base_dir = tmp_path / "store"
         async with store.MessageStore(base_dir):
             with pytest.raises(store.StoreConcurrentError):
@@ -610,7 +694,8 @@ class TestMessageStore:
                     pass
 
     async def test_allows_multiple_instances_for_other_directories(
-            self, tmp_path):
+        self, tmp_path
+    ):
         base_dir1 = tmp_path / "store1"
         base_dir2 = tmp_path / "store2"
         async with store.MessageStore(base_dir1):
@@ -625,21 +710,24 @@ class TestMessageStore:
             assert (base_dir / "sessions").exists()
 
     async def test_aenter_accepts_valid_existing_base_dir(
-            self, make_message_store, session_file):
+        self, make_message_store, session_file
+    ):
         create_file(session_file(0), [json.dumps(session_file_header(0))])
         create_file(session_file(1), [json.dumps(session_file_header(1))])
         async with make_message_store():
             pass
 
     async def test_aenter_raises_if_session_seq_doesnt_start_at_0(
-            self, make_message_store, session_file):
+        self, make_message_store, session_file
+    ):
         create_file(session_file(1), [json.dumps(session_file_header(1))])
         with pytest.raises(store.StoreFormatError):
             async with make_message_store():
                 pass
 
     async def test_aenter_raises_if_sessions_have_missing_seqs(
-            self, make_message_store, session_file):
+        self, make_message_store, session_file
+    ):
         create_file(session_file(0), [json.dumps(session_file_header(0))])
         create_file(session_file(2), [json.dumps(session_file_header(2))])
         with pytest.raises(store.StoreFormatError):
@@ -647,17 +735,19 @@ class TestMessageStore:
                 pass
 
     async def test_aenter_raises_if_session_has_invalid_header_json(
-            self, make_message_store, session_file):
+        self, make_message_store, session_file
+    ):
         create_file(session_file(0), ["not json"])
         with pytest.raises(store.StoreFormatError):
             async with make_message_store():
                 pass
 
     @pytest.mark.parametrize(
-        "key,value", [("version", "not an int"),
-                      ("session_seq", "not an int")])
+        "key,value", [("version", "not an int"), ("session_seq", "not an int")]
+    )
     async def test_aenter_raises_if_session_has_invalid_header(
-            self, make_message_store, session_file, key, value):
+        self, make_message_store, session_file, key, value
+    ):
         header = session_file_header(0)
         header[key] = value
         create_file(session_file(0), [json.dumps(header)])
@@ -666,7 +756,8 @@ class TestMessageStore:
                 pass
 
     async def test_aenter_raises_if_session_has_inconsistent_header(
-            self, make_message_store, session_file):
+        self, make_message_store, session_file
+    ):
         header = session_file_header(0)
         header["session_seq"] = 1
         create_file(session_file(0), [json.dumps(header)])
@@ -675,7 +766,8 @@ class TestMessageStore:
                 pass
 
     async def test_aenter_upgrades_older_version(
-            self, make_message_store, session_file, monkeypatch):
+        self, make_message_store, session_file, monkeypatch
+    ):
         def upgrade(path):
             assert path.is_file()
             write_file_content(path, ["upgraded"])
@@ -683,15 +775,18 @@ class TestMessageStore:
         monkeypatch.setattr(store.MessageStore, "VERSION", 1)
         monkeypatch.setattr(store.MessageStore, "_upgraders", {0: upgrade})
         create_file(
-            session_file(0), [json.dumps(session_file_header(0, version=0))])
+            session_file(0), [json.dumps(session_file_header(0, version=0))]
+        )
         create_file(
-            session_file(1), [json.dumps(session_file_header(1, version=0))])
+            session_file(1), [json.dumps(session_file_header(1, version=0))]
+        )
         async with make_message_store():
             assert read_file_content(session_file(0)) == ["upgraded"]
             assert read_file_content(session_file(1)) == ["upgraded"]
 
     async def test_aenter_upgrades_multiple_version_steps(
-            self, make_message_store, session_file, monkeypatch):
+        self, make_message_store, session_file, monkeypatch
+    ):
         def upgrade_0(path):
             assert path.is_file()
             write_file_content(path, ["upgraded 0"])
@@ -703,14 +798,17 @@ class TestMessageStore:
 
         monkeypatch.setattr(store.MessageStore, "VERSION", 2)
         monkeypatch.setattr(
-            store.MessageStore, "_upgraders", {0: upgrade_0, 1: upgrade_1})
+            store.MessageStore, "_upgraders", {0: upgrade_0, 1: upgrade_1}
+        )
         create_file(
-            session_file(0), [json.dumps(session_file_header(0, version=0))])
+            session_file(0), [json.dumps(session_file_header(0, version=0))]
+        )
         async with make_message_store():
             assert read_file_content(session_file(0)) == ["upgraded 1"]
 
     async def test_aenter_backs_up_before_upgrade(
-            self, make_message_store, session_file, monkeypatch, base_dir):
+        self, make_message_store, session_file, monkeypatch, base_dir
+    ):
         def upgrade(path):
             assert path.is_file()
             write_file_content(path, ["upgraded"])
@@ -719,14 +817,17 @@ class TestMessageStore:
         monkeypatch.setattr(store.MessageStore, "_upgraders", {0: upgrade})
         lines_before_upgrade = [
             json.dumps(session_file_header(0, version=0)),
-            json.dumps({"payload": "a"})]
+            json.dumps({"payload": "a"}),
+        ]
         create_file(session_file(0), lines_before_upgrade)
         async with make_message_store():
             backup_dirs = list(base_dir.parent.glob("backup*"))
             assert len(backup_dirs) == 1
             backup_dir_match = re.match(
                 f"backup_{base_dir.name}_version_(?P<version>[0-9]+)"
-                "_(?P<timestamp>.*)", backup_dirs[0].name)
+                "_(?P<timestamp>.*)",
+                backup_dirs[0].name,
+            )
             assert backup_dir_match
             assert backup_dir_match.group("version") == "0"
             # Make sure the timestamp parses.
@@ -735,33 +836,43 @@ class TestMessageStore:
         assert read_file_content(backup_file) == lines_before_upgrade
 
     async def test_aenter_raises_if_multiple_versions_in_session_files(
-            self, make_message_store, session_file, monkeypatch):
+        self, make_message_store, session_file, monkeypatch
+    ):
         def upgrade(path):
             pass
 
         monkeypatch.setattr(store.MessageStore, "VERSION", 1)
         monkeypatch.setattr(store.MessageStore, "_upgraders", {0: upgrade})
         create_file(
-            session_file(0), [json.dumps(session_file_header(0, version=0))])
+            session_file(0), [json.dumps(session_file_header(0, version=0))]
+        )
         create_file(
-            session_file(1), [json.dumps(session_file_header(1, version=1))])
+            session_file(1), [json.dumps(session_file_header(1, version=1))]
+        )
         with pytest.raises(store.StoreFormatError):
             async with make_message_store():
                 pass
 
     async def test_aenter_raises_if_future_version_in_session_files(
-            self, make_message_store, session_file):
+        self, make_message_store, session_file
+    ):
         create_file(
-            session_file(0), [
+            session_file(0),
+            [
                 json.dumps(
                     session_file_header(
-                        0, version=store.MessageStore.VERSION + 1))])
+                        0, version=store.MessageStore.VERSION + 1
+                    )
+                )
+            ],
+        )
         with pytest.raises(store.StoreFormatError):
             async with make_message_store():
                 pass
 
     async def test_aenter_deletes_truncated_last_line(
-            self, make_message_store, session_file):
+        self, make_message_store, session_file
+    ):
         async with make_message_store() as store:
             message = MockMessage(payload="a")
             await store.append_message(0, message)
@@ -773,10 +884,13 @@ class TestMessageStore:
                 read_file_content(session_file(0)),
                 contains_exactly(
                     json_equivalent(session_file_header(0)),
-                    json_equivalent({"payload": "encoded a"})))
+                    json_equivalent({"payload": "encoded a"}),
+                ),
+            )
 
     async def test_aenter_raises_on_corrupt_non_last_line(
-            self, make_message_store, session_file):
+        self, make_message_store, session_file
+    ):
         async with make_message_store() as message_store:
             message = MockMessage(payload="a")
             await message_store.append_message(0, message)
@@ -789,7 +903,8 @@ class TestMessageStore:
                 pass
 
     async def test_aenter_raises_on_empty_non_last_line(
-            self, make_message_store, session_file):
+        self, make_message_store, session_file
+    ):
         async with make_message_store() as message_store:
             message = MockMessage(payload="a")
             await message_store.append_message(0, message)
@@ -830,10 +945,13 @@ class TestMessageStore:
         await message_store.append_message(0, message1)
         session_message_store = message_store.get_session_message_store(0)
         assert await session_message_store.read_session_messages() == [
-            message1]
+            message1
+        ]
         await session_message_store.append_message(message2)
         assert await message_store.read_session_messages(0) == [
-            message1, message2]
+            message1,
+            message2,
+        ]
 
 
 def memory(**kwargs):
@@ -865,7 +983,9 @@ class TestJsonlMemoryStore:
         assert_that(
             results,
             contains_exactly(
-                memory(content="event 1"), memory(content="event 2")))
+                memory(content="event 1"), memory(content="event 2")
+            ),
+        )
 
     async def test_search_memory_by_start_time(self, memory_store):
         t1 = we.Instant.from_utc(2026, 1, 1, 12, 0, 0)
@@ -883,7 +1003,9 @@ class TestJsonlMemoryStore:
         assert_that(
             results,
             contains_exactly(
-                memory(content="event 2"), memory(content="event 3")))
+                memory(content="event 2"), memory(content="event 3")
+            ),
+        )
 
     async def test_search_memory_by_end_time(self, memory_store):
         t1 = we.Instant.from_utc(2026, 1, 1, 12, 0, 0)
@@ -901,7 +1023,9 @@ class TestJsonlMemoryStore:
         assert_that(
             results,
             contains_exactly(
-                memory(content="event 1"), memory(content="event 2")))
+                memory(content="event 1"), memory(content="event 2")
+            ),
+        )
 
     async def test_search_memory_by_start_and_end_time(self, memory_store):
         t1 = we.Instant.from_utc(2026, 1, 1, 12, 0, 0)
@@ -916,8 +1040,11 @@ class TestJsonlMemoryStore:
             await memory_store.log_memory("event 3")
 
         results = [
-            m async for m in memory_store.search_memory(
-                start_time=t2, end_time=t2)]
+            m
+            async for m in memory_store.search_memory(
+                start_time=t2, end_time=t2
+            )
+        ]
         assert_that(results, contains_exactly(memory(content="event 2")))
 
     async def test_search_memory_by_search_term(self, memory_store):
@@ -926,24 +1053,30 @@ class TestJsonlMemoryStore:
         await memory_store.log_memory("goodbye")
 
         results = [
-            m async for m in memory_store.search_memory(search_term="hello")]
+            m async for m in memory_store.search_memory(search_term="hello")
+        ]
         assert_that(results, contains_exactly(memory(content="hello world")))
 
     async def test_search_memory_by_search_term_is_case_insensitive(
-            self, memory_store):
+        self, memory_store
+    ):
         await memory_store.log_memory("Hello World")
         await memory_store.log_memory("testing memories")
         await memory_store.log_memory("hello again")
 
         results = [
-            m async for m in memory_store.search_memory(search_term="HeLlO")]
+            m async for m in memory_store.search_memory(search_term="HeLlO")
+        ]
         assert_that(
             results,
             contains_exactly(
-                memory(content="Hello World"), memory(content="hello again")))
+                memory(content="Hello World"), memory(content="hello again")
+            ),
+        )
 
     async def test_search_memory_raises_format_error_on_corrupt_line(
-            self, memory_store, base_dir):
+        self, memory_store, base_dir
+    ):
         await memory_store.log_memory("valid event")
         # Manually append an invalid line.
         with open(base_dir / "memory.jsonl", "a") as f:
@@ -952,7 +1085,8 @@ class TestJsonlMemoryStore:
             [m async for m in memory_store.search_memory()]
 
     async def test_search_memory_raises_format_error_on_empty_line(
-            self, memory_store, base_dir):
+        self, memory_store, base_dir
+    ):
         await memory_store.log_memory("valid event")
         # Manually append an empty line.
         with open(base_dir / "memory.jsonl", "a") as f:

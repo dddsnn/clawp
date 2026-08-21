@@ -37,7 +37,8 @@ async def list_personalities() -> list[mdl.AgentPersonality]:
 
 @router.get("/{personality_name}")
 async def get_personality(
-        personality_name: str) -> mdl.AgentPersonalityWithFileContents:
+    personality_name: str,
+) -> mdl.AgentPersonalityWithFileContents:
     """
     Get a personality with initial file contents.
 
@@ -48,5 +49,5 @@ async def get_personality(
         return await file.read_personality_with_file_contents(personality_name)
     except file.PersonalityNotFoundError:
         raise fa_exc.HTTPException(
-            status_code=404,
-            detail=f"No personality named {personality_name}.")
+            status_code=404, detail=f"No personality named {personality_name}."
+        )

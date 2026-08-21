@@ -41,24 +41,29 @@ class AgentPersonalityWithFileContents(AgentPersonality):
 
     A content of None indicates that the file is missing.
     """
+
     @pyd.model_validator(mode="after")
     def check_all_file_contents_present(self) -> t.Self:
         for pf in self.personality_files:
             if pf.path not in self.personality_file_contents:
                 raise ValueError(
-                    f"no content for personality file at {pf.path}")
+                    f"no content for personality file at {pf.path}"
+                )
         return self
 
     def get_personality(self) -> AgentPersonality:
         return AgentPersonality(
-            name=self.name, personality_files=self.personality_files)
+            name=self.name, personality_files=self.personality_files
+        )
 
 
 class AgentInformation(base.BaseModel):
     """Immutable agent information."""
+
     id: uuid.UUID
     name: t.Annotated[
-        str, pyd.StringConstraints(strip_whitespace=True, min_length=1)]
+        str, pyd.StringConstraints(strip_whitespace=True, min_length=1)
+    ]
     personality: AgentPersonality
 
     @property

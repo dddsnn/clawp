@@ -34,10 +34,12 @@ from . import builtin, shell
 if t.TYPE_CHECKING:
     from .. import agent as agt
 
-Iso8601Instant = t.Annotated[we.Instant,
-                             pyd.Field(
-                                 description="An ISO 8601 timestamp",
-                                 examples=["2026-06-14T17:53:00Z"])]
+Iso8601Instant = t.Annotated[
+    we.Instant,
+    pyd.Field(
+        description="An ISO 8601 timestamp", examples=["2026-06-14T17:53:00Z"]
+    ),
+]
 
 
 class ComplexToolResultMetadataRegistry:
@@ -52,14 +54,17 @@ class ComplexToolResultMetadataRegistry:
 
     The registry is in-memory and process-local by design.
     """
+
     def __init__(self) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._registry: dict[str, dict[str, t.Any]] = {}
 
     def make_result(
-            self, content: list[mcp.types.ContentBlock] | str | t.Any,
-            structured_content: dict[str, t.Any] | t.Any | None = None,
-            **complex_metadata: t.Any) -> fastmcp.tools.ToolResult:
+        self,
+        content: list[mcp.types.ContentBlock] | str | t.Any,
+        structured_content: dict[str, t.Any] | t.Any | None = None,
+        **complex_metadata: t.Any,
+    ) -> fastmcp.tools.ToolResult:
         """
         Create a FastMCP ToolResult and attach complex metadata.
 
@@ -76,11 +81,14 @@ class ComplexToolResultMetadataRegistry:
         complex_metadata_id = str(uuid.uuid4())
         self._registry[complex_metadata_id] = complex_metadata
         return fastmcp.tools.ToolResult(
-            content=content, structured_content=structured_content,
-            meta={"complex_metadata_id": complex_metadata_id})
+            content=content,
+            structured_content=structured_content,
+            meta={"complex_metadata_id": complex_metadata_id},
+        )
 
-    def pop_for_result(self,
-                       result: fastmcp.tools.ToolResult) -> dict[str, t.Any]:
+    def pop_for_result(
+        self, result: fastmcp.tools.ToolResult
+    ) -> dict[str, t.Any]:
         """
         Get and remove complex metadata referenced by a ToolResult.
 
@@ -92,20 +100,22 @@ class ComplexToolResultMetadataRegistry:
         """
         try:
             complex_metadata_id = result.meta["complex_metadata_id"]
-        except (TypeError, KeyError):
+        except TypeError, KeyError:
             return {}
         try:
             return self._registry.pop(complex_metadata_id)
         except KeyError:
             self._logger.exception(
                 f"Result {result} specified a complex metadata ID, but it "
-                f"wasn't present in the registry.")
+                f"wasn't present in the registry."
+            )
             return {}
 
 
 @dc.dataclass
 class ToolResult:
     """The result of a tool call."""
+
     raw_result: fastmcp.client.client.CallToolResult
     """The result as returned by fastmcp."""
     content_string: str
@@ -115,8 +125,10 @@ class ToolResult:
 @dc.dataclass
 class SessionOperationToolResult(ToolResult):
     """A tool result instructing an operation on the session."""
-    operation: cl_abc.Callable[["agt.SessionTransaction"],
-                               cl_abc.Awaitable[None]]
+
+    operation: cl_abc.Callable[
+        ["agt.SessionTransaction"], cl_abc.Awaitable[None]
+    ]
     """An operation that should be performed on the session transaction."""
 
 
@@ -127,6 +139,7 @@ class ClientSessionTransactionContext:
     This is just a thin wrapper around a Client that acts as a context manager
     which sets and unsets a session transaction on the client.
     """
+
     def __init__(self, client: "Client", tx: "agt.SessionTransaction") -> None:
         self._client = client
         self._tx = tx
@@ -145,10 +158,15 @@ class ClientSessionTransactionContext:
 
 class Client:
     """A client providing tools via MCP servers."""
+
     def __init__(
-        self, config: mdl.GatewayConfig, agent: "agt.Agent",
-        extra_env_getter: cl_abc.Callable[[], cl_abc.Awaitable[dict[str,
-                                                                    str]]]):
+        self,
+        config: mdl.GatewayConfig,
+        agent: "agt.Agent",
+        extra_env_getter: cl_abc.Callable[
+            [], cl_abc.Awaitable[dict[str, str]]
+        ],
+    ):
         """
         :param extra_env_getter: A coroutine function returning a dictionary of
             additional environment variables for the shell tool. It will be
@@ -158,14 +176,17 @@ class Client:
         self._complex_metadata_registry = ComplexToolResultMetadataRegistry()
         server = fastmcp.FastMCP(name="Clawp MCP server")
         self._shell_server = shell.SandboxShellMcpServer(
-            config, agent, extra_env_getter)
+            config, agent, extra_env_getter
+        )
         self._clawp_server = builtin.ClawpMcpServer(
-            agent, self._complex_metadata_registry)
+            agent, self._complex_metadata_registry
+        )
         server.mount(builtin.make_filesystem_proxy(agent.workspace_dir))
         server.mount(self._clawp_server, namespace="clawp")
         server.mount(self._shell_server)
         self._client = fastmcp.Client(
-            server, timeout=config.tools.client_timeout.total("seconds"))
+            server, timeout=config.tools.client_timeout.total("seconds")
+        )
         self._tools = None
         self._session_transaction = None
 
@@ -182,15 +203,16 @@ class Client:
         return False
 
     def set_session_transaction(
-            self, tx: t.Optional["agt.SessionTransaction"]) -> None:
+        self, tx: t.Optional["agt.SessionTransaction"]
+    ) -> None:
         if self._session_transaction and tx:
             raise RuntimeError("session transaction is already set")
         self._clawp_server.session_transaction = tx
         self._session_transaction = tx
 
     def with_session_transaction(
-            self,
-            tx: "agt.SessionTransaction") -> ClientSessionTransactionContext:
+        self, tx: "agt.SessionTransaction"
+    ) -> ClientSessionTransactionContext:
         """
         Set a session transaction.
 
@@ -218,11 +240,13 @@ class Client:
         for block in result.content:
             if not isinstance(block, mcp.types.TextContent):
                 self._logger.warning(
-                    f"Ignoring non-text content block {block}.")
+                    f"Ignoring non-text content block {block}."
+                )
                 continue
             result_kwargs["content_string"] += block.text
         complex_metadata = self._complex_metadata_registry.pop_for_result(
-            result)
+            result
+        )
         if "session_operation" in complex_metadata:
             result_kwargs["operation"] = complex_metadata["session_operation"]
             return SessionOperationToolResult, result_kwargs

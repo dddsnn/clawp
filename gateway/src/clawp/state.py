@@ -30,6 +30,7 @@ class GatewayStateManager:
     containing global state of the app on __aenter__/__aexit__. The state can
     be accessed and mutated while the app is running.
     """
+
     def __init__(self, base_dir: pathlib.Path) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._state_file = base_dir / "gateway_state.json"
@@ -41,11 +42,13 @@ class GatewayStateManager:
         elif not self._state_file.is_file():
             self._logger.info(
                 f"State file {self._state_file} doesn't exist, creating new "
-                "gateway state.")
+                "gateway state."
+            )
             self._state = mdl.GatewayState()
         else:
             self._state = mdl.GatewayState.model_validate_json(
-                self._state_file.read_text())
+                self._state_file.read_text()
+            )
             self._logger.info(f"Loaded state from file {self._state_file}.")
         return self
 

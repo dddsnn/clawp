@@ -55,16 +55,22 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
     The shell tool automatically adds some environment variables meant to
     encourage tools to produce cleaner output for our noninteractive purposes.
     """
+
     EXTRA_ENV_FOR_BETTER_NONINTERACTIVE_DISPLAY = {
         "TERM": "dumb",
         "NO_COLOR": "1",
         "CI": "true",
-        "PAGER": "cat",}
+        "PAGER": "cat",
+    }
 
     def __init__(
-        self, config: mdl.GatewayConfig, agent: "agt.Agent",
-        extra_env_getter: cl_abc.Callable[[], cl_abc.Awaitable[dict[str,
-                                                                    str]]]):
+        self,
+        config: mdl.GatewayConfig,
+        agent: "agt.Agent",
+        extra_env_getter: cl_abc.Callable[
+            [], cl_abc.Awaitable[dict[str, str]]
+        ],
+    ):
         """
         :param extra_env_getter: A coroutine function returning a dictionary of
             additional environment variables to set. It will be called on every
@@ -79,7 +85,9 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
             user=config.tools.shell.ssh.username,
             connect_kwargs={
                 "key_filename": str(
-                    config.tools.shell.ssh.key_filename.absolute())},
+                    config.tools.shell.ssh.key_filename.absolute()
+                )
+            },
         )
         self._extra_env_getter = extra_env_getter
         self.add_tool(self.shell)
@@ -95,13 +103,16 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
     async def shell(
         self,
         command: str,
-        cwd: t.Optional[t.Annotated[
-            str,
-            pyd.Field(
-                description=
-                "Change working directory before running the command. Must be "
-                "relative to your home directory (i.e. start with ~) or be an "
-                "absolute path. Default: your home directory.")]] = None,
+        cwd: t.Optional[
+            t.Annotated[
+                str,
+                pyd.Field(
+                    description="Change working directory before running the command. Must be "
+                    "relative to your home directory (i.e. start with ~) or be an "
+                    "absolute path. Default: your home directory."
+                ),
+            ]
+        ] = None,
         env: t.Optional[dict[str, str]] = None,
     ) -> mdl.ShellResult:
         """
@@ -132,24 +143,38 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
             # the agent's home, we can calculate the absolute path here.
             cwd_path = (
                 self._agent.workspace_dir.absolute()
-                / cwd_path.relative_to("~"))
+                / cwd_path.relative_to("~")
+            )
         if not cwd_path.is_absolute():
             raise ValueError("cwd must start with ~ or be an absolute path")
         return await asyncio.to_thread(
-            self._run_wrapped_command_sync, command, cwd_path, env)
+            self._run_wrapped_command_sync, command, cwd_path, env
+        )
 
     def _run_wrapped_command_sync(
-            self, command: str, cwd: pathlib.Path, env: dict[str, str]):
+        self, command: str, cwd: pathlib.Path, env: dict[str, str]
+    ):
         # Escape the command so we can pass it to the wrapper script as a
         # single argument even with special characters (e.g. quotes,
         # redirection).
         escaped_command = shlex.quote(command)
         wrapped_command = "command_wrapper.bash {} {} {} {} {}".format(
-            self._config.files_base_dir.absolute(), self._agent.information.id,
-            ",".join(env.keys()), cwd, escaped_command)
+            self._config.files_base_dir.absolute(),
+            self._agent.information.id,
+            ",".join(env.keys()),
+            cwd,
+            escaped_command,
+        )
         result = self._conn.run(
-            wrapped_command, shell="/bin/bash", env=env, replace_env=True,
-            warn=True)
+            wrapped_command,
+            shell="/bin/bash",
+            env=env,
+            replace_env=True,
+            warn=True,
+        )
         return mdl.ShellResult(
-            stdout=result.stdout, stderr=result.stderr,
-            exit_code=result.exited, shell=result.shell)
+            stdout=result.stdout,
+            stderr=result.stderr,
+            exit_code=result.exited,
+            shell=result.shell,
+        )

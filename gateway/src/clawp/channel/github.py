@@ -53,6 +53,7 @@ from . import base
 
 class GithubAppClient:
     """Github client authenticating as a Github app."""
+
     INSTALLATION_REPOSITORIES_CACHE_TTL = 15 * 60
 
     def __init__(self, config: mdl.GithubAccountConfig) -> None:
@@ -60,7 +61,8 @@ class GithubAppClient:
         self._config = config
         app_auth = github.Auth.AppAuth(
             app_id=self._config.app_id,
-            private_key=self._config.private_key.value)
+            private_key=self._config.private_key.value,
+        )
         # Use lazy=False to not accidentally block the event loop when we
         # access a property and cause a request to be sent.
         self._integration = github.GithubIntegration(auth=app_auth, lazy=False)
@@ -70,7 +72,9 @@ class GithubAppClient:
         self._installation_repositories_cache = util.TtlCache(
             self.INSTALLATION_REPOSITORIES_CACHE_TTL,
             ft.partial(
-                asyncio.to_thread, self._list_installation_repositories_sync))
+                asyncio.to_thread, self._list_installation_repositories_sync
+            ),
+        )
 
     async def __aenter__(self) -> t.Self:
         self._login = await asyncio.to_thread(self._get_login_sync)
@@ -83,7 +87,8 @@ class GithubAppClient:
 
     def _get_login_sync(self) -> str:
         app_slug = self._integration.get_app_installation(
-            self._config.installation_id).app_slug
+            self._config.installation_id
+        ).app_slug
         return app_slug + "[bot]"
 
     @property
@@ -106,7 +111,8 @@ class GithubAppClient:
         """Github instance for the app's installation."""
         if not self._github:
             self._github = self._integration.get_github_for_installation(
-                self._config.installation_id)
+                self._config.installation_id
+            )
         return self._github
 
     @property
@@ -118,13 +124,14 @@ class GithubAppClient:
 
         This token can be used with the gh CLI (GH_TOKEN).
         """
-        if (self._authorization is None
-                or we.Instant(self._authorization.expires_at)
-                < we.Instant.now() + we.TimeDelta(minutes=1)):
+        if self._authorization is None or we.Instant(
+            self._authorization.expires_at
+        ) < we.Instant.now() + we.TimeDelta(minutes=1):
             self._logger.info("Fetching new installation token.")
             self._authorization = await asyncio.to_thread(
                 self._integration.get_access_token,
-                self._config.installation_id)
+                self._config.installation_id,
+            )
         return self._authorization.token
 
     async def list_installation_repositories(self) -> list[gh_repo.Repository]:
@@ -139,13 +146,15 @@ class GithubAppClient:
 
     def _list_installation_repositories_sync(self) -> list[gh_repo.Repository]:
         installation = self._integration.get_app_installation(
-            self._config.installation_id)
+            self._config.installation_id
+        )
         repos: list[gh_repo.Repository] = []
         for repo in installation.get_repos():
             if repo.organization.login != self._config.organization:
                 self._logger.debug(
                     f"Ignoring installation repo {repo} which is not owned by "
-                    f"{self._config.organization}.")
+                    f"{self._config.organization}."
+                )
                 continue
             repos.append(repo)
         return repos
@@ -198,6 +207,7 @@ class ProgressChecker:
 
     The context manager is reusable but not reentrant.
     """
+
     GITHUB_MAX_PER_PAGE = 100
 
     @dc.dataclass
@@ -206,9 +216,13 @@ class ProgressChecker:
         page_is_full: bool
 
     def __init__(
-            self, github_client: GithubAppClient,
-            httpx_client: httpx.AsyncClient, check_url: yarl.URL, *,
-            look_for_changes_in: t.Literal["first_page", "last_page"]) -> None:
+        self,
+        github_client: GithubAppClient,
+        httpx_client: httpx.AsyncClient,
+        check_url: yarl.URL,
+        *,
+        look_for_changes_in: t.Literal["first_page", "last_page"],
+    ) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._github_client = github_client
         self._httpx_client = httpx_client
@@ -229,19 +243,22 @@ class ProgressChecker:
         return self
 
     async def __aexit__(
-            self, exc_type: type[BaseException] | None, *_) -> bool:
+        self, exc_type: type[BaseException] | None, *_
+    ) -> bool:
         self._has_changes = None
         for page_number, page_status in self._active_pages.items():
             if page_status.etag is None:
                 self._logger.warning(
                     f"{self._check_url} responded without an ETag on page "
-                    f"{page_number}.")
+                    f"{page_number}."
+                )
         if exc_type is None:
             self._read_pages |= self._active_pages
         else:
             self._logger.debug(
                 f"Discarding ETags because of exception in context manager "
-                f"processing results from {self._check_url}.")
+                f"processing results from {self._check_url}."
+            )
         return False
 
     async def _update(self) -> None:
@@ -249,31 +266,36 @@ class ProgressChecker:
             await self._update_pages()
         except Exception:
             self._logger.exception(
-                "Error checking ETags, setting changes flag.")
+                "Error checking ETags, setting changes flag."
+            )
             self._has_changes = True
 
-    async def _update_pages(self,) -> None:
+    async def _update_pages(
+        self,
+    ) -> None:
         # Start with the last page we know.
         start_page = max(self._read_pages.keys(), default=1)
         for page in it.count(start=start_page):
             page_status = self._read_pages.get(
-                page, self.PageStatus(etag=None, page_is_full=False))
+                page, self.PageStatus(etag=None, page_is_full=False)
+            )
             response = await self._get_page(page, page_status.etag)
             if response.status_code not in [200, 304]:
                 self._logger.warning(
                     f"Unexpected status {response.status_code} in response "
-                    f"from {self._check_url}.")
+                    f"from {self._check_url}."
+                )
             # 304 response -> no changes.
             self._has_changes = response.status_code != 304
             if response.status_code == 200:
                 # For first_page mode, page_is_full is always False, i.e. we
                 # always break out of the loop after the first iteration.
-                page_is_full = (
-                    len(response.json()) == self.GITHUB_MAX_PER_PAGE)
+                page_is_full = len(response.json()) == self.GITHUB_MAX_PER_PAGE
             else:
                 page_is_full = page_status.page_is_full
             self._active_pages[page] = self.PageStatus(
-                etag=response.headers.get("ETag"), page_is_full=page_is_full)
+                etag=response.headers.get("ETag"), page_is_full=page_is_full
+            )
             if not page_is_full:
                 # Only continue checking if the page is full and we need to see
                 # what comes after.
@@ -281,17 +303,20 @@ class ProgressChecker:
 
     async def _get_page(self, page: int, etag: str | None) -> httpx.Response:
         headers = {
-            "Authorization": "Bearer " +
-            (await self._github_client.installation_token),
-            "Accept": "application/vnd.github+json"}
+            "Authorization": "Bearer "
+            + (await self._github_client.installation_token),
+            "Accept": "application/vnd.github+json",
+        }
         if etag is not None:
             headers["If-None-Match"] = etag
         return await self._httpx_client.get(
-            self._page_url(page), headers=headers)
+            self._page_url(page), headers=headers
+        )
 
     def _page_url(self, page: int) -> str:
         return str(
-            self._check_url.update_query(page=page, per_page=self._per_page))
+            self._check_url.update_query(page=page, per_page=self._per_page)
+        )
 
     @property
     def has_changes(self) -> bool:
@@ -317,6 +342,7 @@ class ProgressCheckers:
 
     The checker should be closed with aclose() on shutdown.
     """
+
     def __init__(self, github_client: GithubAppClient) -> None:
         self._github_client = github_client
         self._httpx_client = httpx.AsyncClient()
@@ -326,8 +352,10 @@ class ProgressCheckers:
         await self._httpx_client.aclose()
 
     def for_url(
-        self, check_url: yarl.URL, *,
-        look_for_changes_in: t.Literal["first_page", "last_page"]
+        self,
+        check_url: yarl.URL,
+        *,
+        look_for_changes_in: t.Literal["first_page", "last_page"],
     ) -> ProgressChecker:
         """
         Get a checker for a URL.
@@ -345,8 +373,12 @@ class ProgressCheckers:
             return self._checkers.setdefault(
                 key,
                 ProgressChecker(
-                    self._github_client, self._httpx_client, check_url,
-                    look_for_changes_in=look_for_changes_in))
+                    self._github_client,
+                    self._httpx_client,
+                    check_url,
+                    look_for_changes_in=look_for_changes_in,
+                ),
+            )
 
 
 @dc.dataclass
@@ -387,12 +419,16 @@ class TimelineEventCommitted(TimelineEventBase):
 
 
 TimelineEvent = (
-    TimelineEventSimple | TimelineEventLabeling | TimelineEventCommented
-    | TimelineEventCommitted)
+    TimelineEventSimple
+    | TimelineEventLabeling
+    | TimelineEventCommented
+    | TimelineEventCommitted
+)
 
 
-def iterate_timeline(issue: gh_iss.Issue,
-                     reverse: bool = False) -> cl_abc.Generator[TimelineEvent]:
+def iterate_timeline(
+    issue: gh_iss.Issue, reverse: bool = False
+) -> cl_abc.Generator[TimelineEvent]:
     """
     Iterate over an issue's timeline.
 
@@ -404,8 +440,7 @@ def iterate_timeline(issue: gh_iss.Issue,
     """
     iterator = issue.get_timeline()
     if reverse:
-        iterator = reversed(
-            iterator)  # pyright: ignore [reportArgumentType, reportCallIssue]
+        iterator = reversed(iterator)  # pyright: ignore [reportArgumentType, reportCallIssue]
     for e in iterator:
         assert isinstance(e, gh_tl.TimelineEvent)
         if e.event in ["closed", "merged", "reopened"]:
@@ -460,8 +495,9 @@ class IssueAssignmentStatus:
     changed_by_agent: bool | None
 
     def __post_init__(self):
-        if (self.changed_in_event_id is None) != (self.changed_by_agent
-                                                  is None):
+        if (self.changed_in_event_id is None) != (
+            self.changed_by_agent is None
+        ):
             raise ValueError
 
     @property
@@ -483,11 +519,12 @@ class GithubChannel(base.Channel):
     The channel also makes environment variables available that authorize git
     and the gh CLI.
     """
+
     _RELEVANT_ISSUE_EVENTS = ["labeled", "unlabeled"]
 
     def __init__(
-            self, config: mdl.GithubAccountConfig,
-            state: mdl.GithubChannelState) -> None:
+        self, config: mdl.GithubAccountConfig, state: mdl.GithubChannelState
+    ) -> None:
         super().__init__("github")
         self._config = config
         self._state = state
@@ -501,19 +538,27 @@ class GithubChannel(base.Channel):
         await super().start(agent)
         self._message_templates = {
             "assigned": await file.read_message_template(
-                "system_information/github_assigned.md"),
+                "system_information/github_assigned.md"
+            ),
             "reassigned": await file.read_message_template(
-                "system_information/github_reassigned.md"),
-            "closed": await
-            file.read_message_template("system_information/github_closed.md"),
+                "system_information/github_reassigned.md"
+            ),
+            "closed": await file.read_message_template(
+                "system_information/github_closed.md"
+            ),
             "committed": await file.read_message_template(
-                "system_information/github_committed.md"),
-            "merged": await
-            file.read_message_template("system_information/github_merged.md"),
+                "system_information/github_committed.md"
+            ),
+            "merged": await file.read_message_template(
+                "system_information/github_merged.md"
+            ),
             "reopened": await file.read_message_template(
-                "system_information/github_reopened.md"),
+                "system_information/github_reopened.md"
+            ),
             "unassigned": await file.read_message_template(
-                "system_information/github_unassigned.md"),}
+                "system_information/github_unassigned.md"
+            ),
+        }
         self._progress_checkers = ProgressCheckers(self._client)
         await self._client.__aenter__()
         for repo in await self._client.list_installation_repositories():
@@ -534,31 +579,38 @@ class GithubChannel(base.Channel):
         await super().stop()
 
     async def _ensure_up_to_date_assigned_issues(
-            self, repo: gh_repo.Repository) -> None:
+        self, repo: gh_repo.Repository
+    ) -> None:
         # First check if the agent has created any issues which should
         # automatically be labeled.
         await self._assign_newly_created_own_issues(repo)
         await self._ensure_labeled_issues_are_assigned(repo)
 
     async def _assign_newly_created_own_issues(
-            self, repo: gh_repo.Repository) -> None:
+        self, repo: gh_repo.Repository
+    ) -> None:
         """Automatically assign new issues the agent created."""
         async with self._newest_issues_checker(
-                repo.full_name) as newest_issues_checker:
+            repo.full_name
+        ) as newest_issues_checker:
             if newest_issues_checker.has_changes:
                 await asyncio.to_thread(
-                    self._label_newly_created_own_issues_sync, repo)
+                    self._label_newly_created_own_issues_sync, repo
+                )
 
     def _label_newly_created_own_issues_sync(
-            self, repo: gh_repo.Repository) -> None:
+        self, repo: gh_repo.Repository
+    ) -> None:
         read_marker = self._state.read_markers.setdefault(
-            self._issues_url(repo.full_name), mdl.GithubEventReadMarker.min())
+            self._issues_url(repo.full_name), mdl.GithubEventReadMarker.min()
+        )
         issues = []
         for issue in repo.get_issues(sort="created", direction="desc"):
             this_event_time = we.Instant(issue.created_at)
             already_seen = (
                 this_event_time < read_marker.last_event_time
-                or issue.node_id in read_marker.last_event_ids)
+                or issue.node_id in read_marker.last_event_ids
+            )
             if already_seen:
                 break
             issues.append(issue)
@@ -566,41 +618,55 @@ class GithubChannel(base.Channel):
         # can update read markers as we go.
         for issue in reversed(issues):
             should_add_label = (
-                issue.user.login == self._client.login and
-                not self._issue_has_already_been_labeled_by_agent_sync(issue))
+                issue.user.login == self._client.login
+                and not self._issue_has_already_been_labeled_by_agent_sync(
+                    issue
+                )
+            )
             if should_add_label:
                 self._logger.info(
                     f"Automatically assigning issue {repo.full_name}#"
-                    f"{issue.number} the agent created themselves.")
+                    f"{issue.number} the agent created themselves."
+                )
                 issue.add_to_labels(self.agent_assigned_label)
             self._update_read_marker(
-                self._issues_url(repo.full_name), issue.node_id,
-                issue.created_at)
+                self._issues_url(repo.full_name),
+                issue.node_id,
+                issue.created_at,
+            )
 
     def _issue_has_already_been_labeled_by_agent_sync(
-            self, issue: gh_iss.Issue) -> bool:
+        self, issue: gh_iss.Issue
+    ) -> bool:
         for timeline_event in iterate_timeline(issue):
             is_agents_own_label_event = (
                 isinstance(timeline_event, TimelineEventLabeling)
-                and timeline_event.actor_login == self._client.login)
+                and timeline_event.actor_login == self._client.login
+            )
             if is_agents_own_label_event:
                 return True
         return False
 
     async def _ensure_labeled_issues_are_assigned(
-            self, repo: gh_repo.Repository) -> None:
+        self, repo: gh_repo.Repository
+    ) -> None:
         async with self._assigned_issues_checker(
-                repo.full_name) as assigned_issues_checker:
+            repo.full_name
+        ) as assigned_issues_checker:
             should_get_issues = (
                 repo.full_name not in self._assigned_issues
-                or assigned_issues_checker.has_changes)
+                or assigned_issues_checker.has_changes
+            )
             if not should_get_issues:
                 return
             self._logger.debug(
-                f"Getting assigned issues for {repo.full_name}.")
-            self._assigned_issues[repo.full_name] = (
-                await self._read_paginated_list(
-                    repo.get_issues, labels=[self.agent_assigned_label]))
+                f"Getting assigned issues for {repo.full_name}."
+            )
+            self._assigned_issues[
+                repo.full_name
+            ] = await self._read_paginated_list(
+                repo.get_issues, labels=[self.agent_assigned_label]
+            )
 
     async def _read_paginated_list(self, list_getter, *args, **kwargs) -> list:
         paginated_list = await asyncio.to_thread(list_getter, *args, **kwargs)
@@ -619,17 +685,22 @@ class GithubChannel(base.Channel):
         try:
             async with cm:
                 return mdl.GithubChannelStatus(
-                    available=True, app_id=self._config.app_id,
+                    available=True,
+                    app_id=self._config.app_id,
                     installation_id=self._config.installation_id,
-                    login=self._client.login)
+                    login=self._client.login,
+                )
         except Exception:
             self._logger.exception(
                 "Error starting client to check status of Github channel "
-                f"{self._config}, setting it as unavailable.")
+                f"{self._config}, setting it as unavailable."
+            )
             return mdl.GithubChannelStatus(
-                available=False, app_id=self._config.app_id,
+                available=False,
+                app_id=self._config.app_id,
                 installation_id=self._config.installation_id,
-                login="<unknown>")
+                login="<unknown>",
+            )
 
     @property
     def agent_assigned_label(self) -> str:
@@ -643,7 +714,9 @@ class GithubChannel(base.Channel):
         url_rewrite_config_key = (
             'url."https://{}:{}@github.com/".insteadOf'.format(
                 urllib.parse.quote(self._client.login),
-                urllib.parse.quote(token)))
+                urllib.parse.quote(token),
+            )
+        )
         return {
             "GH_TOKEN": token,
             "GIT_CONFIG_COUNT": "3",
@@ -651,19 +724,24 @@ class GithubChannel(base.Channel):
             "GIT_CONFIG_VALUE_0": "https://github.com/",
             "GIT_CONFIG_KEY_1": "user.name",
             "GIT_CONFIG_VALUE_1": shlex.quote(
-                self._agent.information.name_with_agent_tag),
+                self._agent.information.name_with_agent_tag
+            ),
             "GIT_CONFIG_KEY_2": "user.email",
-            "GIT_CONFIG_VALUE_2": shlex.quote(self._config.agent_email),}
+            "GIT_CONFIG_VALUE_2": shlex.quote(self._config.agent_email),
+        }
 
     async def get_chat_descriptor(
-            self, chat_id: str) -> mdl.GithubChatDescriptor:
+        self, chat_id: str
+    ) -> mdl.GithubChatDescriptor:
         try:
             repo_full_name, issue_number = (
-                mdl.GithubChatDescriptor.parse_chat_id(chat_id))
+                mdl.GithubChatDescriptor.parse_chat_id(chat_id)
+            )
         except (ValueError, pyd.ValidationError) as e:
             raise base.ChatIdError("invalid chat ID") from e
         issue = await asyncio.to_thread(
-            self._get_issue_sync, repo_full_name, issue_number)
+            self._get_issue_sync, repo_full_name, issue_number
+        )
         issue_type = "issue" if issue.pull_request is None else "pr"
         return mdl.GithubChatDescriptor(
             chat_id=chat_id,
@@ -675,7 +753,8 @@ class GithubChannel(base.Channel):
         )
 
     def _get_issue_sync(
-            self, repo_full_name: str, issue_number: int) -> gh_iss.Issue:
+        self, repo_full_name: str, issue_number: int
+    ) -> gh_iss.Issue:
         repo = self._client.github.get_repo(repo_full_name)
         issue = repo.get_issue(issue_number)
         return issue.complete()
@@ -687,8 +766,9 @@ class GithubChannel(base.Channel):
         except KeyError:
             return 0
 
-    async def get_unread_messages(self,
-                                  chat_id: str) -> list[mdl.IncomingMessage]:
+    async def get_unread_messages(
+        self, chat_id: str
+    ) -> list[mdl.IncomingMessage]:
         chat = await self.get_chat_descriptor(chat_id)
         try:
             incoming_messages = self._state.unread_messages[chat.chat_id]
@@ -701,15 +781,20 @@ class GithubChannel(base.Channel):
 
     def make_outgoing_start_metadata(
         self, chat: mdl.GithubChatDescriptor
-    ) -> tuple[mdl.GithubStartMessageMetadata,
-               type[mdl.GithubChatMessageMetadata]]:
+    ) -> tuple[
+        mdl.GithubStartMessageMetadata, type[mdl.GithubChatMessageMetadata]
+    ]:
         assert isinstance(chat, mdl.GithubChatDescriptor)
         # comment_type is comment, since sending a message only works when the
         # issue already exists (so it can't be the description).
         return (
             mdl.GithubStartMessageMetadata(
-                chat=chat, comment_author_login=self._client.login,
-                comment_type="comment"), mdl.GithubChatMessageMetadata)
+                chat=chat,
+                comment_author_login=self._client.login,
+                comment_type="comment",
+            ),
+            mdl.GithubChatMessageMetadata,
+        )
 
     async def send(self, message: msg.AgentMessage) -> None:
         if await self.num_unread_messages(message.metadata.chat.chat_id) > 0:
@@ -717,10 +802,12 @@ class GithubChannel(base.Channel):
         chat = message.metadata.chat
         assert isinstance(chat, mdl.GithubChatDescriptor)
         await asyncio.to_thread(
-            self._create_comment_sync, chat, await message.content)
+            self._create_comment_sync, chat, await message.content
+        )
 
     def _create_comment_sync(
-            self, chat: mdl.GithubChatDescriptor, comment_body: str):
+        self, chat: mdl.GithubChatDescriptor, comment_body: str
+    ):
         if not comment_body or comment_body.isspace():
             raise base.ChannelError("comment body must not be blank")
         repo = self._client.github.get_repo(chat.repo_full_name)
@@ -735,11 +822,13 @@ class GithubChannel(base.Channel):
         check_url = self._issues_url(repo_full_name)
         check_url.update_query(sort="created", direction="desc")
         return self._progress_checkers.for_url(
-            check_url, look_for_changes_in="first_page")
+            check_url, look_for_changes_in="first_page"
+        )
 
     def _issues_url(self, repo_full_name: str) -> yarl.URL:
         return yarl.URL(
-            f"https://api.github.com/repos/{repo_full_name}/issues")
+            f"https://api.github.com/repos/{repo_full_name}/issues"
+        )
 
     def _assigned_issues_checker(self, repo_full_name: str) -> ProgressChecker:
         # For the issues endpoint, sort issues so we get the last updated one
@@ -747,37 +836,45 @@ class GithubChannel(base.Channel):
         check_url = self._assigned_issues_url(repo_full_name)
         check_url.update_query(sort="updated", direction="desc")
         return self._progress_checkers.for_url(
-            check_url, look_for_changes_in="first_page")
+            check_url, look_for_changes_in="first_page"
+        )
 
     def _assigned_issues_url(self, repo_full_name: str) -> yarl.URL:
         return yarl.URL(
             f"https://api.github.com/repos/{repo_full_name}/issues"
-            f"?labels={self.agent_assigned_label}")
+            f"?labels={self.agent_assigned_label}"
+        )
 
     def _issues_events_checker(self, repo_full_name: str) -> ProgressChecker:
         # Issues events are sorted newest first, so look on the first page.
         return self._progress_checkers.for_url(
             self._issues_events_url(repo_full_name),
-            look_for_changes_in="first_page")
+            look_for_changes_in="first_page",
+        )
 
     def _issues_events_url(self, repo_full_name: str) -> yarl.URL:
         return yarl.URL(
-            f"https://api.github.com/repos/{repo_full_name}/issues/events")
+            f"https://api.github.com/repos/{repo_full_name}/issues/events"
+        )
 
     def _issue_timeline_checker(
-            self, repo_full_name: str, issue_number: int) -> ProgressChecker:
+        self, repo_full_name: str, issue_number: int
+    ) -> ProgressChecker:
         # The issue timeline endpoint is sorted with the newest event at the
         # end (and has no option to sort in another way). Check the last page
         # for changes.
         return self._progress_checkers.for_url(
             self._issue_timeline_url(repo_full_name, issue_number),
-            look_for_changes_in="last_page")
+            look_for_changes_in="last_page",
+        )
 
     def _issue_timeline_url(
-            self, repo_full_name: str, issue_number: int) -> yarl.URL:
+        self, repo_full_name: str, issue_number: int
+    ) -> yarl.URL:
         return yarl.URL(
             f"https://api.github.com/repos/{repo_full_name}/issues"
-            f"/{issue_number}/timeline")
+            f"/{issue_number}/timeline"
+        )
 
     async def _poll_forever(self) -> None:
         while True:
@@ -798,7 +895,8 @@ class GithubChannel(base.Channel):
                 raise
             except Exception:
                 self._logger.exception(
-                    f"Error while polling repository {repo.full_name}.")
+                    f"Error while polling repository {repo.full_name}."
+                )
 
     async def _poll_repo(self, repo: gh_repo.Repository) -> None:
         await self._ensure_up_to_date_assigned_issues(repo)
@@ -806,59 +904,74 @@ class GithubChannel(base.Channel):
         async with contextlib.AsyncExitStack() as stack:
             async with asyncio.TaskGroup() as tg:
                 issue_events_task = tg.create_task(
-                    self._get_issue_events(repo, stack))
+                    self._get_issue_events(repo, stack)
+                )
                 timeline_events_task = tg.create_task(
-                    self._get_timeline_events(repo, stack))
+                    self._get_timeline_events(repo, stack)
+                )
             issue_events = issue_events_task.result()
             timeline_events = timeline_events_task.result()
             new_events = sorted(
                 it.chain(issue_events, timeline_events),
-                key=op.attrgetter("time"))
+                key=op.attrgetter("time"),
+            )
             if new_events:
                 self._logger.debug(
                     f"Got {len(issue_events)} new issue events and "
                     f"{len(timeline_events)} new timeline events polling "
-                    f"repository {repo.full_name}.")
+                    f"repository {repo.full_name}."
+                )
                 await self._process_events(repo, new_events)
             # After successful processing, all checker context managers exit
             # and commit their etags.
 
     async def _get_issue_events(
-            self, repo: gh_repo.Repository,
-            stack: contextlib.AsyncExitStack) -> list[Event]:
+        self, repo: gh_repo.Repository, stack: contextlib.AsyncExitStack
+    ) -> list[Event]:
         issues_events_checker = await stack.enter_async_context(
-            self._issues_events_checker(repo.full_name))
+            self._issues_events_checker(repo.full_name)
+        )
         if issues_events_checker.has_changes:
             return await asyncio.to_thread(
-                self._get_relevant_new_issue_events_sync, repo)
+                self._get_relevant_new_issue_events_sync, repo
+            )
         return []
 
     async def _get_timeline_events(
-            self, repo: gh_repo.Repository,
-            stack: contextlib.AsyncExitStack) -> list[Event]:
+        self, repo: gh_repo.Repository, stack: contextlib.AsyncExitStack
+    ) -> list[Event]:
         tasks = []
         async with asyncio.TaskGroup() as tg:
             for issue in self._assigned_issues[repo.full_name]:
                 tasks.append(
                     tg.create_task(
-                        self._get_issue_timeline_events(repo, stack, issue)))
+                        self._get_issue_timeline_events(repo, stack, issue)
+                    )
+                )
         return list(it.chain.from_iterable(task.result() for task in tasks))
 
     async def _get_issue_timeline_events(
-            self, repo: gh_repo.Repository, stack: contextlib.AsyncExitStack,
-            issue: gh_iss.Issue) -> list[Event]:
+        self,
+        repo: gh_repo.Repository,
+        stack: contextlib.AsyncExitStack,
+        issue: gh_iss.Issue,
+    ) -> list[Event]:
         issue_timeline_checker = await stack.enter_async_context(
-            self._issue_timeline_checker(repo.full_name, issue.number))
+            self._issue_timeline_checker(repo.full_name, issue.number)
+        )
         if issue_timeline_checker.has_changes:
             return await asyncio.to_thread(
-                self._get_relevant_new_timeline_events_sync, repo, issue)
+                self._get_relevant_new_timeline_events_sync, repo, issue
+            )
         return []
 
     def _get_relevant_new_issue_events_sync(
-            self, repo: gh_repo.Repository) -> list[Event]:
+        self, repo: gh_repo.Repository
+    ) -> list[Event]:
         read_marker = self._state.read_markers.setdefault(
             self._issues_events_url(repo.full_name),
-            mdl.GithubEventReadMarker.min())
+            mdl.GithubEventReadMarker.min(),
+        )
         new_events: list[Event] = []
         for issue_event in repo.get_issues_events():
             # The issue events are sorted newest-first, so collect them until
@@ -866,55 +979,70 @@ class GithubChannel(base.Channel):
             this_event_time = we.Instant(issue_event.created_at)
             already_seen = (
                 this_event_time < read_marker.last_event_time
-                or issue_event.node_id in read_marker.last_event_ids)
+                or issue_event.node_id in read_marker.last_event_ids
+            )
             if already_seen:
                 break
             if issue_event.event in self._RELEVANT_ISSUE_EVENTS:
                 event = Event(
-                    event=issue_event, issue=issue_event.issue,
-                    time=this_event_time)
+                    event=issue_event,
+                    issue=issue_event.issue,
+                    time=this_event_time,
+                )
                 new_events.append(event)
         return new_events
 
     def _get_relevant_new_timeline_events_sync(
-            self, repo: gh_repo.Repository,
-            issue: gh_iss.Issue) -> list[Event]:
+        self, repo: gh_repo.Repository, issue: gh_iss.Issue
+    ) -> list[Event]:
         read_marker = self._state.read_markers.setdefault(
             self._issue_timeline_url(repo.full_name, issue.number),
-            mdl.GithubEventReadMarker.min())
+            mdl.GithubEventReadMarker.min(),
+        )
         new_events: list[Event] = []
         for timeline_event in iterate_timeline(issue, reverse=True):
             already_seen = (
                 timeline_event.created_at < read_marker.last_event_time
-                or timeline_event.node_id in read_marker.last_event_ids)
+                or timeline_event.node_id in read_marker.last_event_ids
+            )
             if already_seen:
                 break
             event = Event(
-                event=timeline_event, issue=issue,
-                time=timeline_event.created_at)
+                event=timeline_event,
+                issue=issue,
+                time=timeline_event.created_at,
+            )
             new_events.append(event)
         return new_events
 
     async def _process_events(
-            self, repo: gh_repo.Repository, events: list[Event]) -> None:
+        self, repo: gh_repo.Repository, events: list[Event]
+    ) -> None:
         assignment_stati = self._issue_assignment_state_changes(events)
         for event in events:
             assignment_status = assignment_stati.get(
                 event.issue.number,
                 IssueAssignmentStatus(
-                    is_assigned=True, changed_in_event_id=None,
-                    changed_by_agent=None))
+                    is_assigned=True,
+                    changed_in_event_id=None,
+                    changed_by_agent=None,
+                ),
+            )
             messages, read_marker_key = await self._process_event(
-                repo, event, assignment_status)
+                repo, event, assignment_status
+            )
             for message in messages:
                 self._state.unread_messages.setdefault(
-                    message.chat.chat_id, []).append(message)
+                    message.chat.chat_id, []
+                ).append(message)
                 await self._publisher.append(message)
             self._update_event_read_marker(read_marker_key, event)
 
     async def _process_event(
-        self, repo: gh_repo.Repository, event: Event,
-        assignment_status: IssueAssignmentStatus
+        self,
+        repo: gh_repo.Repository,
+        event: Event,
+        assignment_status: IssueAssignmentStatus,
     ) -> tuple[list[mdl.IncomingMessage], yarl.URL]:
         """
         Process an event.
@@ -929,14 +1057,18 @@ class GithubChannel(base.Channel):
             if event.event.id == assignment_status.changed_in_event_id:
                 # This is the event of assignment state change.
                 messages = await asyncio.to_thread(
-                    self._incoming_messages_for_assignment_change_sync, repo,
-                    event, assignment_status)
+                    self._incoming_messages_for_assignment_change_sync,
+                    repo,
+                    event,
+                    assignment_status,
+                )
                 return messages, read_marker_key
             else:
                 return [], read_marker_key
         assert isinstance(event.event, TimelineEvent)
         read_marker_key = self._issue_timeline_url(
-            repo.full_name, event.issue.number)
+            repo.full_name, event.issue.number
+        )
         if assignment_status.has_changed:
             # Assignment of the issue changed during the poll, so any necessary
             # messages should be delivered with the assignment/unassignment
@@ -944,14 +1076,17 @@ class GithubChannel(base.Channel):
             self._logger.debug(
                 f"Ignoring '{event.event.event}' timeline event for issue "
                 "that was newly assigned (notification should have "
-                "everything).")
+                "everything)."
+            )
             return [], read_marker_key
         messages = await asyncio.to_thread(
-            self._incoming_messages_for_timeline_event_sync, repo, event)
+            self._incoming_messages_for_timeline_event_sync, repo, event
+        )
         return messages, read_marker_key
 
     def _update_event_read_marker(
-            self, endpoint_url: yarl.URL, event: Event) -> None:
+        self, endpoint_url: yarl.URL, event: Event
+    ) -> None:
         """
         Update a read marker with an event.
 
@@ -963,21 +1098,27 @@ class GithubChannel(base.Channel):
         self._update_read_marker(endpoint_url, event.event.node_id, event.time)
 
     def _update_read_marker(
-            self, endpoint_url: yarl.URL, node_id: str,
-            time: we.Instant | datetime.datetime) -> None:
+        self,
+        endpoint_url: yarl.URL,
+        node_id: str,
+        time: we.Instant | datetime.datetime,
+    ) -> None:
         if not isinstance(time, we.Instant):
             time = we.Instant(time)
         read_marker = self._state.read_markers.setdefault(
-            endpoint_url, mdl.GithubEventReadMarker.min())
+            endpoint_url, mdl.GithubEventReadMarker.min()
+        )
         if time > read_marker.last_event_time:
             read_marker = mdl.GithubEventReadMarker(
-                last_event_time=time, last_event_ids={node_id})
+                last_event_time=time, last_event_ids={node_id}
+            )
         elif time == read_marker.last_event_time:
             read_marker.last_event_ids.add(node_id)
         self._state.read_markers[endpoint_url] = read_marker
 
     def _issue_assignment_state_changes(
-            self, events: list[Event]) -> dict[int, IssueAssignmentStatus]:
+        self, events: list[Event]
+    ) -> dict[int, IssueAssignmentStatus]:
         """
         Determine assignment/unassignment state and change.
 
@@ -1003,47 +1144,60 @@ class GithubChannel(base.Channel):
             except KeyError:
                 is_assigned = any(
                     label.name == self.agent_assigned_label
-                    for label in issue_event.issue.labels)
+                    for label in issue_event.issue.labels
+                )
                 status = stati.setdefault(
                     issue_event.issue.number,
                     IssueAssignmentStatus(
-                        is_assigned=is_assigned, changed_in_event_id=None,
-                        changed_by_agent=None))
+                        is_assigned=is_assigned,
+                        changed_in_event_id=None,
+                        changed_by_agent=None,
+                    ),
+                )
             label_added = (
                 issue_event.event == "labeled"
-                and issue_event.label.name == self.agent_assigned_label)
+                and issue_event.label.name == self.agent_assigned_label
+            )
             label_removed = (
                 issue_event.event == "unlabeled"
-                and issue_event.label.name == self.agent_assigned_label)
+                and issue_event.label.name == self.agent_assigned_label
+            )
             assert not (label_added and label_removed)
-            if ((status.is_assigned and label_added)
-                    or (not status.is_assigned and label_removed)):
+            if (status.is_assigned and label_added) or (
+                not status.is_assigned and label_removed
+            ):
                 status.changed_in_event_id = issue_event.id
                 status.changed_by_agent = (
-                    event.event.actor.login == self._client.login)
+                    event.event.actor.login == self._client.login
+                )
             elif status.is_assigned and label_removed:
                 self._logger.debug(
                     f"Issue {issue_event.issue.number} is currently assigned, "
                     "but found label removed. Must have been added/removed "
-                    "multiple times.")
+                    "multiple times."
+                )
                 status.changed_in_event_id = status.changed_by_agent = None
             elif not status.is_assigned and label_added:
                 self._logger.debug(
                     f"Issue {issue_event.issue.number} is currently not "
                     "assigned, but found label added. Must have been "
-                    "added/removed multiple times.")
+                    "added/removed multiple times."
+                )
                 status.changed_in_event_id = status.changed_by_agent = None
         return stati
 
     def _incoming_messages_for_assignment_change_sync(
-            self, repo: gh_repo.Repository, event: Event,
-            assignment_status: IssueAssignmentStatus
+        self,
+        repo: gh_repo.Repository,
+        event: Event,
+        assignment_status: IssueAssignmentStatus,
     ) -> list[mdl.IncomingMessage]:
         assert isinstance(event.event, gh_issev.IssueEvent)
         if assignment_status.changed_by_agent:
             self._logger.info(
                 "Not generating messages for issue assignment/unassignment "
-                "created by the agent themselves.")
+                "created by the agent themselves."
+            )
             return []
         if not assignment_status.is_assigned:
             return self._incoming_messages_for_unassignment_sync(repo, event)
@@ -1051,26 +1205,31 @@ class GithubChannel(base.Channel):
             return self._incoming_messages_for_assignment_sync(repo, event)
 
     def _incoming_messages_for_unassignment_sync(
-            self, repo: gh_repo.Repository,
-            event: Event) -> list[mdl.IncomingMessage]:
+        self, repo: gh_repo.Repository, event: Event
+    ) -> list[mdl.IncomingMessage]:
         assert isinstance(event.event, gh_issev.IssueEvent)
         messages: list[mdl.IncomingMessage] = []
         chat = self._make_chat_descriptor(repo, event.issue)
-        unassignment_message_content = (
-            self._message_templates["unassigned"].render(
-                chat=chat.model_dump_json(), issue_number=event.issue.number,
-                actor_login=event.event.actor.login,
-                label_name=event.event.label.name))
+        unassignment_message_content = self._message_templates[
+            "unassigned"
+        ].render(
+            chat=chat.model_dump_json(),
+            issue_number=event.issue.number,
+            actor_login=event.event.actor.login,
+            label_name=event.event.label.name,
+        )
         unassignment_message = self._make_system_message(
-            chat, event.time, unassignment_message_content)
+            chat, event.time, unassignment_message_content
+        )
         try:
             # We want to get any remaining comments that have been added after
             # the last poll but before we were unassigned and deliver them
             # before the unassignment notification. Check the read marker of
             # the timeline, which is where we ususally get comments from so we
             # know where we have to start.
-            read_marker = self._state.read_markers[self._issue_timeline_url(
-                repo.full_name, event.issue.number)]
+            read_marker = self._state.read_markers[
+                self._issue_timeline_url(repo.full_name, event.issue.number)
+            ]
         except KeyError:
             # There is no read marker, which means never polled that endpoint.
             # Deliver just the notification.
@@ -1092,44 +1251,62 @@ class GithubChannel(base.Channel):
                 continue
             messages.append(
                 self._make_user_message(
-                    chat, comment.user.login, "comment", comment_time,
-                    comment.body))
+                    chat,
+                    comment.user.login,
+                    "comment",
+                    comment_time,
+                    comment.body,
+                )
+            )
         messages.append(unassignment_message)
         return messages
 
     def _incoming_messages_for_assignment_sync(
-            self, repo: gh_repo.Repository,
-            event: Event) -> list[mdl.IncomingMessage]:
+        self, repo: gh_repo.Repository, event: Event
+    ) -> list[mdl.IncomingMessage]:
         assert isinstance(event.event, gh_issev.IssueEvent)
         messages: list[mdl.IncomingMessage] = []
         chat = self._make_chat_descriptor(repo, event.issue)
         if self._issue_was_assigned_before_sync(event):
             # Only show an assignment notification, no comment history.
-            assignment_message_content = (
-                self._message_templates["reassigned"].render(
-                    chat=chat.model_dump_json(),
-                    issue_number=event.issue.number,
-                    actor_login=event.event.actor.login,
-                    label_name=event.event.label.name))
-            message = self._make_system_message(
-                chat, event.time, assignment_message_content)
-            return [message]
-        assignment_message_content = (
-            self._message_templates["assigned"].render(
-                chat=chat.model_dump_json(), issue_number=event.issue.number,
+            assignment_message_content = self._message_templates[
+                "reassigned"
+            ].render(
+                chat=chat.model_dump_json(),
+                issue_number=event.issue.number,
                 actor_login=event.event.actor.login,
                 label_name=event.event.label.name,
-                num_messages=event.issue.comments))
+            )
+            message = self._make_system_message(
+                chat, event.time, assignment_message_content
+            )
+            return [message]
+        assignment_message_content = self._message_templates[
+            "assigned"
+        ].render(
+            chat=chat.model_dump_json(),
+            issue_number=event.issue.number,
+            actor_login=event.event.actor.login,
+            label_name=event.event.label.name,
+            num_messages=event.issue.comments,
+        )
         messages.append(
             self._make_system_message(
-                chat, event.time, assignment_message_content))
+                chat, event.time, assignment_message_content
+            )
+        )
         description_content = event.issue.body
         if not description_content:
             description_content = "No description provided."
         messages.append(
             self._make_user_message(
-                chat, event.event.actor.login, "description", event.time,
-                description_content))
+                chat,
+                event.event.actor.login,
+                "description",
+                event.time,
+                description_content,
+            )
+        )
         for comment in event.issue.get_comments():
             if comment.user.login == self._client.login:
                 self._logger.warning(
@@ -1137,11 +1314,17 @@ class GithubChannel(base.Channel):
                     "is assigned for the first time). This means the agent "
                     "posted a comment in this issue before being assigned. "
                     "This comment will be displayed to the agent as a user "
-                    "message.")
+                    "message."
+                )
             messages.append(
                 self._make_user_message(
-                    chat, comment.user.login, "comment",
-                    we.Instant(comment.created_at), comment.body))
+                    chat,
+                    comment.user.login,
+                    "comment",
+                    we.Instant(comment.created_at),
+                    comment.body,
+                )
+            )
         return messages
 
     def _issue_was_assigned_before_sync(self, event: Event) -> bool:
@@ -1149,7 +1332,8 @@ class GithubChannel(base.Channel):
         for timeline_event in iterate_timeline(event.issue):
             is_earlier_labeling = (
                 timeline_event.event == "labeled"
-                and timeline_event.created_at < event.time)
+                and timeline_event.created_at < event.time
+            )
             if is_earlier_labeling:
                 assert isinstance(timeline_event, TimelineEventLabeling)
                 if timeline_event.label_name == self.agent_assigned_label:
@@ -1157,12 +1341,13 @@ class GithubChannel(base.Channel):
         return False
 
     def _make_chat_descriptor(
-            self, repo: gh_repo.Repository,
-            issue: gh_iss.Issue) -> mdl.GithubChatDescriptor:
+        self, repo: gh_repo.Repository, issue: gh_iss.Issue
+    ) -> mdl.GithubChatDescriptor:
         issue_type = "issue" if issue.pull_request is None else "pr"
         return mdl.GithubChatDescriptor(
             chat_id=mdl.GithubChatDescriptor.create_chat_id(
-                repo.full_name, issue.number),
+                repo.full_name, issue.number
+            ),
             issue_type=issue_type,
             repo_full_name=repo.full_name,
             issue_number=issue.number,
@@ -1171,63 +1356,88 @@ class GithubChannel(base.Channel):
         )
 
     def _make_system_message(
-            self, chat: mdl.GithubChatDescriptor, time: we.Instant,
-            content: str) -> mdl.IncomingMessage:
+        self, chat: mdl.GithubChatDescriptor, time: we.Instant, content: str
+    ) -> mdl.IncomingMessage:
         system_message = mdl.SystemMessage(
-            metadata=mdl.InternalMessageMetadata(time=time), content=content)
+            metadata=mdl.InternalMessageMetadata(time=time), content=content
+        )
         return mdl.IncomingMessage(chat=chat, message=system_message)
 
     def _make_user_message(
-            self, chat: mdl.GithubChatDescriptor, comment_author_login: str,
-            comment_type: t.Literal["description", "comment"],
-            time: we.Instant, content: str) -> mdl.IncomingMessage:
+        self,
+        chat: mdl.GithubChatDescriptor,
+        comment_author_login: str,
+        comment_type: t.Literal["description", "comment"],
+        time: we.Instant,
+        content: str,
+    ) -> mdl.IncomingMessage:
         user_message = mdl.GithubChatMessage(
-            role="user", metadata=mdl.GithubChatMessageMetadata(
-                time=time, chat=chat,
+            role="user",
+            metadata=mdl.GithubChatMessageMetadata(
+                time=time,
+                chat=chat,
                 comment_author_login=comment_author_login,
-                comment_type=comment_type), content=content)
+                comment_type=comment_type,
+            ),
+            content=content,
+        )
         return mdl.IncomingMessage(chat=chat, message=user_message)
 
     def _incoming_messages_for_timeline_event_sync(
-            self, repo: gh_repo.Repository,
-            event: Event) -> list[mdl.IncomingMessage]:
+        self, repo: gh_repo.Repository, event: Event
+    ) -> list[mdl.IncomingMessage]:
         assert isinstance(event.event, TimelineEvent)
         if isinstance(event.event, TimelineEventCommitted):
             # 'committed' events don't have an actor, but agents set their
             # email for git, so we can use that to detect whether this is the
             # agent's own event.
             is_agents_own_event = (
-                event.event.committer_email == self._config.agent_email)
+                event.event.committer_email == self._config.agent_email
+            )
         else:
             is_agents_own_event = event.event.actor_login == self._client.login
         if is_agents_own_event:
             self._logger.debug(
-                f"Skipping agent's own '{event.event.event}' timeline event.")
+                f"Skipping agent's own '{event.event.event}' timeline event."
+            )
             return []
         chat = self._make_chat_descriptor(repo, event.issue)
         if event.event.event == "closed":
             content = self._message_templates["closed"].render(
-                chat=chat.model_dump_json(), issue_number=event.issue.number,
-                actor_login=event.event.actor_login)
+                chat=chat.model_dump_json(),
+                issue_number=event.issue.number,
+                actor_login=event.event.actor_login,
+            )
             return [self._make_system_message(chat, event.time, content)]
         elif event.event.event == "merged":
             content = self._message_templates["merged"].render(
-                chat=chat.model_dump_json(), issue_number=event.issue.number,
-                actor_login=event.event.actor_login)
+                chat=chat.model_dump_json(),
+                issue_number=event.issue.number,
+                actor_login=event.event.actor_login,
+            )
             return [self._make_system_message(chat, event.time, content)]
         elif event.event.event == "reopened":
             content = self._message_templates["reopened"].render(
-                chat=chat.model_dump_json(), issue_number=event.issue.number,
-                actor_login=event.event.actor_login)
+                chat=chat.model_dump_json(),
+                issue_number=event.issue.number,
+                actor_login=event.event.actor_login,
+            )
             return [self._make_system_message(chat, event.time, content)]
         elif isinstance(event.event, TimelineEventCommitted):
             content = self._message_templates["committed"].render(
-                chat=chat.model_dump_json(), issue_number=event.issue.number,
+                chat=chat.model_dump_json(),
+                issue_number=event.issue.number,
                 committer_name=event.event.committer_name,
-                committer_email=event.event.committer_email)
+                committer_email=event.event.committer_email,
+            )
             return [self._make_system_message(chat, event.time, content)]
         assert isinstance(event.event, TimelineEventCommented)
         return [
             self._make_user_message(
-                chat, event.event.actor_login, "comment", event.time,
-                event.event.body)]
+                chat,
+                event.event.actor_login,
+                "comment",
+                event.time,
+                event.event.body,
+            )
+        ]

@@ -53,6 +53,7 @@ class JsonlIO(t.Generic[TModel]):
 
     Represents one JSONL file with a header.
     """
+
     def __init__(self, file_path: pathlib.Path, model_type: type[TModel]):
         self._logger = logging.getLogger(type(self).__name__)
         self._file_path = file_path
@@ -197,7 +198,8 @@ class JsonlIO(t.Generic[TModel]):
         async with self._lock:
             if not await self._exists_locked():
                 raise FileNotFoundError(
-                    f"file {self._file_path} doesn't exist")
+                    f"file {self._file_path} doesn't exist"
+                )
             lines = await self._read_lines()
             if not lines:
                 raise StoreFormatError("missing header (empty file)")
@@ -206,7 +208,8 @@ class JsonlIO(t.Generic[TModel]):
                     yield self._validate_line(line)
                 except pyd.ValidationError as e:
                     raise StoreFormatError(
-                        f"invalid line in {self._file_path}: {line}") from e
+                        f"invalid line in {self._file_path}: {line}"
+                    ) from e
 
     def _validate_line(self, line: str) -> TModel:
         if isinstance(self._model_type, pyd.TypeAdapter):
@@ -222,8 +225,8 @@ class JsonlIO(t.Generic[TModel]):
             return f.readlines()
 
     async def upgrade_and_validate(
-            self, upgraders: dict[int, t.Callable[[pathlib.Path],
-                                                  None]]) -> None:
+        self, upgraders: dict[int, t.Callable[[pathlib.Path], None]]
+    ) -> None:
         """
         Upgrade and validate the file.
 
@@ -252,14 +255,16 @@ class JsonlIO(t.Generic[TModel]):
             target_version = max(upgraders.keys(), default=-1) + 1
             if file_version > target_version:
                 raise StoreFormatError(
-                    f"file has future version {file_version}")
+                    f"file has future version {file_version}"
+                )
             await self._run_upgrade(upgraders, file_version, target_version)
             await self._validate_file()
 
     async def _run_upgrade(self, upgraders, from_version, target_version):
         for v in range(from_version, target_version):
             self._logger.info(
-                f"Upgrading {self._file_path} from {v} to {v+1}.")
+                f"Upgrading {self._file_path} from {v} to {v + 1}."
+            )
             await asyncio.to_thread(upgraders[v], self._file_path)
 
     async def _validate_file(self):
@@ -272,12 +277,16 @@ class JsonlIO(t.Generic[TModel]):
                 if is_last_line:
                     self._logger.warning(
                         f"Last line in {self._file_path} is corrupt. Assuming "
-                        "unclean shutdown, discarding line.", exc_info=True)
+                        "unclean shutdown, discarding line.",
+                        exc_info=True,
+                    )
                     await asyncio.to_thread(
-                        self._delete_corrupted_last_line, line)
+                        self._delete_corrupted_last_line, line
+                    )
                 else:
                     raise StoreFormatError(
-                        f"invalid line in {self._file_path}: {line}") from e
+                        f"invalid line in {self._file_path}: {line}"
+                    ) from e
 
     def _delete_corrupted_last_line(self, line: str):
         with self._file_path.open("r+") as f:
@@ -292,7 +301,8 @@ class JsonlIO(t.Generic[TModel]):
                 f.seek(pos)
             if pos == 0:
                 raise StoreFormatError(
-                    f"header of session file {self._file_path} is corrupt")
+                    f"header of session file {self._file_path} is corrupt"
+                )
             # Check that the last line is actually the one we expected.
             f.seek(pos + 1)
             line_in_file = f.read()
@@ -300,7 +310,8 @@ class JsonlIO(t.Generic[TModel]):
                 raise StoreFormatError(
                     f"attempted to delete corrupted line '{line}' in "
                     f"{self._file_path}, but last line was actually "
-                    f"'{line_in_file}'")
+                    f"'{line_in_file}'"
+                )
             # Go to the position where the last line starts and truncate from
             # there.
             f.seek(pos)
@@ -351,7 +362,8 @@ class MessageStore:
             if self._base_dir in self._active_base_dirs:
                 raise StoreConcurrentError(
                     f"another message store is already active for "
-                    f"{self._base_dir}")
+                    f"{self._base_dir}"
+                )
             self._active_base_dirs.add(self._base_dir)
         await self._ensure_valid_store_format()
         return self
@@ -371,7 +383,8 @@ class MessageStore:
             _, pending = await asyncio.wait(close_tasks, timeout=10)
             if pending:
                 self._logger.exception(
-                    f"Timeout while closing files ({len(pending)} not done).")
+                    f"Timeout while closing files ({len(pending)} not done)."
+                )
         self._open_ios.clear()
 
     def _sessions_dir(self) -> pathlib.Path:
@@ -381,7 +394,8 @@ class MessageStore:
         return self._sessions_dir() / f"{session_seq}.jsonl"
 
     async def append_message(
-            self, session_seq: int, message: msg.Message) -> None:
+        self, session_seq: int, message: msg.Message
+    ) -> None:
         """
         Append a message to a session file.
 
@@ -403,7 +417,8 @@ class MessageStore:
             io = self._open_ios[session_seq]
         except KeyError:
             io = JsonlIO(
-                self._session_path(session_seq), mdl.MessageTypeAdapter)
+                self._session_path(session_seq), mdl.MessageTypeAdapter
+            )
             self._open_ios[session_seq] = io
         return io
 
@@ -413,17 +428,20 @@ class MessageStore:
             if not path.with_name(f"{seq}.jsonl").exists():
                 raise StoreFormatError(
                     f"can't create session file {path}, because previous "
-                    f"session {seq} doesn't exist")
+                    f"session {seq} doesn't exist"
+                )
         header = {
             "version": self.VERSION,
-            "session_seq": session_seq,}
+            "session_seq": session_seq,
+        }
         if not path.parent.exists():
             self._logger.info(f"Creating sessions directory {path.parent}.")
         await io.create(header)
         self._logger.info(f"Created new session file {path}.")
 
-    async def read_session_messages(self,
-                                    session_seq: int) -> list[msg.Message]:
+    async def read_session_messages(
+        self, session_seq: int
+    ) -> list[msg.Message]:
         """
         Read all messages from a session file.
 
@@ -455,7 +473,8 @@ class MessageStore:
             if not entry.is_file():
                 self._logger.warning(
                     "Unexpected directory in sessions directory "
-                    f"{sessions_dir}.")
+                    f"{sessions_dir}."
+                )
                 continue
             try:
                 assert entry.name.endswith(".jsonl")
@@ -463,16 +482,20 @@ class MessageStore:
             except Exception:
                 self._logger.warning(
                     f"Unexpected file {entry} in sessions directory "
-                    f"{sessions_dir}.", exc_info=True)
+                    f"{sessions_dir}.",
+                    exc_info=True,
+                )
                 continue
         active_session_seq = max(seqs, default=0)
         if active_session_seq and active_session_seq + 1 != len(seqs):
             self._logger.warning(
-                f"Missing session sequence numbers in {sorted(seqs)}.")
+                f"Missing session sequence numbers in {sorted(seqs)}."
+            )
         return active_session_seq
 
     def get_session_message_store(
-            self, session_seq: int) -> "SessionMessageStore":
+        self, session_seq: int
+    ) -> "SessionMessageStore":
         """Get a message store specific to a session."""
         return SessionMessageStore(session_seq, self)
 
@@ -504,34 +527,40 @@ class MessageStore:
         if not self._sessions_dir().exists():
             self._logger.info(
                 f"Sessions directory {self._sessions_dir()} doesn't exist "
-                "yet, creating it.")
+                "yet, creating it."
+            )
             self._sessions_dir().mkdir(parents=True, exist_ok=True)
         session_file_versions = set()
         prev_seq = None
         for seq, _ in self._list_all_session_files():
             if prev_seq is None and seq != 0:
                 raise StoreFormatError(
-                    "session sequence numbers don't start at 0")
+                    "session sequence numbers don't start at 0"
+                )
             if prev_seq is not None and prev_seq + 1 != seq:
                 raise StoreFormatError(
-                    f"broken session sequence numbers after {prev_seq}")
+                    f"broken session sequence numbers after {prev_seq}"
+                )
             prev_seq = seq
             session_file_version = await self._ensure_valid_session_format(seq)
             session_file_versions.add(session_file_version)
         if len(session_file_versions) > 1:
             raise StoreFormatError(
                 "inconsistent message store with "
-                f"{len(session_file_versions)} different versions")
+                f"{len(session_file_versions)} different versions"
+            )
         version_on_disk = next(iter(session_file_versions), self.VERSION)
         if version_on_disk < self.VERSION:
             self._logger.info(
                 f"Found store with version {version_on_disk}, upgrading to "
-                f"{self.VERSION}.")
+                f"{self.VERSION}."
+            )
             await self._upgrade_files(from_version=version_on_disk)
         elif version_on_disk > self.VERSION:
             raise StoreFormatError(
                 f"store on disk has higher version {version_on_disk} than "
-                "known the this implementation, unable to downgrade")
+                "known the this implementation, unable to downgrade"
+            )
         else:
             # Re-validate with upgrader if already current just to ensure all
             # jsonl lines parse.
@@ -541,10 +570,12 @@ class MessageStore:
                     await io.upgrade_and_validate(self._upgraders)
             self._logger.debug(
                 f"Found valid message store at {self._base_dir} with version "
-                f"{self.VERSION}.")
+                f"{self.VERSION}."
+            )
 
     def _list_all_session_files(
-            self) -> cl_abc.Generator[tuple[int, pathlib.Path]]:
+        self,
+    ) -> cl_abc.Generator[tuple[int, pathlib.Path]]:
         for seq in range(self.get_active_session_seq() + 1):
             session_file = self._session_path(seq)
             if session_file.is_file():
@@ -564,7 +595,8 @@ class MessageStore:
             raise StoreFormatError(
                 f"inconsistent session file {path}: directory suggests "
                 f"session {seq}, but file header says "
-                f"{header_dict['session_seq']}")
+                f"{header_dict['session_seq']}"
+            )
         return header_dict["version"]
 
     async def _upgrade_files(self, from_version: int) -> None:
@@ -583,10 +615,12 @@ class MessageStore:
         assert self._base_dir.is_dir()
         backup_directory_name = (
             f"backup_{self._base_dir.name}_version_{from_version}_"
-            f"{we.Instant.now()}")
+            f"{we.Instant.now()}"
+        )
         backup_directory = self._base_dir.parent / backup_directory_name
         await asyncio.to_thread(
-            shutil.copytree, self._base_dir, backup_directory)
+            shutil.copytree, self._base_dir, backup_directory
+        )
         for _, file in list(self._list_all_session_files()):
             assert file.is_file()
             io = JsonlIO(file, mdl.MessageTypeAdapter)
@@ -612,21 +646,25 @@ class SessionMessageStore:
     This is a wrapper around MessageStore which makes the underlying methods
     available for one specific session.
     """
+
     def __init__(self, session_seq: int, message_store: MessageStore) -> None:
         self._session_seq = session_seq
         self._message_store = message_store
 
     async def append_message(self, message: msg.Message) -> None:
         return await self._message_store.append_message(
-            self._session_seq, message)
+            self._session_seq, message
+        )
 
     async def read_session_messages(self) -> list[msg.Message]:
         return await self._message_store.read_session_messages(
-            self._session_seq)
+            self._session_seq
+        )
 
 
 class MemoryStore(abc.ABC):
     """A persistent store for memory logs."""
+
     @abc.abstractmethod
     async def log_memory(self, content: str) -> None:
         """
@@ -639,9 +677,12 @@ class MemoryStore(abc.ABC):
 
     @abc.abstractmethod
     async def search_memory(
-            self, *, start_time: t.Optional[we.Instant],
-            end_time: t.Optional[we.Instant],
-            search_term: t.Optional[str]) -> cl_abc.AsyncGenerator[mdl.Memory]:
+        self,
+        *,
+        start_time: t.Optional[we.Instant],
+        end_time: t.Optional[we.Instant],
+        search_term: t.Optional[str],
+    ) -> cl_abc.AsyncGenerator[mdl.Memory]:
         """
         Search memories.
 
@@ -663,8 +704,10 @@ class MemoryStore(abc.ABC):
 
 class JsonlMemoryStore(MemoryStore):
     """Memory store backed by a jsonl file."""
+
     VERSION = 0
     """Current message store format version."""
+
     def __init__(self, base_dir: pathlib.Path) -> None:
         file_path = base_dir / "memory.jsonl"
         self._io = JsonlIO(file_path, mdl.Memory)
@@ -678,9 +721,11 @@ class JsonlMemoryStore(MemoryStore):
             await self._io.append(memory)
 
     async def search_memory(
-        self, *, start_time: t.Optional[we.Instant] = None,
+        self,
+        *,
+        start_time: t.Optional[we.Instant] = None,
         end_time: t.Optional[we.Instant] = None,
-        search_term: t.Optional[str] = None
+        search_term: t.Optional[str] = None,
     ) -> cl_abc.AsyncGenerator[mdl.Memory, None]:
         start_time = start_time or we.Instant.MIN
         end_time = end_time or we.Instant.MAX
@@ -688,8 +733,10 @@ class JsonlMemoryStore(MemoryStore):
         def is_relevant(memory):
             if not start_time <= memory.time <= end_time:
                 return False
-            if (search_term is not None
-                    and search_term.lower() not in memory.content.lower()):
+            if (
+                search_term is not None
+                and search_term.lower() not in memory.content.lower()
+            ):
                 return False
             return True
 

@@ -28,10 +28,12 @@ def do_with_resource_dir(resource_name: str, function):
 
 async def read_file(resource_name: str, file_path: pathlib.Path) -> str:
     """Read a file in the given resource."""
+
     def read(resource_dir: pathlib.Path):
         if file_path.is_absolute():
             raise ValueError(
-                "file_path must be relative to the resource directory")
+                "file_path must be relative to the resource directory"
+            )
         absolute_path = resource_dir / file_path
         with absolute_path.open() as f:
             return f.read()

@@ -30,17 +30,21 @@ class PersonalityNotFoundError(ValueError):
 
 async def list_personalities() -> list[str]:
     """List the names of all available agent personalities."""
+
     def list_personalities(personalities_dir: pathlib.Path):
         return sorted(
             file.name.removesuffix(".yaml")
-            for file in personalities_dir.glob("*.yaml"))
+            for file in personalities_dir.glob("*.yaml")
+        )
 
     return await asyncio.to_thread(
-        base.do_with_resource_dir, "personalities", list_personalities)
+        base.do_with_resource_dir, "personalities", list_personalities
+    )
 
 
 async def read_personality(name: str) -> mdl.AgentPersonality:
     """Read an agent personality by name."""
+
     def read_yaml(personalities_dir: pathlib.Path):
         yaml = ruamel.yaml.YAML()
         file_path = personalities_dir / f"{name}.yaml"
@@ -50,23 +54,25 @@ async def read_personality(name: str) -> mdl.AgentPersonality:
             raise PersonalityNotFoundError(f"personality {name} doesn't exist")
 
     personality_dict = await asyncio.to_thread(
-        base.do_with_resource_dir, "personalities", read_yaml)
+        base.do_with_resource_dir, "personalities", read_yaml
+    )
     return mdl.AgentPersonality.model_validate(personality_dict)
 
 
 async def read_personality_with_file_contents(
-        name: str) -> mdl.AgentPersonalityWithFileContents:
+    name: str,
+) -> mdl.AgentPersonalityWithFileContents:
     """Read an agent personality by name."""
     personality = await read_personality(name)
     file_contents = {}
     for pf in personality.personality_files:
         try:
             content = await base.read_file(
-                "personalities",
-                pathlib.Path(name) / pf.path)
+                "personalities", pathlib.Path(name) / pf.path
+            )
         except FileNotFoundError:
             content = None
         file_contents[pf.path] = content
     return mdl.AgentPersonalityWithFileContents.model_validate(
-        personality.model_dump()
-        | {"personality_file_contents": file_contents})
+        personality.model_dump() | {"personality_file_contents": file_contents}
+    )

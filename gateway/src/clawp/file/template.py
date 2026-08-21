@@ -56,7 +56,8 @@ async def read_message_template(path: str | pathlib.Path) -> Template:
 
 
 async def render_message_template(
-        path: str | pathlib.Path, **format_kwargs: str) -> str:
+    path: str | pathlib.Path, **format_kwargs: str
+) -> str:
     """
     Render a message template.
 
@@ -69,14 +70,17 @@ async def render_message_template(
 
 async def list_tutorial_topics() -> list[str]:
     """List all available tutorial topics."""
+
     def list_topics(templates_dir: pathlib.Path):
         tutorials_dir = templates_dir / "tutorial"
         return sorted(
             file.name.removesuffix(".md.template")
-            for file in tutorials_dir.glob("*.md.template"))
+            for file in tutorials_dir.glob("*.md.template")
+        )
 
     return await asyncio.to_thread(
-        base.do_with_resource_dir, "message_templates", list_topics)
+        base.do_with_resource_dir, "message_templates", list_topics
+    )
 
 
 async def render_tutorial(topic: str) -> str:
@@ -89,7 +93,8 @@ async def render_tutorial(topic: str) -> str:
 
 
 async def render_channel_status(
-        channel: "chan.Channel", available: bool) -> str:
+    channel: "chan.Channel", available: bool
+) -> str:
     """
     Render a channel status message.
 
@@ -102,15 +107,17 @@ async def render_channel_status(
         return await render_message_template(
             "system_information/channel_status_available.md",
             channel_type=channel.type,
-            status_json=channel_status.model_dump_json())
+            status_json=channel_status.model_dump_json(),
+        )
     return await render_message_template(
         "system_information/channel_status_unavailable.md",
-        channel_type=channel.type)
+        channel_type=channel.type,
+    )
 
 
 async def render_file_content(
-        workspace_directory: pathlib.Path,
-        relative_file_path: pathlib.Path) -> str:
+    workspace_directory: pathlib.Path, relative_file_path: pathlib.Path
+) -> str:
     """
     Render a file content message.
 
@@ -126,7 +133,8 @@ async def render_file_content(
     if not content:
         content = "<file is empty>"
     return await render_message_template(
-        "file_content.txt", file_path=relative_file_path, content=content)
+        "file_content.txt", file_path=relative_file_path, content=content
+    )
 
 
 async def render_workspace_info(agent: "agt.Agent") -> str:
@@ -136,17 +144,25 @@ async def render_workspace_info(agent: "agt.Agent") -> str:
     This message includes a list and description of all their personality
     files.
     """
-    personality_files_description = "\n".join([
-        f"- {pf.path}: {pf.description}"
-        for pf in agent.information.personality.personality_files])
+    personality_files_description = "\n".join(
+        [
+            f"- {pf.path}: {pf.description}"
+            for pf in agent.information.personality.personality_files
+        ]
+    )
     return await render_message_template(
-        "system_information/workspace.md", workspace_dir=agent.workspace_dir,
-        personality_files=personality_files_description)
+        "system_information/workspace.md",
+        workspace_dir=agent.workspace_dir,
+        personality_files=personality_files_description,
+    )
 
 
 async def render_message_send_error(
-        message: "msg.AgentMessage", exc: Exception) -> str:
+    message: "msg.AgentMessage", exc: Exception
+) -> str:
     """Render a message informing the agent about a message send error."""
     return await render_message_template(
-        "send_error.txt", chat=message.metadata.chat.model_dump_json(),
-        traceback="".join(traceback.format_exception(exc, limit=10)))
+        "send_error.txt",
+        chat=message.metadata.chat.model_dump_json(),
+        traceback="".join(traceback.format_exception(exc, limit=10)),
+    )

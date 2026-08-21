@@ -43,15 +43,21 @@ async def healthz() -> dict[str, str]:
 
 class Api:
     def __init__(
-            self, config: mdl.ApiConfig, agent_repo: agt.AgentRepository,
-            channel_pool: chan.ChannelPool) -> None:
+        self,
+        config: mdl.ApiConfig,
+        agent_repo: agt.AgentRepository,
+        channel_pool: chan.ChannelPool,
+    ) -> None:
         app = fastapi.FastAPI()
         app.state.agent_repo = agent_repo
         app.state.channel_pool = channel_pool
         app.include_router(router)
         config = uvicorn.Config(
-            app=app, host=str(config.host), port=config.port,
-            log_level=config.log_level)
+            app=app,
+            host=str(config.host),
+            port=config.port,
+            log_level=config.log_level,
+        )
         self._server = uvicorn.Server(config)
         self._serve_task: t.Optional[asyncio.Task[None]] = None
 
@@ -62,7 +68,8 @@ class Api:
             if self._serve_task.done():
                 await self._serve_task
                 raise RuntimeError(
-                    "API server exited before startup completed")
+                    "API server exited before startup completed"
+                )
             await asyncio.sleep(0.05)
 
         return self

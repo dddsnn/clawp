@@ -33,6 +33,7 @@ from . import util
 
 class InternalMessageMetadata:
     """Message metadata for internal messages."""
+
     def __init__(self, time: we.Instant | util.Value[we.Instant]) -> None:
         """
         :param time: The time the message was fully received.
@@ -52,11 +53,14 @@ class InternalMessageMetadata:
 
 class ChatMessageMetadata(InternalMessageMetadata):
     """Message metadata for chat messages."""
+
     def __init__(
-            self, time: we.Instant | util.Value[we.Instant],
-            chat: mdl.ChatDescriptor,
-            model_class: type[mdl.ChatMessageMetadata],
-            extra_model_kwargs: dict[str, t.Any]) -> None:
+        self,
+        time: we.Instant | util.Value[we.Instant],
+        chat: mdl.ChatDescriptor,
+        model_class: type[mdl.ChatMessageMetadata],
+        extra_model_kwargs: dict[str, t.Any],
+    ) -> None:
         """
         :param time: The time the message was fully received.
         :param chat: The chat the message is a part of.
@@ -71,12 +75,13 @@ class ChatMessageMetadata(InternalMessageMetadata):
     def from_model(model: mdl.ChatMessageMetadata) -> "ChatMessageMetadata":
         """Create from an existing model."""
         return ChatMessageMetadata._from_time_and_start_metadata(
-            util.ImmediateValue(model.time), model, type(model))
+            util.ImmediateValue(model.time), model, type(model)
+        )
 
     @staticmethod
     def from_start_metadata(
         model: mdl.StartMessageMetadata,
-        full_model_class: type[mdl.ChatMessageMetadata]
+        full_model_class: type[mdl.ChatMessageMetadata],
     ) -> "ChatMessageMetadata":
         """
         Create from only the metadata known at the start of a message.
@@ -88,12 +93,14 @@ class ChatMessageMetadata(InternalMessageMetadata):
             end metadata.
         """
         return ChatMessageMetadata._from_time_and_start_metadata(
-            util.FutureValue(), model, full_model_class)
+            util.FutureValue(), model, full_model_class
+        )
 
     @staticmethod
     def _from_time_and_start_metadata(
-            time: util.Value[we.Instant], model: mdl.StartMessageMetadata,
-            model_class: type[mdl.ChatMessageMetadata]
+        time: util.Value[we.Instant],
+        model: mdl.StartMessageMetadata,
+        model_class: type[mdl.ChatMessageMetadata],
     ) -> "ChatMessageMetadata":
         chat = model.chat
         model_kwargs = model.model_dump()
@@ -105,8 +112,10 @@ class ChatMessageMetadata(InternalMessageMetadata):
     async def model(self) -> mdl.ChatMessageMetadata:
         """Create a full metadata model."""
         return self._model_class(
-            time=await self.time.value, chat=self.chat,
-            **self._extra_model_kwargs)
+            time=await self.time.value,
+            chat=self.chat,
+            **self._extra_model_kwargs,
+        )
 
     @property
     def start_model(self) -> mdl.StartMessageMetadata:
@@ -117,7 +126,8 @@ class ChatMessageMetadata(InternalMessageMetadata):
         doesn't need to be awaited.
         """
         return self._model_class.start_metadata_class(
-            chat=self.chat, **self._extra_model_kwargs)
+            chat=self.chat, **self._extra_model_kwargs
+        )
 
 
 MessageMetadata = InternalMessageMetadata | ChatMessageMetadata
@@ -178,6 +188,7 @@ class InternalMessage(Message):
     This is the base class for system messages etc. that are injected directly
     into an agent's session.
     """
+
     def __init__(self, metadata: InternalMessageMetadata) -> None:
         super().__init__(metadata)
 
@@ -202,6 +213,7 @@ class ChatMessage(Message):
 
     This is the base class for user and agent messages which are sent in chats.
     """
+
     def __init__(self, metadata: ChatMessageMetadata) -> None:
         super().__init__(metadata)
 
@@ -223,8 +235,11 @@ class ChatMessage(Message):
 
 class SimpleInternalMessage(InternalMessage):
     def __init__(
-            self, metadata: InternalMessageMetadata,
-            role: mdl.InternalMessageRole, content: str) -> None:
+        self,
+        metadata: InternalMessageMetadata,
+        role: mdl.InternalMessageRole,
+        content: str,
+    ) -> None:
         super().__init__(metadata)
         if role not in t.get_args(mdl.InternalMessageRole):
             raise ValueError(f"invalid role {role}")
@@ -242,33 +257,39 @@ class SimpleInternalMessage(InternalMessage):
     @classmethod
     def from_model(cls, model: mdl.InternalMessage) -> t.Self:
         return cls(
-            InternalMessageMetadata.from_model(model.metadata), model.content)
+            InternalMessageMetadata.from_model(model.metadata), model.content
+        )
 
 
 class SystemMessage(SimpleInternalMessage):
     def __init__(
-            self, metadata: InternalMessageMetadata, content: str) -> None:
+        self, metadata: InternalMessageMetadata, content: str
+    ) -> None:
         super().__init__(metadata, "system", content)
 
     @property
     async def model(self) -> mdl.SystemMessage:
         return mdl.SystemMessage(
-            metadata=await self.metadata.model, content=await self.content)
+            metadata=await self.metadata.model, content=await self.content
+        )
 
 
 class DeveloperMessage(SimpleInternalMessage):
     def __init__(
-            self, metadata: InternalMessageMetadata, content: str) -> None:
+        self, metadata: InternalMessageMetadata, content: str
+    ) -> None:
         super().__init__(metadata, "developer", content)
 
     @property
     async def model(self) -> mdl.DeveloperMessage:
         return mdl.DeveloperMessage(
-            metadata=await self.metadata.model, content=await self.content)
+            metadata=await self.metadata.model, content=await self.content
+        )
 
 
 class UserMessage(ChatMessage):
     """Message sent by the user."""
+
     def __init__(self, metadata: ChatMessageMetadata, content: str) -> None:
         super().__init__(metadata)
         self._content = content
@@ -284,19 +305,25 @@ class UserMessage(ChatMessage):
     @property
     async def model(self) -> mdl.UserMessage:
         return mdl.UserMessage(
-            metadata=await self.metadata.model, content=self._content)
+            metadata=await self.metadata.model, content=self._content
+        )
 
     @classmethod
     def from_model(cls, model: mdl.UserMessage) -> t.Self:
         return cls(
-            ChatMessageMetadata.from_model(model.metadata), model.content)
+            ChatMessageMetadata.from_model(model.metadata), model.content
+        )
 
 
 class ToolMessage(SimpleInternalMessage):
     """Message sent by the system in response to a tool call."""
+
     def __init__(
-            self, metadata: InternalMessageMetadata, content: str,
-            tool_call_id: str) -> None:
+        self,
+        metadata: InternalMessageMetadata,
+        content: str,
+        tool_call_id: str,
+    ) -> None:
         super().__init__(metadata, "tool", content)
         self._tool_call_id = tool_call_id
 
@@ -307,19 +334,24 @@ class ToolMessage(SimpleInternalMessage):
     @property
     async def model(self) -> mdl.ToolMessage:
         return mdl.ToolMessage(
-            metadata=await self.metadata.model, content=await self.content,
-            tool_call_id=self.tool_call_id)
+            metadata=await self.metadata.model,
+            content=await self.content,
+            tool_call_id=self.tool_call_id,
+        )
 
     @classmethod
     def from_model(cls, model: mdl.ToolMessage) -> t.Self:
         return cls(
-            InternalMessageMetadata.from_model(model.metadata), model.content,
-            model.tool_call_id)
+            InternalMessageMetadata.from_model(model.metadata),
+            model.content,
+            model.tool_call_id,
+        )
 
 
 @dc.dataclass
 class ToolCallFunction:
     """A named function used in the agent's tool call."""
+
     name: str = ""
     arguments: str = ""
 
@@ -327,10 +359,12 @@ class ToolCallFunction:
 @dc.dataclass
 class ToolCall:
     """A tool call requested by the agent."""
+
     @staticmethod
     def _generate_random_call_id():
         random_string = "".join(
-            random.choices(string.ascii_letters + string.digits, k=24))
+            random.choices(string.ascii_letters + string.digits, k=24)
+        )
         return "call_" + random_string
 
     id: str = dc.field(default_factory=_generate_random_call_id)
@@ -339,8 +373,11 @@ class ToolCall:
     @property
     def model(self) -> mdl.ToolCall:
         return mdl.ToolCall(
-            id=self.id, function=mdl.ToolCallFunction(
-                name=self.function.name, arguments=self.function.arguments))
+            id=self.id,
+            function=mdl.ToolCallFunction(
+                name=self.function.name, arguments=self.function.arguments
+            ),
+        )
 
 
 class AgentMessagePart:
@@ -353,6 +390,7 @@ class AgentMessagePart:
     A part can be initialized with fragments, but then it is immediately
     finalized and nothing more can be appended.
     """
+
     VALID_TYPES = t.Literal["content", "error", "reasoning", "tool"]
 
     def __init__(self, part_type: VALID_TYPES, fragments: list | None = None):
@@ -369,7 +407,8 @@ class AgentMessagePart:
         await self._fragments.append(fragment)
 
     async def stream_fragments(
-            self) -> cl_abc.AsyncGenerator[str | ToolCall | Exception]:
+        self,
+    ) -> cl_abc.AsyncGenerator[str | ToolCall | Exception]:
         async for fragment in self._fragments.stream():
             yield fragment
 
@@ -381,7 +420,8 @@ class AgentMessageTextPart(AgentMessagePart):
     VALID_TYPES = t.Literal["content", "reasoning"]
 
     def __init__(
-            self, part_type: VALID_TYPES, fragments: list[str] | None = None):
+        self, part_type: VALID_TYPES, fragments: list[str] | None = None
+    ):
         super().__init__(part_type, fragments)
 
     async def append(self, text: str) -> None:
@@ -451,15 +491,17 @@ class AgentMessage(ChatMessage):
     tasks to set this data once it is available. The properties on the metadata
     will block until then. The tasks are awaited as part of wait_finalized().
     """
+
     _logger = logging.getLogger("AgentMessage")
 
     def __init__(
-            self, metadata: MessageMetadata,
-            parts: util.StreamableList) -> None:
+        self, metadata: MessageMetadata, parts: util.StreamableList
+    ) -> None:
         super().__init__(metadata)
         self._parts = parts
         self._deferred_set_tasks = {
-            asyncio.create_task(self._deferred_set(self._set_time()))}
+            asyncio.create_task(self._deferred_set(self._set_time()))
+        }
 
     async def _deferred_set(self, setter):
         try:
@@ -504,14 +546,16 @@ class AgentMessage(ChatMessage):
         return await self._concat_part_text("reasoning")
 
     async def _concat_part_text(
-            self, part_type: AgentMessageTextPart.VALID_TYPES):
+        self, part_type: AgentMessageTextPart.VALID_TYPES
+    ):
         result = ""
         async for text in self._collect_fragments(part_type):
             result += text
         return result
 
     async def _collect_fragments(
-            self, part_type: AgentMessagePart.VALID_TYPES):
+        self, part_type: AgentMessagePart.VALID_TYPES
+    ):
         await self._parts.wait_finalized()
         for part in self._parts:
             if part.type != part_type:
@@ -555,9 +599,12 @@ class AgentMessage(ChatMessage):
         tool_calls = [tool_call.model for tool_call in await self.tool_calls]
         error_models = [self.error_model(error) for error in await self.errors]
         return mdl.AgentMessage(
-            metadata=await self.metadata.model, content=await self.content,
-            reasoning=await self.reasoning, tool_calls=tool_calls,
-            errors=error_models)
+            metadata=await self.metadata.model,
+            content=await self.content,
+            reasoning=await self.reasoning,
+            tool_calls=tool_calls,
+            errors=error_models,
+        )
 
     @staticmethod
     def error_model(error: Exception) -> mdl.AgentMessageError:
@@ -568,18 +615,21 @@ class AgentMessage(ChatMessage):
         if isinstance(error, prov.OpenrouterChunkError):
             kwargs["error_code"] = error.error_code
         return mdl.AgentMessageError(
-            type=type(error).__name__, message=str(error), kwargs=kwargs)
+            type=type(error).__name__, message=str(error), kwargs=kwargs
+        )
 
     @classmethod
     def from_model(cls, model: mdl.AgentMessage) -> t.Self:
         parts: list[AgentMessagePart] = [
-            AgentMessageContentPart([model.content])]
+            AgentMessageContentPart([model.content])
+        ]
         if model.reasoning:
             parts.append(AgentMessageReasoningPart([model.reasoning]))
         tool_calls = []
         for tool_call in model.tool_calls:
             function = ToolCallFunction(
-                tool_call.function.name, tool_call.function.arguments)
+                tool_call.function.name, tool_call.function.arguments
+            )
             tool_calls.append(ToolCall(tool_call.id, function))
         if tool_calls:
             parts.append(AgentMessageToolPart(tool_calls))
@@ -587,21 +637,25 @@ class AgentMessage(ChatMessage):
             parts.append(AgentMessageErrorPart([error]))
         return cls(
             ChatMessageMetadata.from_model(model.metadata),
-            util.StreamableList(parts))
+            util.StreamableList(parts),
+        )
 
     @classmethod
     def _parse_error_models(
-            cls, error_models: list[mdl.AgentMessageError]) -> list[Exception]:
+        cls, error_models: list[mdl.AgentMessageError]
+    ) -> list[Exception]:
         errors = []
         for error_model in error_models:
             try:
                 if error_model.type == prov.FinishReasonError.__name__:
                     error = prov.FinishReasonError(
                         error_model.message,
-                        error_model.kwargs["finish_reason"])
+                        error_model.kwargs["finish_reason"],
+                    )
                 if error_model.type == prov.OpenrouterChunkError.__name__:
                     error = prov.OpenrouterChunkError(
-                        error_model.message, error_model.kwargs["error_code"])
+                        error_model.message, error_model.kwargs["error_code"]
+                    )
                 else:
                     error = Exception(error_model.message)
             except Exception:

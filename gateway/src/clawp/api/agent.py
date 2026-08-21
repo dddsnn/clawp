@@ -55,16 +55,18 @@ class WebsocketCloseCode(enum.IntEnum):
 
 @router.get("")
 async def list_agents(
-        agent_repo: dep.AgentRepository) -> list[mdl.AgentInformation]:
+    agent_repo: dep.AgentRepository,
+) -> list[mdl.AgentInformation]:
     """Get a list of agents."""
     return [agent.information for agent in agent_repo.iter_agents()]
 
 
 @router.get("/hatch")
 async def hatch_new_agent(
-        agent_repo: dep.AgentRepository,
-        agent_name: t.Annotated[str, fa.Query(min_length=1)],
-        personality_name: str) -> mdl.AgentInformation:
+    agent_repo: dep.AgentRepository,
+    agent_name: t.Annotated[str, fa.Query(min_length=1)],
+    personality_name: str,
+) -> mdl.AgentInformation:
     """
     Hatch a new agent.
 
@@ -74,15 +76,17 @@ async def hatch_new_agent(
         agent = await agent_repo.hatch_agent(agent_name, personality_name)
     except file.PersonalityNotFoundError:
         raise fa_exc.HTTPException(
-            status_code=404,
-            detail=f"No personality named {personality_name}.")
+            status_code=404, detail=f"No personality named {personality_name}."
+        )
     return agent.information
 
 
 @router.get("/{agent_id}/messages")
 async def get_messages(
-        agent: dep.Agent, ge_time: we.Instant = we.Instant.MIN,
-        lt_message_seq: int = 2**64) -> list[mdl.MessageInSession]:
+    agent: dep.Agent,
+    ge_time: we.Instant = we.Instant.MIN,
+    lt_message_seq: int = 2**64,
+) -> list[mdl.MessageInSession]:
     """
     Get a list of messages.
 
@@ -98,15 +102,20 @@ async def get_messages(
             result.append(
                 mdl.MessageInSession(
                     message=await message_in_session.message.model,
-                    message_offset=message_in_session.message_offset))
+                    message_offset=message_in_session.message_offset,
+                )
+            )
     return result
 
 
 @router.websocket(
-    "/{agent_id}/stream/{cachebuster_to_circumvent_reconnection_delay}")
+    "/{agent_id}/stream/{cachebuster_to_circumvent_reconnection_delay}"
+)
 async def websocket_stream(
-        websocket: fa.WebSocket, agent: dep.Agent,
-        cachebuster_to_circumvent_reconnection_delay: str) -> None:
+    websocket: fa.WebSocket,
+    agent: dep.Agent,
+    cachebuster_to_circumvent_reconnection_delay: str,
+) -> None:
     """
     Open a websocket to stream messages.
 
@@ -142,7 +151,8 @@ async def websocket_stream(
     """
     await websocket.accept()
     send_task = asyncio.create_task(
-        _send_websocket(websocket, agent.subscribe()))
+        _send_websocket(websocket, agent.subscribe())
+    )
     try:
         while True:
             input_json = await websocket.receive_json()
@@ -157,15 +167,17 @@ async def websocket_stream(
     except Exception:
         logger.exception("Error in websocket.")
         await _try_close_websocket(
-            websocket, WebsocketCloseCode.UNEXPECTED_CONDITION)
+            websocket, WebsocketCloseCode.UNEXPECTED_CONDITION
+        )
     finally:
         send_task.cancel()
         await send_task
 
 
 async def _send_websocket(
-        websocket: fa.WebSocket,
-        message_iter: cl_abc.AsyncIterable["agt.MessageInSession"]) -> None:
+    websocket: fa.WebSocket,
+    message_iter: cl_abc.AsyncIterable["agt.MessageInSession"],
+) -> None:
     try:
         async for message_in_session in message_iter:
             async for chunk in _generate_message_chunks(message_in_session):
@@ -177,30 +189,37 @@ async def _send_websocket(
                 # see the first chunk of the content once the entire content
                 # has been received).
                 send_task = asyncio.create_task(
-                    websocket.send_text(chunk.model_dump_json()))
+                    websocket.send_text(chunk.model_dump_json())
+                )
                 await send_task
     except asyncio.CancelledError:
         return
 
 
 async def _generate_message_chunks(
-    message_in_session: "agt.MessageInSession"
+    message_in_session: "agt.MessageInSession",
 ) -> cl_abc.AsyncGenerator[mdl.WebsocketChunk]:
     if not isinstance(message_in_session.message, msg.AgentMessage):
         yield mdl.WebsocketChunkFullMessage(
             payload=mdl.MessageInSession(
                 message=await message_in_session.message.model,
-                message_offset=message_in_session.message_offset))
+                message_offset=message_in_session.message_offset,
+            )
+        )
         return
     # At this point, it's a streaming agent message.
     yield mdl.WebsocketChunkAgentMessageMarker(
         payload=mdl.StreamingMessageMarkerMessageStart(
             metadata=message_in_session.message.metadata.start_model,
-            message_offset=message_in_session.message_offset))
+            message_offset=message_in_session.message_offset,
+        )
+    )
     async for message_part in message_in_session.message.stream_parts():
         yield mdl.WebsocketChunkAgentMessageMarker(
             payload=mdl.StreamingMessageMarkerPartStart(
-                part_type=message_part.type))
+                part_type=message_part.type
+            )
+        )
         if isinstance(message_part, msg.AgentMessageTextPart):
             fragment_gen = _generate_text_fragments(message_part)
         elif isinstance(message_part, msg.AgentMessageErrorPart):
@@ -211,30 +230,34 @@ async def _generate_message_chunks(
         async for fragment in fragment_gen:
             yield mdl.WebsocketChunkAgentMessageFragment(payload=fragment)
         yield mdl.WebsocketChunkAgentMessageMarker(
-            payload=mdl.StreamingMessageMarkerPartEnd())
+            payload=mdl.StreamingMessageMarkerPartEnd()
+        )
     end_metadata = mdl.EndMessageMetadata(
-        time=await message_in_session.message.metadata.time.value)
+        time=await message_in_session.message.metadata.time.value
+    )
     yield mdl.WebsocketChunkAgentMessageMarker(
-        payload=mdl.StreamingMessageMarkerMessageEnd(metadata=end_metadata))
+        payload=mdl.StreamingMessageMarkerMessageEnd(metadata=end_metadata)
+    )
 
 
 async def _generate_text_fragments(
-    message_part: msg.AgentMessageTextPart
+    message_part: msg.AgentMessageTextPart,
 ) -> cl_abc.AsyncGenerator[mdl.StreamingMessageFragmentText]:
     async for fragment in message_part.stream_fragments():
         yield mdl.StreamingMessageFragmentText(fragment=fragment)
 
 
 async def _generate_error_fragments(
-    message_part: msg.AgentMessageErrorPart
+    message_part: msg.AgentMessageErrorPart,
 ) -> cl_abc.AsyncGenerator[mdl.StreamingMessageFragmentError]:
     async for exc in message_part.stream_fragments():
         yield mdl.StreamingMessageFragmentError(
-            fragment=msg.AgentMessage.error_model(exc))
+            fragment=msg.AgentMessage.error_model(exc)
+        )
 
 
 async def _generate_tool_call_fragments(
-    message_part: msg.AgentMessageToolPart
+    message_part: msg.AgentMessageToolPart,
 ) -> cl_abc.AsyncGenerator[mdl.StreamingMessageFragmentToolCall]:
     async for tool_call in message_part.stream_fragments():
         yield mdl.StreamingMessageFragmentToolCall(fragment=tool_call.model)
@@ -244,14 +267,16 @@ async def _handle_websocket_input(input_json, agent: "agt.Agent") -> None:
     input_message = mdl.UserInputMessageTypeAdapter.validate_python(input_json)
     if isinstance(input_message, mdl.UserInputMessageContent):
         await agent.web_ui_channel.add_incoming_user_message(
-            we.Instant.now(), input_message.content)
+            we.Instant.now(), input_message.content
+        )
     else:
         assert isinstance(input_message, mdl.UserInputMessageRequestResponse)
         await agent.request_response()
 
 
 async def _try_close_websocket(
-        websocket: fa.WebSocket, close_code: WebsocketCloseCode) -> None:
+    websocket: fa.WebSocket, close_code: WebsocketCloseCode
+) -> None:
     try:
         async with asyncio.timeout(5):
             await websocket.close(code=close_code)

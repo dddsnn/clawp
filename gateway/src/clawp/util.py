@@ -46,13 +46,15 @@ class StreamableList:
     The list can be initialized with content, in which case it is immediately
     finalized (i.e. no more elements can be added).
     """
+
     def __init__(self, content: list | None = None):
         self._new_element_condition = asyncio.Condition()
         self._num_readers = 0
         self._num_readers_condition = asyncio.Condition()
         self._finalized_event = asyncio.Event()
         self._finalized_wait_task = asyncio.create_task(
-            self._finalized_event.wait())
+            self._finalized_event.wait()
+        )
         if content is None:
             self._list = []
         else:
@@ -96,7 +98,8 @@ class StreamableList:
         if compact:
             async with self._num_readers_condition:
                 await self._num_readers_condition.wait_for(
-                    lambda: self._num_readers == 0)
+                    lambda: self._num_readers == 0
+                )
                 self._list = compact(self._list)
 
     async def wait_finalized(self) -> None:
@@ -130,10 +133,12 @@ class StreamableList:
                 elif self.finalized():
                     return
                 new_element_wait_task = asyncio.create_task(
-                    self._wait_for_new_element())
+                    self._wait_for_new_element()
+                )
                 await asyncio.wait(
                     {new_element_wait_task, self._finalized_wait_task},
-                    return_when=asyncio.FIRST_COMPLETED)
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
                 new_element_wait_task.cancel()
         finally:
             self._num_readers -= 1
@@ -154,6 +159,7 @@ class Publisher:
     When the asynchronous context manager exits, the streams of all subscribers
     exit.
     """
+
     SeqElement = cl.namedtuple("SeqElement", ["seq", "element"])
 
     def __init__(self):
@@ -210,7 +216,8 @@ class Publisher:
                     element = next(
                         se.element
                         for se in self._history
-                        if se.seq == wanted_seq)
+                        if se.seq == wanted_seq
+                    )
                     yield element
                     self._subscriber_next_seq[subscriber_id] += 1
                     self._prune_history()
@@ -220,7 +227,8 @@ class Publisher:
                         def have_data():
                             return (
                                 not self._running
-                                or wanted_seq < self._next_seq)
+                                or wanted_seq < self._next_seq
+                            )
 
                         await self._condition.wait_for(have_data)
                 if not self._running:
@@ -233,7 +241,8 @@ class Publisher:
 
     def _prune_history(self) -> None:
         min_next_seq = min(
-            self._subscriber_next_seq.values(), default=float("inf"))
+            self._subscriber_next_seq.values(), default=float("inf")
+        )
         prune_count = sum(1 for se in self._history if se.seq < min_next_seq)
         del self._history[:prune_count]
 
@@ -243,6 +252,7 @@ ValueType = t.TypeVar("ValueType")
 
 class Value(t.Generic[ValueType], metaclass=abc.ABCMeta):
     """A value wrapper."""
+
     @property
     @abc.abstractmethod
     async def value(self) -> ValueType:
@@ -251,6 +261,7 @@ class Value(t.Generic[ValueType], metaclass=abc.ABCMeta):
 
 class ImmediateValue(Value):
     """A value that is immediately available."""
+
     def __init__(self, value):
         self._value = value
 
@@ -261,6 +272,7 @@ class ImmediateValue(Value):
 
 class FutureValue(Value):
     """A value that will be available in the future."""
+
     def __init__(self):
         self._set_event = asyncio.Event()
         self._value = None
@@ -286,9 +298,13 @@ class TtlCache(t.Generic[ValueType]):
     the value. Concurrent callers share that refresh. Failed or cancelled
     refreshes are not cached.
     """
+
     def __init__(
-        self, ttl: float,
-        refresh: cl_abc.Callable[[], cl_abc.Coroutine[t.Any, t.Any, ValueType]]
+        self,
+        ttl: float,
+        refresh: cl_abc.Callable[
+            [], cl_abc.Coroutine[t.Any, t.Any, ValueType]
+        ],
     ) -> None:
         """
         :param ttl: Time in seconds for which the value is cached (using the

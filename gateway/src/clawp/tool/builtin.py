@@ -36,7 +36,7 @@ if t.TYPE_CHECKING:
 
 
 def make_filesystem_proxy(
-    agent_workspace: pathlib.Path
+    agent_workspace: pathlib.Path,
 ) -> fastmcp.server.providers.proxy.FastMCPProxy:
     """
     Create proxy to filesystem server.
@@ -52,17 +52,23 @@ def make_filesystem_proxy(
         env={"HOME": str(agent_workspace.resolve())},
     )
     client_factory = ft.partial(
-        fastmcp.Client, transport,
-        roots=[f"file://{agent_workspace.resolve()}"])
+        fastmcp.Client,
+        transport,
+        roots=[f"file://{agent_workspace.resolve()}"],
+    )
     return fastmcp.server.providers.proxy.FastMCPProxy(
-        client_factory=client_factory)
+        client_factory=client_factory
+    )
 
 
 class ClawpMcpServer(fastmcp.FastMCP):
     """MCP server providing tools to interact with Clawp itself."""
+
     def __init__(
-            self, agent: "agt.Agent",
-            complex_metadata_registry: base.ComplexToolResultMetadataRegistry):
+        self,
+        agent: "agt.Agent",
+        complex_metadata_registry: base.ComplexToolResultMetadataRegistry,
+    ):
         super().__init__("Clawp system MCP server")
         self._agent = agent
         self._complex_metadata_registry = complex_metadata_registry
@@ -81,7 +87,8 @@ class ClawpMcpServer(fastmcp.FastMCP):
 
     @session_transaction.setter
     def session_transaction(
-            self, value: t.Optional["agt.SessionTransaction"]) -> None:
+        self, value: t.Optional["agt.SessionTransaction"]
+    ) -> None:
         self._session_transaction = value
 
     async def list_tutorial_topics(self) -> list[str]:
@@ -96,7 +103,8 @@ class ClawpMcpServer(fastmcp.FastMCP):
             raise ValueError(f"topic {topic} doesn't exist") from e
 
     async def switch_chat(
-            self, channel: str, chat_id: str) -> fastmcp.tools.ToolResult:
+        self, channel: str, chat_id: str
+    ) -> fastmcp.tools.ToolResult:
         """
         Switch the active chat.
 
@@ -115,7 +123,8 @@ class ClawpMcpServer(fastmcp.FastMCP):
         except Exception as e:
             raise fastmcp.exceptions.ToolError(
                 f"{content}\n\n But there was an error fetching unread "
-                f"messages: {e}")
+                f"messages: {e}"
+            )
         if not unread_messages:
             content += " No unread messages."
         else:
@@ -124,13 +133,15 @@ class ClawpMcpServer(fastmcp.FastMCP):
         # Specify an operation on the session that appends all the unread
         # messages after the tool result.
         async def add_unread_messages_to_session(
-                tx: "agt.SessionTransaction") -> None:
+            tx: "agt.SessionTransaction",
+        ) -> None:
             for message in unread_messages:
                 assert message.chat == chat
                 await tx.append_incoming_message(message)
 
         return self._complex_metadata_registry.make_result(
-            content, session_operation=add_unread_messages_to_session)
+            content, session_operation=add_unread_messages_to_session
+        )
 
     async def log_memory(self, content: str) -> None:
         """
@@ -142,9 +153,11 @@ class ClawpMcpServer(fastmcp.FastMCP):
         await self._agent.memory_store.log_memory(content)
 
     async def search_memory(
-            self, start_time: t.Optional[base.Iso8601Instant] = None,
-            end_time: t.Optional[base.Iso8601Instant] = None,
-            search_term: t.Optional[str] = None) -> list[mdl.Memory]:
+        self,
+        start_time: t.Optional[base.Iso8601Instant] = None,
+        end_time: t.Optional[base.Iso8601Instant] = None,
+        search_term: t.Optional[str] = None,
+    ) -> list[mdl.Memory]:
         """
         Search memories.
 
@@ -161,5 +174,6 @@ class ClawpMcpServer(fastmcp.FastMCP):
         If no filters are specified, all memories are returned.
         """
         memory_iter = self._agent.memory_store.search_memory(
-            start_time=start_time, end_time=end_time, search_term=search_term)
+            start_time=start_time, end_time=end_time, search_term=search_term
+        )
         return [memory async for memory in memory_iter]

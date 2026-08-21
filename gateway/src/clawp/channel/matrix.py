@@ -36,6 +36,7 @@ class MatrixChannel(base.Channel):
     This channel is used to communicate via Matrix. Credentials are
     configured on construction.
     """
+
     @dc.dataclass
     class RoomMessageEvent:
         room: nio.MatrixRoom
@@ -43,30 +44,38 @@ class MatrixChannel(base.Channel):
         incoming_message: mdl.IncomingMessage
 
     def __init__(
-            self, store_dir: pathlib.Path,
-            config: mdl.MatrixAccountConfig) -> None:
+        self, store_dir: pathlib.Path, config: mdl.MatrixAccountConfig
+    ) -> None:
         super().__init__("matrix")
         self._config = config
         client_config = nio.AsyncClientConfig(
-            encryption_enabled=True, store_sync_tokens=True)
+            encryption_enabled=True, store_sync_tokens=True
+        )
         self._client = nio.AsyncClient(
-            self._config.homeserver, self._config.username,
+            self._config.homeserver,
+            self._config.username,
             device_id=self._config.device_id,
-            store_path=str(store_dir.resolve()), config=client_config)
+            store_path=str(store_dir.resolve()),
+            config=client_config,
+        )
         self._client.add_event_callback(
-            self._on_room_message_text, nio.RoomMessageText)
+            self._on_room_message_text, nio.RoomMessageText
+        )
         self._sync_forever_task = None
         self._unread_message_events: dict[
-            str, list[MatrixChannel.RoomMessageEvent]] = {}
+            str, list[MatrixChannel.RoomMessageEvent]
+        ] = {}
 
     async def start(self, agent: agt.Agent) -> None:
         await super().start(agent)
         await self._client.login(self._config.password.value)
         self._client.load_store()
         self._sync_forever_task = asyncio.create_task(
-            self._client.sync_forever())
+            self._client.sync_forever()
+        )
         await self._client.set_displayname(
-            self._agent.information.name_with_agent_tag)
+            self._agent.information.name_with_agent_tag
+        )
 
     async def stop(self) -> None:
         await super().stop()
@@ -84,7 +93,8 @@ class MatrixChannel(base.Channel):
                 await self._client.close()
         except Exception:
             self._logger.exception(
-                "Error closing underlying network connection.")
+                "Error closing underlying network connection."
+            )
 
     @property
     def id(self) -> str:
@@ -93,10 +103,12 @@ class MatrixChannel(base.Channel):
     @property
     async def status(self) -> mdl.MatrixChannelStatus:
         return mdl.MatrixChannelStatus(
-            available=True, username=self._config.username)
+            available=True, username=self._config.username
+        )
 
     async def get_chat_descriptor(
-            self, chat_id: str) -> mdl.MatrixChatDescriptor:
+        self, chat_id: str
+    ) -> mdl.MatrixChatDescriptor:
         return mdl.MatrixChatDescriptor(chat_id=chat_id, room_name=None)
 
     async def num_unread_messages(self, chat_id: str) -> int:
@@ -105,8 +117,9 @@ class MatrixChannel(base.Channel):
         except KeyError:
             raise base.ChatIdError(f"no room {chat_id}")
 
-    async def get_unread_messages(self,
-                                  chat_id: str) -> list[mdl.IncomingMessage]:
+    async def get_unread_messages(
+        self, chat_id: str
+    ) -> list[mdl.IncomingMessage]:
         try:
             room_message_events = self._unread_message_events[chat_id]
         except KeyError:
@@ -115,8 +128,10 @@ class MatrixChannel(base.Channel):
             return []
         last_event_id = room_message_events[-1].event.event_id
         resp = await self._client.room_read_markers(
-            room_id=chat_id, fully_read_event=last_event_id,
-            read_event=last_event_id)
+            room_id=chat_id,
+            fully_read_event=last_event_id,
+            read_event=last_event_id,
+        )
         if isinstance(resp, nio.RoomReadMarkersError):
             raise base.ChannelError(f"error in updating read marker: {resp}")
         self._unread_message_events[chat_id] = []
@@ -124,13 +139,17 @@ class MatrixChannel(base.Channel):
 
     def make_outgoing_start_metadata(
         self, chat: mdl.MatrixChatDescriptor
-    ) -> tuple[mdl.MatrixStartMessageMetadata,
-               t.Literal[mdl.MatrixChatMessageMetadata]]:
+    ) -> tuple[
+        mdl.MatrixStartMessageMetadata,
+        t.Literal[mdl.MatrixChatMessageMetadata],
+    ]:
         if chat.channel != "matrix":
             raise ValueError(f"got descriptor for {chat.channel}")
         start_metadata = mdl.MatrixStartMessageMetadata(
-            chat=chat, sender_id=self.id,
-            sender_name=self._agent.information.name_with_agent_tag)
+            chat=chat,
+            sender_id=self.id,
+            sender_name=self._agent.information.name_with_agent_tag,
+        )
         return start_metadata, mdl.MatrixChatMessageMetadata
 
     async def send(self, message: msg.AgentMessage) -> None:
@@ -138,32 +157,40 @@ class MatrixChannel(base.Channel):
         if self._unread_message_events.get(message.metadata.chat.chat_id, []):
             raise base.ChannelError("can't send if there are unread messages")
         await self._client.room_send(
-            message.metadata.chat.chat_id, message_type="m.room.message",
-            content={"msgtype": "m.text", "body": await message.content})
+            message.metadata.chat.chat_id,
+            message_type="m.room.message",
+            content={"msgtype": "m.text", "body": await message.content},
+        )
 
     async def _on_room_message_text(
-            self, room: nio.MatrixRoom, event: nio.RoomMessageText) -> None:
+        self, room: nio.MatrixRoom, event: nio.RoomMessageText
+    ) -> None:
         if event.sender == self._config.username:
             # We will get events for messages we sent. Avoid feedback loops.
             return
         room_message_event = self._make_room_message_event(room, event)
-        self._unread_message_events.setdefault(room.room_id,
-                                               []).append(room_message_event)
+        self._unread_message_events.setdefault(room.room_id, []).append(
+            room_message_event
+        )
         await self._publisher.append(room_message_event.incoming_message)
 
     def _make_room_message_event(
-            self, room: nio.MatrixRoom,
-            event: nio.RoomMessageText) -> RoomMessageEvent:
+        self, room: nio.MatrixRoom, event: nio.RoomMessageText
+    ) -> RoomMessageEvent:
         metadata = mdl.MatrixChatMessageMetadata(
             time=we.Instant.from_timestamp_millis(event.server_timestamp),
             chat=mdl.MatrixChatDescriptor(
-                chat_id=room.room_id, room_name=room.named_room_name()),
+                chat_id=room.room_id, room_name=room.named_room_name()
+            ),
             sender_id=event.sender,
             sender_name=room.user_name(event.sender),
         )
         message = mdl.MatrixChatMessage(
-            role="user", metadata=metadata, content=event.body)
+            role="user", metadata=metadata, content=event.body
+        )
         incoming_message = mdl.IncomingMessage(
-            chat=message.metadata.chat, message=message)
+            chat=message.metadata.chat, message=message
+        )
         return self.RoomMessageEvent(
-            room=room, event=event, incoming_message=incoming_message)
+            room=room, event=event, incoming_message=incoming_message
+        )
