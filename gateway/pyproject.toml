@@ -32,7 +32,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "yapf>=0.43.0",
+    "ruff>=0.16.4",
 ]
 test = [
     "async-solipsism>=0.9",
@@ -60,3 +60,9 @@ addopts = ["-v", "-l"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 log_level = "debug"
+
+[tool.ruff]
+line-length = 79
+
+[tool.ruff.format]
+line-ending = "lf"
