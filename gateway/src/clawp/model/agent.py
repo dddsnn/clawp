@@ -35,7 +35,7 @@ class AgentPersonality(base.BaseModel):
 
 
 class AgentPersonalityWithFileContents(AgentPersonality):
-    personality_file_contents: dict[pathlib.Path, t.Optional[str]]
+    personality_file_contents: dict[pathlib.Path, str | None]
     """
     File content for each of the personality files.
 

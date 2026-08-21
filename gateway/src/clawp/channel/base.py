@@ -18,7 +18,6 @@
 import abc
 import collections.abc as cl_abc
 import logging
-import typing as t
 
 from .. import agent as agt
 from .. import message as msg
@@ -34,7 +33,7 @@ class ChatIdError(ChannelError, ValueError):
     """Raised when a chat ID is invalid in any way."""
 
 
-class MessageSender(abc.ABC):
+class MessageSender(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def make_outgoing_start_metadata(
         self, chat: mdl.ChatDescriptor
@@ -55,7 +54,7 @@ class MessageSender(abc.ABC):
         raise NotImplementedError
 
 
-class Channel(MessageSender):
+class Channel(MessageSender, metaclass=abc.ABCMeta):
     """
     A communication channel.
 
@@ -87,7 +86,7 @@ class Channel(MessageSender):
 
     @property
     @abc.abstractmethod
-    def id(self) -> t.Optional[str]:
+    def id(self) -> str | None:
         """
         ID for the particular instance of the channel.
 

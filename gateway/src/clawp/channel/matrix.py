@@ -59,9 +59,9 @@ class MatrixChannel(base.Channel):
             config=client_config,
         )
         self._client.add_event_callback(
-            self._on_room_message_text, nio.RoomMessageText
+            self._on_room_message_text,  # pyright: ignore[reportArgumentType]
+            nio.RoomMessageText,
         )
-        self._sync_forever_task = None
         self._unread_message_events: dict[
             str, list[MatrixChannel.RoomMessageEvent]
         ] = {}
@@ -95,6 +95,10 @@ class MatrixChannel(base.Channel):
             self._logger.exception(
                 "Error closing underlying network connection."
             )
+
+    @property
+    def type(self) -> t.Literal["matrix"]:
+        return "matrix"
 
     @property
     def id(self) -> str:
@@ -141,10 +145,10 @@ class MatrixChannel(base.Channel):
         self, chat: mdl.MatrixChatDescriptor
     ) -> tuple[
         mdl.MatrixStartMessageMetadata,
-        t.Literal[mdl.MatrixChatMessageMetadata],
+        type[mdl.MatrixChatMessageMetadata],
     ]:
         if chat.channel != "matrix":
-            raise ValueError(f"got descriptor for {chat.channel}")
+            raise ValueError(f"got descriptor for {chat.channel}")  # pyright: ignore[reportUnreachable]
         start_metadata = mdl.MatrixStartMessageMetadata(
             chat=chat,
             sender_id=self.id,
@@ -177,13 +181,16 @@ class MatrixChannel(base.Channel):
     def _make_room_message_event(
         self, room: nio.MatrixRoom, event: nio.RoomMessageText
     ) -> RoomMessageEvent:
+        sender_name = room.user_name(event.sender)
+        if sender_name is None:
+            sender_name = "<unknown>"
         metadata = mdl.MatrixChatMessageMetadata(
             time=we.Instant.from_timestamp_millis(event.server_timestamp),
             chat=mdl.MatrixChatDescriptor(
                 chat_id=room.room_id, room_name=room.named_room_name()
             ),
             sender_id=event.sender,
-            sender_name=room.user_name(event.sender),
+            sender_name=sender_name,
         )
         message = mdl.MatrixChatMessage(
             role="user", metadata=metadata, content=event.body

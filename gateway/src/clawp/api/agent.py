@@ -114,7 +114,7 @@ async def get_messages(
 async def websocket_stream(
     websocket: fa.WebSocket,
     agent: dep.Agent,
-    cachebuster_to_circumvent_reconnection_delay: str,
+    cachebuster_to_circumvent_reconnection_delay: str,  # pyright: ignore[reportUnusedParameter]
 ) -> None:
     """
     Open a websocket to stream messages.
@@ -176,7 +176,7 @@ async def websocket_stream(
 
 async def _send_websocket(
     websocket: fa.WebSocket,
-    message_iter: cl_abc.AsyncIterable["agt.MessageInSession"],
+    message_iter: cl_abc.AsyncIterable[agt.MessageInSession],
 ) -> None:
     try:
         async for message_in_session in message_iter:
@@ -197,7 +197,7 @@ async def _send_websocket(
 
 
 async def _generate_message_chunks(
-    message_in_session: "agt.MessageInSession",
+    message_in_session: agt.MessageInSession,
 ) -> cl_abc.AsyncGenerator[mdl.WebsocketChunk]:
     if not isinstance(message_in_session.message, msg.AgentMessage):
         yield mdl.WebsocketChunkFullMessage(
@@ -263,7 +263,7 @@ async def _generate_tool_call_fragments(
         yield mdl.StreamingMessageFragmentToolCall(fragment=tool_call.model)
 
 
-async def _handle_websocket_input(input_json, agent: "agt.Agent") -> None:
+async def _handle_websocket_input(input_json, agent: agt.Agent) -> None:
     input_message = mdl.UserInputMessageTypeAdapter.validate_python(input_json)
     if isinstance(input_message, mdl.UserInputMessageContent):
         await agent.web_ui_channel.add_incoming_user_message(

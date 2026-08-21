@@ -43,11 +43,13 @@ class InternalMessageMetadata:
         self.time = time
 
     @staticmethod
-    def from_model(model: mdl.InternalMessage) -> "InternalMessageMetadata":
+    def from_model(
+        model: mdl.InternalMessageMetadata,
+    ) -> InternalMessageMetadata:
         return InternalMessageMetadata(model.time)
 
     @property
-    async def model(self) -> mdl.MessageMetadata:
+    async def model(self) -> mdl.InternalMessageMetadata:
         return mdl.InternalMessageMetadata(time=await self.time.value)
 
 
@@ -72,7 +74,7 @@ class ChatMessageMetadata(InternalMessageMetadata):
         self._extra_model_kwargs = extra_model_kwargs
 
     @staticmethod
-    def from_model(model: mdl.ChatMessageMetadata) -> "ChatMessageMetadata":
+    def from_model(model: mdl.ChatMessageMetadata) -> ChatMessageMetadata:
         """Create from an existing model."""
         return ChatMessageMetadata._from_time_and_start_metadata(
             util.ImmediateValue(model.time), model, type(model)
@@ -82,7 +84,7 @@ class ChatMessageMetadata(InternalMessageMetadata):
     def from_start_metadata(
         model: mdl.StartMessageMetadata,
         full_model_class: type[mdl.ChatMessageMetadata],
-    ) -> "ChatMessageMetadata":
+    ) -> ChatMessageMetadata:
         """
         Create from only the metadata known at the start of a message.
 
@@ -101,7 +103,7 @@ class ChatMessageMetadata(InternalMessageMetadata):
         time: util.Value[we.Instant],
         model: mdl.StartMessageMetadata,
         model_class: type[mdl.ChatMessageMetadata],
-    ) -> "ChatMessageMetadata":
+    ) -> ChatMessageMetadata:
         chat = model.chat
         model_kwargs = model.model_dump()
         model_kwargs.pop("time", None)
@@ -113,7 +115,7 @@ class ChatMessageMetadata(InternalMessageMetadata):
         """Create a full metadata model."""
         return self._model_class(
             time=await self.time.value,
-            chat=self.chat,
+            chat=self.chat,  # pyright: ignore[reportArgumentType]
             **self._extra_model_kwargs,
         )
 
@@ -126,19 +128,20 @@ class ChatMessageMetadata(InternalMessageMetadata):
         doesn't need to be awaited.
         """
         return self._model_class.start_metadata_class(
-            chat=self.chat, **self._extra_model_kwargs
+            chat=self.chat,  # pyright: ignore[reportArgumentType]
+            **self._extra_model_kwargs,
         )
 
 
 MessageMetadata = InternalMessageMetadata | ChatMessageMetadata
 
 
-class Message(abc.ABC):
-    def __init__(self, metadata: MessageMetadata) -> None:
+class Message[MetadataType: MessageMetadata](abc.ABC):
+    def __init__(self, metadata: MetadataType) -> None:
         self._metadata = metadata
 
     @property
-    def metadata(self) -> MessageMetadata:
+    def metadata(self) -> MetadataType:
         return self._metadata
 
     @property
@@ -159,7 +162,9 @@ class Message(abc.ABC):
         raise NotImplementedError
 
     @classmethod
-    def from_model(cls, message_model: mdl.Message) -> t.Self:
+    def from_model(
+        cls, message_model: mdl.Message
+    ) -> Message[MessageMetadata]:
         if isinstance(message_model, mdl.AgentMessage):
             return AgentMessage.from_model(message_model)
         elif isinstance(message_model, mdl.DeveloperMessage):
@@ -181,7 +186,9 @@ class Message(abc.ABC):
         return True
 
 
-class InternalMessage(Message):
+class BaseInternalMessage[RoleType: mdl.InternalMessageRole](
+    Message[InternalMessageMetadata], metaclass=abc.ABCMeta
+):
     """
     A Message that only exists internally.
 
@@ -189,25 +196,35 @@ class InternalMessage(Message):
     into an agent's session.
     """
 
-    def __init__(self, metadata: InternalMessageMetadata) -> None:
+    def __init__(
+        self,
+        metadata: InternalMessageMetadata,
+        role: RoleType,
+        content: str,
+    ) -> None:
         super().__init__(metadata)
+        self._role: RoleType = role
+        self._content = content
 
     @property
     def metadata(self) -> InternalMessageMetadata:
         return super().metadata
 
     @property
-    @abc.abstractmethod
-    def role(self) -> mdl.InternalMessageRole:
-        raise NotImplementedError
+    def role(self) -> RoleType:
+        return self._role
+
+    @property
+    async def content(self) -> str:
+        return self._content
 
     @property
     @abc.abstractmethod
-    async def model(self) -> mdl.InternalMessage:
+    async def model(self) -> mdl.InternalMessage[RoleType]:
         raise NotImplementedError
 
 
-class ChatMessage(Message):
+class ChatMessage(Message[ChatMessageMetadata], metaclass=abc.ABCMeta):
     """
     A Message that arrived via a chat.
 
@@ -233,35 +250,7 @@ class ChatMessage(Message):
         raise NotImplementedError
 
 
-class SimpleInternalMessage(InternalMessage):
-    def __init__(
-        self,
-        metadata: InternalMessageMetadata,
-        role: mdl.InternalMessageRole,
-        content: str,
-    ) -> None:
-        super().__init__(metadata)
-        if role not in t.get_args(mdl.InternalMessageRole):
-            raise ValueError(f"invalid role {role}")
-        self._role = role
-        self._content = content
-
-    @property
-    def role(self) -> mdl.InternalMessageRole:
-        return self._role
-
-    @property
-    async def content(self) -> str:
-        return self._content
-
-    @classmethod
-    def from_model(cls, model: mdl.InternalMessage) -> t.Self:
-        return cls(
-            InternalMessageMetadata.from_model(model.metadata), model.content
-        )
-
-
-class SystemMessage(SimpleInternalMessage):
+class SystemMessage(BaseInternalMessage[t.Literal["system"]]):
     def __init__(
         self, metadata: InternalMessageMetadata, content: str
     ) -> None:
@@ -273,8 +262,14 @@ class SystemMessage(SimpleInternalMessage):
             metadata=await self.metadata.model, content=await self.content
         )
 
+    @classmethod
+    def from_model(cls, model: mdl.SystemMessage) -> t.Self:
+        return cls(
+            InternalMessageMetadata.from_model(model.metadata), model.content
+        )
 
-class DeveloperMessage(SimpleInternalMessage):
+
+class DeveloperMessage(BaseInternalMessage[t.Literal["developer"]]):
     def __init__(
         self, metadata: InternalMessageMetadata, content: str
     ) -> None:
@@ -284,6 +279,12 @@ class DeveloperMessage(SimpleInternalMessage):
     async def model(self) -> mdl.DeveloperMessage:
         return mdl.DeveloperMessage(
             metadata=await self.metadata.model, content=await self.content
+        )
+
+    @classmethod
+    def from_model(cls, model: mdl.DeveloperMessage) -> t.Self:
+        return cls(
+            InternalMessageMetadata.from_model(model.metadata), model.content
         )
 
 
@@ -315,7 +316,7 @@ class UserMessage(ChatMessage):
         )
 
 
-class ToolMessage(SimpleInternalMessage):
+class ToolMessage(BaseInternalMessage[t.Literal["tool"]]):
     """Message sent by the system in response to a tool call."""
 
     def __init__(
@@ -346,6 +347,9 @@ class ToolMessage(SimpleInternalMessage):
             model.content,
             model.tool_call_id,
         )
+
+
+InternalMessage = SystemMessage | DeveloperMessage | ToolMessage
 
 
 @dc.dataclass
@@ -380,7 +384,7 @@ class ToolCall:
         )
 
 
-class AgentMessagePart:
+class BaseAgentMessagePart[PartType, FragmentType]:
     """
     One part of an AgentMessage.
 
@@ -391,24 +395,24 @@ class AgentMessagePart:
     finalized and nothing more can be appended.
     """
 
-    VALID_TYPES = t.Literal["content", "error", "reasoning", "tool"]
-
-    def __init__(self, part_type: VALID_TYPES, fragments: list | None = None):
-        if part_type not in t.get_args(self.VALID_TYPES):
-            raise ValueError(f"invalid type {part_type}")
+    def __init__(
+        self,
+        part_type: PartType,
+        fragments: list[FragmentType] | None = None,
+    ):
         self._type = part_type
         self._fragments = util.StreamableList(fragments)
 
     @property
-    def type(self) -> VALID_TYPES:
+    def type(self) -> PartType:
         return self._type
 
-    async def append(self, fragment: str | ToolCall | Exception) -> None:
+    async def append(self, fragment: FragmentType) -> None:
         await self._fragments.append(fragment)
 
     async def stream_fragments(
         self,
-    ) -> cl_abc.AsyncGenerator[str | ToolCall | Exception]:
+    ) -> cl_abc.AsyncGenerator[FragmentType]:
         async for fragment in self._fragments.stream():
             yield fragment
 
@@ -416,11 +420,13 @@ class AgentMessagePart:
         await self._fragments.finalize()
 
 
-class AgentMessageTextPart(AgentMessagePart):
-    VALID_TYPES = t.Literal["content", "reasoning"]
-
+class AgentMessageTextPart(
+    BaseAgentMessagePart[t.Literal["content", "reasoning"], str]
+):
     def __init__(
-        self, part_type: VALID_TYPES, fragments: list[str] | None = None
+        self,
+        part_type: t.Literal["content", "reasoning"],
+        fragments: list[str] | None = None,
     ):
         super().__init__(part_type, fragments)
 
@@ -445,9 +451,7 @@ class AgentMessageContentPart(AgentMessageTextPart):
         super().__init__("content", fragments)
 
 
-class AgentMessageToolPart(AgentMessagePart):
-    VALID_TYPES = t.Literal["tool"]
-
+class AgentMessageToolPart(BaseAgentMessagePart[t.Literal["tool"], ToolCall]):
     def __init__(self, fragments: list[ToolCall] | None = None):
         super().__init__("tool", fragments)
 
@@ -459,9 +463,9 @@ class AgentMessageToolPart(AgentMessagePart):
             yield fragment
 
 
-class AgentMessageErrorPart(AgentMessagePart):
-    VALID_TYPES = t.Literal["error"]
-
+class AgentMessageErrorPart(
+    BaseAgentMessagePart[t.Literal["error"], Exception]
+):
     def __init__(self, fragments: list[Exception] | None = None):
         super().__init__("error", fragments)
 
@@ -471,6 +475,14 @@ class AgentMessageErrorPart(AgentMessagePart):
     async def stream_fragments(self) -> cl_abc.AsyncGenerator[Exception]:
         async for fragment in super().stream_fragments():
             yield fragment
+
+
+AgentMessagePart = (
+    AgentMessageReasoningPart
+    | AgentMessageContentPart
+    | AgentMessageToolPart
+    | AgentMessageErrorPart
+)
 
 
 class AgentMessage(ChatMessage):
@@ -495,7 +507,9 @@ class AgentMessage(ChatMessage):
     _logger = logging.getLogger("AgentMessage")
 
     def __init__(
-        self, metadata: MessageMetadata, parts: util.StreamableList
+        self,
+        metadata: ChatMessageMetadata,
+        parts: util.StreamableList[AgentMessagePart],
     ) -> None:
         super().__init__(metadata)
         self._parts = parts
@@ -508,6 +522,7 @@ class AgentMessage(ChatMessage):
             await setter
         except Exception:
             self._logger.exception(f"Error running {setter}.")
+        assert self._deferred_set_tasks is not None
         self._deferred_set_tasks.discard(asyncio.current_task())
         if not self._deferred_set_tasks:
             self._deferred_set_tasks = None
@@ -538,29 +553,30 @@ class AgentMessage(ChatMessage):
     @property
     async def content(self) -> str:
         """The final content of the message (the one that "counts")."""
-        return await self._concat_part_text("content")
+        return await self._concat_part_text(AgentMessageContentPart)
 
     @property
     async def reasoning(self) -> str:
         """The reasoning of the agent in producing the content."""
-        return await self._concat_part_text("reasoning")
+        return await self._concat_part_text(AgentMessageReasoningPart)
 
-    async def _concat_part_text(
-        self, part_type: AgentMessageTextPart.VALID_TYPES
-    ):
+    async def _concat_part_text(self, part_type: type[AgentMessageTextPart]):
         result = ""
-        async for text in self._collect_fragments(part_type):
+        async for text in self._collect_fragments(part_type, str):
             result += text
         return result
 
-    async def _collect_fragments(
-        self, part_type: AgentMessagePart.VALID_TYPES
-    ):
+    async def _collect_fragments[FragmentType](
+        self,
+        part_type: type[BaseAgentMessagePart[t.Any, FragmentType]],
+        ft: type[FragmentType],
+    ) -> cl_abc.AsyncGenerator[FragmentType]:
         await self._parts.wait_finalized()
         for part in self._parts:
-            if part.type != part_type:
+            if not isinstance(part, part_type):
                 continue
             async for fragment in part.stream_fragments():
+                assert isinstance(fragment, ft)
                 yield fragment
 
     @property
@@ -572,7 +588,9 @@ class AgentMessage(ChatMessage):
         message has arrived.
         """
         tool_calls = []
-        async for tool_call in self._collect_fragments("tool"):
+        async for tool_call in self._collect_fragments(
+            AgentMessageToolPart, ToolCall
+        ):
             tool_calls.append(tool_call)
         return tool_calls
 
@@ -585,11 +603,15 @@ class AgentMessage(ChatMessage):
         message has arrived.
         """
         exceptions = []
-        async for exception in self._collect_fragments("error"):
+        async for exception in self._collect_fragments(
+            AgentMessageErrorPart, Exception
+        ):
             exceptions.append(exception)
         return exceptions
 
-    async def stream_parts(self) -> cl_abc.AsyncGenerator[AgentMessagePart]:
+    async def stream_parts(
+        self,
+    ) -> cl_abc.AsyncGenerator[AgentMessagePart]:
         """Asynchronously iterate over parts as they arrive."""
         async for part in self._parts.stream():
             yield part
@@ -659,6 +681,9 @@ class AgentMessage(ChatMessage):
                 else:
                     error = Exception(error_model.message)
             except Exception:
+                cls._logger.exception(
+                    f"Error parsing error model {error_model}."
+                )
                 error = Exception(error_model.message)
             errors.append(error)
         return errors

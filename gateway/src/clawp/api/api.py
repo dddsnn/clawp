@@ -52,18 +52,17 @@ class Api:
         app.state.agent_repo = agent_repo
         app.state.channel_pool = channel_pool
         app.include_router(router)
-        config = uvicorn.Config(
+        server_config = uvicorn.Config(
             app=app,
             host=str(config.host),
             port=config.port,
             log_level=config.log_level,
         )
-        self._server = uvicorn.Server(config)
-        self._serve_task: t.Optional[asyncio.Task[None]] = None
+        self._server = uvicorn.Server(server_config)
+        self._serve_task: asyncio.Task[None] | None = None
 
-    async def __aenter__(self) -> "Api":
+    async def __aenter__(self) -> t.Self:
         self._serve_task = asyncio.create_task(self._server.serve())
-
         while not self._server.started:
             if self._serve_task.done():
                 await self._serve_task
@@ -75,6 +74,7 @@ class Api:
         return self
 
     async def __aexit__(self, *_) -> bool:
+        assert self._serve_task is not None
         self._server.should_exit = True
         with contextlib.suppress(asyncio.CancelledError):
             await self._serve_task

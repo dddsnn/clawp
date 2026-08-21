@@ -31,8 +31,11 @@ from hamcrest import (
     contains_exactly,
     has_properties,
     instance_of,
+    is_,
 )
-from matchers import json_equivalent
+from matchers import (  # pyright: ignore[reportImplicitRelativeImport]
+    json_equivalent,
+)
 
 from clawp import message as msg
 from clawp import model as mdl
@@ -81,7 +84,7 @@ class MockMessage:
     payload: str
 
     @staticmethod
-    def from_model(model: MockMessageModel) -> "MockMessage":
+    def from_model(model: MockMessageModel) -> MockMessage:
         assert model.payload.startswith("encoded ")
         # Create a task here to make sure there's an event loop running at the
         # point where we load models (we need this for the StreamableList).
@@ -96,9 +99,7 @@ class MockMessage:
 @pytest.fixture(autouse=True)
 def mock_message(monkeypatch):
     monkeypatch.setattr(msg, "Message", MockMessage)
-    monkeypatch.setattr(
-        mdl, "MessageTypeAdapter", pyd.TypeAdapter(MockMessageModel)
-    )
+    monkeypatch.setattr(mdl, "Message", MockMessageModel)
 
 
 @pytest.fixture
@@ -183,7 +184,9 @@ class TestJsonlIO:
         await jsonl_io.append(model1)
         await jsonl_io.append(model2)
 
-        assert_that([m async for m in jsonl_io.read_all()], [model1, model2])
+        assert_that(
+            [m async for m in jsonl_io.read_all()], is_([model1, model2])
+        )
 
     async def test_append_raises_if_file_doesnt_exist(self, jsonl_io):
         with pytest.raises(FileNotFoundError):
@@ -227,7 +230,9 @@ class TestJsonlIO:
         await jsonl_io.close()
         await jsonl_io.append(model2)
 
-        assert_that([m async for m in jsonl_io.read_all()], [model1, model2])
+        assert_that(
+            [m async for m in jsonl_io.read_all()], is_([model1, model2])
+        )
 
     async def test_upgrade_and_validate_does_nothing_on_current_version(
         self, jsonl_io, jsonl_path
@@ -236,7 +241,7 @@ class TestJsonlIO:
         await jsonl_io.append(MockMessageModel(payload="a"))
         await jsonl_io.close()
 
-        def upgrade_0_to_1(path):
+        def upgrade_0_to_1(_path):
             assert False
 
         await jsonl_io.upgrade_and_validate({0: upgrade_0_to_1})
@@ -345,7 +350,7 @@ class TestJsonlIO:
         await jsonl_io.append(MockMessageModel(payload="a"))
         await jsonl_io.close()
 
-        def upgrade_0_to_1(path):
+        def upgrade_0_to_1(_path):
             assert False
 
         def upgrade_1_to_2(path):
@@ -379,7 +384,7 @@ class TestJsonlIO:
         await jsonl_io.append(MockMessageModel(payload="a"))
         await jsonl_io.close()
 
-        def upgrade_0_to_1(path):
+        def upgrade_0_to_1(_path):
             assert False
 
         with pytest.raises(store.StoreFormatError):
@@ -698,9 +703,11 @@ class TestMessageStore:
     ):
         base_dir1 = tmp_path / "store1"
         base_dir2 = tmp_path / "store2"
-        async with store.MessageStore(base_dir1):
-            async with store.MessageStore(base_dir2):
-                pass
+        async with (
+            store.MessageStore(base_dir1),
+            store.MessageStore(base_dir2),
+        ):
+            pass
 
     async def test_aenter_creates_base_dir_and_sessions_dir(self, tmp_path):
         base_dir = tmp_path / "store"
@@ -838,7 +845,7 @@ class TestMessageStore:
     async def test_aenter_raises_if_multiple_versions_in_session_files(
         self, make_message_store, session_file, monkeypatch
     ):
-        def upgrade(path):
+        def upgrade(_path):
             pass
 
         monkeypatch.setattr(store.MessageStore, "VERSION", 1)
@@ -877,7 +884,7 @@ class TestMessageStore:
             message = MockMessage(payload="a")
             await store.append_message(0, message)
         # Simulate a crash by appending a partial line.
-        with open(session_file(0), "a") as f:
+        with open(session_file(0), "a") as f:  # noqa: ASYNC230
             f.write('{"payload": "some s')
         async with store:
             assert_that(
@@ -895,7 +902,7 @@ class TestMessageStore:
             message = MockMessage(payload="a")
             await message_store.append_message(0, message)
         # Write a corrupt line followed by a valid line.
-        with open(session_file(0), "a") as f:
+        with open(session_file(0), "a") as f:  # noqa: ASYNC230
             f.write("not json\n")
             f.write('{"payload":"a"}\n')
         with pytest.raises(store.StoreFormatError):
@@ -908,7 +915,7 @@ class TestMessageStore:
         async with make_message_store() as message_store:
             message = MockMessage(payload="a")
             await message_store.append_message(0, message)
-        with open(session_file(0), "a") as f:
+        with open(session_file(0), "a") as f:  # noqa: ASYNC230
             f.write("\n")
             f.write('{"payload":"a"}\n')
         with pytest.raises(store.StoreFormatError):
@@ -1079,7 +1086,7 @@ class TestJsonlMemoryStore:
     ):
         await memory_store.log_memory("valid event")
         # Manually append an invalid line.
-        with open(base_dir / "memory.jsonl", "a") as f:
+        with open(base_dir / "memory.jsonl", "a") as f:  # noqa: ASYNC230
             f.write("this is not json\n")
         with pytest.raises(store.StoreFormatError):
             [m async for m in memory_store.search_memory()]
@@ -1089,7 +1096,7 @@ class TestJsonlMemoryStore:
     ):
         await memory_store.log_memory("valid event")
         # Manually append an empty line.
-        with open(base_dir / "memory.jsonl", "a") as f:
+        with open(base_dir / "memory.jsonl", "a") as f:  # noqa: ASYNC230
             f.write("\n")
         with pytest.raises(store.StoreFormatError):
             [m async for m in memory_store.search_memory()]

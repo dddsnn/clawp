@@ -27,26 +27,41 @@ ChatMessageRole = t.Literal["agent", "user"]
 MessageRole = InternalMessageRole | ChatMessageRole
 
 
-class BasicStartMessageMetadata(base.BaseModel):
+class BaseStartMessageMetadata[ChatDescriptorType](base.BaseModel):
     """Metadata available when a message is first created."""
 
-    chat: pyd.SerializeAsAny[chan.ChatDescriptor]
+    chat: pyd.SerializeAsAny[ChatDescriptorType]
 
 
-class GithubStartMessageMetadata(BasicStartMessageMetadata):
-    chat: chan.GithubChatDescriptor
+class WebUiStartMessageMetadata(
+    BaseStartMessageMetadata[chan.WebUiChatDescriptor]
+):
+    pass
+
+
+class AgentStartMessageMetadata(
+    BaseStartMessageMetadata[chan.AgentChatDescriptor]
+):
+    pass
+
+
+class GithubStartMessageMetadata(
+    BaseStartMessageMetadata[chan.GithubChatDescriptor]
+):
     comment_author_login: str
     comment_type: t.Literal["description", "comment"]
 
 
-class MatrixStartMessageMetadata(BasicStartMessageMetadata):
-    chat: chan.MatrixChatDescriptor
+class MatrixStartMessageMetadata(
+    BaseStartMessageMetadata[chan.MatrixChatDescriptor]
+):
     sender_id: str
-    sender_name: t.Optional[str]
+    sender_name: str
 
 
 StartMessageMetadata = (
-    BasicStartMessageMetadata
+    WebUiStartMessageMetadata
+    | AgentStartMessageMetadata
     | GithubStartMessageMetadata
     | MatrixStartMessageMetadata
 )
@@ -62,11 +77,15 @@ class InternalMessageMetadata(EndMessageMetadata):
     """Full message metadata for internal messages."""
 
 
-class BasicChatMessageMetadata(BasicStartMessageMetadata, EndMessageMetadata):
-    """Full message metadata for chat messages."""
+class WebUiChatMessageMetadata(WebUiStartMessageMetadata, EndMessageMetadata):
+    start_metadata_class: t.ClassVar[type[WebUiStartMessageMetadata]] = (
+        WebUiStartMessageMetadata
+    )
 
-    start_metadata_class: t.ClassVar[type[BasicStartMessageMetadata]] = (
-        BasicStartMessageMetadata
+
+class AgentChatMessageMetadata(AgentStartMessageMetadata, EndMessageMetadata):
+    start_metadata_class: t.ClassVar[type[AgentStartMessageMetadata]] = (
+        AgentStartMessageMetadata
     )
 
 
@@ -87,61 +106,67 @@ class MatrixChatMessageMetadata(
 
 
 ChatMessageMetadata = (
-    BasicChatMessageMetadata
+    WebUiChatMessageMetadata
+    | AgentChatMessageMetadata
     | GithubChatMessageMetadata
     | MatrixChatMessageMetadata
 )
 MessageMetadata = InternalMessageMetadata | ChatMessageMetadata
 
 
-class BaseMessage(base.BaseModel):
-    role: MessageRole
-    metadata: MessageMetadata
+class BaseMessage[RoleType: MessageRole, MetadataType: MessageMetadata](
+    base.BaseModel
+):
+    role: RoleType
+    metadata: pyd.SerializeAsAny[MetadataType]
     content: str
 
 
-class InternalMessage(BaseMessage):
+class InternalMessage[RoleType: InternalMessageRole](
+    BaseMessage[RoleType, InternalMessageMetadata]
+):
     """Message that only exists internally."""
 
-    role: InternalMessageRole
-    metadata: InternalMessageMetadata
 
-
-class ChatMessage(BaseMessage):
+class BaseChatMessage[
+    RoleType: ChatMessageRole,
+    MetadataType: ChatMessageMetadata,
+](BaseMessage[RoleType, MetadataType]):
     """Message that arrives via channels/chats."""
 
-    role: ChatMessageRole
-    metadata: pyd.SerializeAsAny[ChatMessageMetadata]
+
+class GithubChatMessage(
+    BaseChatMessage[ChatMessageRole, GithubChatMessageMetadata]
+):
+    pass
 
 
-class GithubChatMessage(ChatMessage):
-    metadata: GithubChatMessageMetadata
+class MatrixChatMessage(
+    BaseChatMessage[ChatMessageRole, MatrixChatMessageMetadata]
+):
+    pass
 
 
-class MatrixChatMessage(ChatMessage):
-    metadata: MatrixChatMessageMetadata
-
-
-class DeveloperMessage(InternalMessage):
+class DeveloperMessage(InternalMessage[t.Literal["developer"]]):
     """Message sent by a developer."""
 
     role: t.Literal["developer"] = "developer"
 
 
-class SystemMessage(InternalMessage):
+class SystemMessage(InternalMessage[t.Literal["system"]]):
     """Message sent by the system."""
 
     role: t.Literal["system"] = "system"
 
 
-class ToolMessage(InternalMessage):
+class ToolMessage(InternalMessage[t.Literal["tool"]]):
     """Message sent by the system in response to a tool call."""
 
     role: t.Literal["tool"] = "tool"
     tool_call_id: str
 
 
-class UserMessage(ChatMessage):
+class UserMessage(BaseChatMessage[t.Literal["user"], ChatMessageMetadata]):
     """Message sent by the user."""
 
     role: t.Literal["user"] = "user"
@@ -166,10 +191,10 @@ class AgentMessageError(base.BaseModel):
 
     type: str
     message: str
-    kwargs: dict = pyd.Field(default_factory=dict)
+    kwargs: dict[str, t.Any] = pyd.Field(default_factory=dict)
 
 
-class AgentMessage(ChatMessage):
+class AgentMessage(BaseChatMessage[t.Literal["agent"], ChatMessageMetadata]):
     """Message sent by the agent."""
 
     role: t.Literal["agent"] = "agent"
@@ -178,6 +203,9 @@ class AgentMessage(ChatMessage):
     errors: list[AgentMessageError]
 
 
+ChatMessage = (
+    AgentMessage | GithubChatMessage | MatrixChatMessage | UserMessage
+)
 NonStreamableMessage = t.Annotated[
     DeveloperMessage | SystemMessage | ToolMessage | UserMessage,
     pyd.Field(discriminator="role"),
@@ -186,7 +214,6 @@ NonStreamableMessage = t.Annotated[
 Message = t.Annotated[
     AgentMessage | NonStreamableMessage, pyd.Field(discriminator="role")
 ]
-MessageTypeAdapter = pyd.TypeAdapter(Message)
 
 
 class MessageOffset(base.BaseModel):
@@ -206,15 +233,15 @@ class IncomingMessage(base.BaseModel):
     message: ChatMessage | SystemMessage
 
 
-class BaseStreamingMessageMarker(base.BaseModel):
+class BaseStreamingMessageMarker[MarkerType](base.BaseModel):
     """A marker in the stream of a streamable message."""
 
-    marker_type: t.Literal[
-        "message_start", "message_end", "part_start", "part_end"
-    ]
+    marker_type: MarkerType
 
 
-class StreamingMessageMarkerMessageStart(BaseStreamingMessageMarker):
+class StreamingMessageMarkerMessageStart(
+    BaseStreamingMessageMarker[t.Literal["message_start"]]
+):
     """A marker signalling the start of the message."""
 
     marker_type: t.Literal["message_start"] = "message_start"
@@ -222,21 +249,27 @@ class StreamingMessageMarkerMessageStart(BaseStreamingMessageMarker):
     message_offset: MessageOffset
 
 
-class StreamingMessageMarkerMessageEnd(BaseStreamingMessageMarker):
+class StreamingMessageMarkerMessageEnd(
+    BaseStreamingMessageMarker[t.Literal["message_end"]]
+):
     """A marker signalling the end of the message."""
 
     marker_type: t.Literal["message_end"] = "message_end"
     metadata: EndMessageMetadata
 
 
-class StreamingMessageMarkerPartStart(BaseStreamingMessageMarker):
+class StreamingMessageMarkerPartStart(
+    BaseStreamingMessageMarker[t.Literal["part_start"]]
+):
     """A marker signalling the start of a message part."""
 
     marker_type: t.Literal["part_start"] = "part_start"
     part_type: t.Literal["content", "error", "reasoning", "tool"]
 
 
-class StreamingMessageMarkerPartEnd(BaseStreamingMessageMarker):
+class StreamingMessageMarkerPartEnd(
+    BaseStreamingMessageMarker[t.Literal["part_end"]]
+):
     """A marker signalling the end of a message part."""
 
     marker_type: t.Literal["part_end"] = "part_end"
@@ -250,32 +283,37 @@ StreamingMessageMarker = (
 )
 
 
-class BaseStreamingMessageFragment(base.BaseModel):
+class BaseStreamingMessageFragment[FragmentTypeLiteral, FragmentType](
+    base.BaseModel
+):
     """A fragment of a message part."""
 
-    fragment_type: t.Literal["text", "tool_call", "error"]
-    fragment: str | ToolCall
+    fragment_type: FragmentTypeLiteral
+    fragment: FragmentType
 
 
-class StreamingMessageFragmentText(BaseStreamingMessageFragment):
+class StreamingMessageFragmentText(
+    BaseStreamingMessageFragment[t.Literal["text"], str]
+):
     """A fragment of a message part containing text."""
 
     fragment_type: t.Literal["text"] = "text"
-    fragment: str
 
 
-class StreamingMessageFragmentToolCall(BaseStreamingMessageFragment):
+class StreamingMessageFragmentToolCall(
+    BaseStreamingMessageFragment[t.Literal["tool_call"], ToolCall]
+):
     """A fragment of a message part containing a tool call."""
 
     fragment_type: t.Literal["tool_call"] = "tool_call"
-    fragment: ToolCall
 
 
-class StreamingMessageFragmentError(BaseStreamingMessageFragment):
+class StreamingMessageFragmentError(
+    BaseStreamingMessageFragment[t.Literal["error"], AgentMessageError]
+):
     """A fragment of a message part containing an error."""
 
     fragment_type: t.Literal["error"] = "error"
-    fragment: AgentMessageError
 
 
 StreamingMessageFragment = (
@@ -285,38 +323,39 @@ StreamingMessageFragment = (
 )
 
 
-class BaseWebsocketChunk(base.BaseModel):
+class BaseWebsocketChunk[ChunkType, PayloadType](base.BaseModel):
     """A chunk of data sent in a websocket stream."""
 
-    chunk_type: t.Literal[
-        "full_message", "agent_message_marker", "agent_message_fragment"
-    ]
-    payload: (
-        NonStreamableMessage
-        | StreamingMessageMarker
-        | StreamingMessageFragment
-    )
+    chunk_type: ChunkType
+    payload: PayloadType
 
 
-class WebsocketChunkFullMessage(BaseWebsocketChunk):
+class WebsocketChunkFullMessage(
+    BaseWebsocketChunk[t.Literal["full_message"], MessageInSession]
+):
     """A chunk containing a full message."""
 
     chunk_type: t.Literal["full_message"] = "full_message"
-    payload: MessageInSession
 
 
-class WebsocketChunkAgentMessageMarker(BaseWebsocketChunk):
+class WebsocketChunkAgentMessageMarker(
+    BaseWebsocketChunk[
+        t.Literal["agent_message_marker"], StreamingMessageMarker
+    ]
+):
     """A chunk containing a marker in an streaming agent message."""
 
     chunk_type: t.Literal["agent_message_marker"] = "agent_message_marker"
-    payload: StreamingMessageMarker
 
 
-class WebsocketChunkAgentMessageFragment(BaseWebsocketChunk):
+class WebsocketChunkAgentMessageFragment(
+    BaseWebsocketChunk[
+        t.Literal["agent_message_fragment"], StreamingMessageFragment
+    ]
+):
     """A chunk containing a fragment in an streaming agent message."""
 
     chunk_type: t.Literal["agent_message_fragment"] = "agent_message_fragment"
-    payload: StreamingMessageFragment
 
 
 WebsocketChunk = (
@@ -326,18 +365,22 @@ WebsocketChunk = (
 )
 
 
-class BaseUserInputMessage(base.BaseModel):
+class BaseUserInputMessage[Type](base.BaseModel):
     """A message sent from the user to the system."""
 
-    type: t.Literal["message_content", "request_response"]
+    type: Type
 
 
-class UserInputMessageContent(BaseUserInputMessage):
+class UserInputMessageContent(
+    BaseUserInputMessage[t.Literal["message_content"]]
+):
     type: t.Literal["message_content"] = "message_content"
     content: str
 
 
-class UserInputMessageRequestResponse(BaseUserInputMessage):
+class UserInputMessageRequestResponse(
+    BaseUserInputMessage[t.Literal["request_response"]]
+):
     type: t.Literal["request_response"] = "request_response"
 
 

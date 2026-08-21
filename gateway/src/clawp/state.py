@@ -34,7 +34,7 @@ class GatewayStateManager:
     def __init__(self, base_dir: pathlib.Path) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         self._state_file = base_dir / "gateway_state.json"
-        self._state = None
+        self._state: mdl.GatewayState = None  # pyright: ignore[reportAttributeAccessIssue]
 
     async def __aenter__(self) -> t.Self:
         if self._state_file.exists() and not self._state_file.is_file():

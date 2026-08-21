@@ -40,6 +40,7 @@ async def list_channels(
     channel_assignments = _channel_assignments(agent_repo)
     infos = []
     for channel_status in channel_pool:
+        assert channel_status.channel.id is not None
         try:
             channel_key = (
                 channel_status.channel.type,
@@ -62,16 +63,16 @@ async def list_channels(
 
 
 def _channel_assignments(
-    agent_repo: "agt.AgentRepository",
-) -> dict[tuple[str, str], "agt.Agent"]:
+    agent_repo: agt.AgentRepository,
+) -> dict[tuple[mdl.ChannelType, str], agt.Agent]:
     channel_assignments = {}
     for agent in agent_repo.iter_agents():
         for channel in agent.channels.values():
             if channel.id is None:
                 # Channel without an ID (e.g. web ui), not interesting.
                 continue
+            channel_key = (channel.type, channel.id)
             try:
-                channel_key = (channel.type, channel.id)
                 existing_assignment = channel_assignments[channel_key]
                 logger.warning(
                     f"Found {channel} assigned to both {existing_assignment} "
@@ -103,7 +104,7 @@ def _channel_assignments(
 async def assign_channel(
     channel_pool: dep.ChannelPool,
     agent: dep.Agent,
-    channel_type: str,
+    channel_type: mdl.ChannelType,
     channel_id: str,
 ) -> mdl.ChannelInformation:
     """
@@ -157,9 +158,9 @@ async def assign_channel(
 async def unassign_channel(
     channel_pool: dep.ChannelPool,
     agent: dep.Agent,
-    channel_type: str,
+    channel_type: mdl.ChannelType,
     channel_id: str,
-) -> None:
+) -> fastapi.Response:
     """
     Remove an assignment of a channel from an agent.
 

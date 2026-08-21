@@ -54,7 +54,10 @@ class TestOpenrouterStreamReader:
     def make_chunk(
         *,
         delta: or_comp.ChatStreamDelta | None = None,
-        finish_reason: str | None = None,
+        finish_reason: t.Literal[
+            "content_filter", "error", "length", "stop", "tool_calls"
+        ]
+        | None = None,
         choices: list[or_comp.ChatStreamChoice] | None = None,
     ) -> or_comp.ChatStreamChunk:
         return or_comp.ChatStreamChunk(
@@ -75,16 +78,17 @@ class TestOpenrouterStreamReader:
     @staticmethod
     async def run_reader(
         items: list[t.Any],
-    ) -> tuple[list[dict], Exception | None]:
+    ) -> tuple[list[dict[str, t.Any]], Exception | None]:
         message_parts_streamable = util.StreamableList()
         reader = prov.OpenrouterStreamReader(
-            message_parts_streamable, FakeAsyncStream(items)
+            message_parts_streamable,
+            FakeAsyncStream(items),  # pyright: ignore[reportArgumentType]
         )
         stream_error = None
         stream_task = reader.read_message()
         try:
             await stream_task
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             stream_error = e
 
         message_parts = []
@@ -123,7 +127,7 @@ class TestOpenrouterStreamReader:
             message_parts,
             contains_exactly(
                 has_entries(type="content", fragments=["hello"]),
-                has_entries(
+                has_entries(  # pyright: ignore[reportArgumentType]
                     type="error",
                     fragments=contains_exactly(
                         instance_of(prov.MessageStreamError)
@@ -311,7 +315,7 @@ class TestOpenrouterStreamReader:
             contains_exactly(
                 has_entries(type="reasoning", fragments=["need data"]),
                 has_entries(type="content", fragments=["working..."]),
-                has_entries(
+                has_entries(  # pyright: ignore[reportArgumentType]
                     type="tool",
                     fragments=contains_exactly(
                         has_properties(
@@ -731,7 +735,7 @@ class TestOpenrouterStreamReader:
             message_parts,
             contains_exactly(
                 has_entries(type="content", fragments=["a"]),
-                has_entries(
+                has_entries(  # pyright: ignore[reportArgumentType]
                     type="error",
                     fragments=contains_exactly(instance_of(RuntimeError)),
                 ),
@@ -745,7 +749,7 @@ class TestOpenrouterStreamReader:
                     delta=or_comp.ChatStreamDelta(
                         role="assistant", content="a"
                     ),
-                    finish_reason="provider_specific_reason",
+                    finish_reason="provider_specific_reason",  # pyright: ignore[reportArgumentType]
                 ),
             ]
         )
@@ -855,7 +859,7 @@ class TestOpenrouterStreamReader:
             message_parts,
             contains_exactly(
                 has_entries(type="content", fragments=["partial"]),
-                has_entries(
+                has_entries(  # pyright: ignore[reportArgumentType]
                     type="error",
                     fragments=contains_exactly(
                         all_of(
@@ -985,7 +989,7 @@ class TestOpenrouterStreamReader:
             message_parts,
             contains_exactly(
                 has_entries(type="content", fragments=["a"]),
-                has_entries(
+                has_entries(  # pyright: ignore[reportArgumentType]
                     type="error",
                     fragments=contains_exactly(
                         instance_of(prov.AgentRefusalError)

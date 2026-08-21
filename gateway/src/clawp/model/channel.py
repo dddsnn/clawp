@@ -27,12 +27,12 @@ from . import config as cfg
 ChannelType = t.Literal["agent", "github", "matrix", "web_ui"]
 
 
-class BasicChatDescriptor(base.BaseModel):
-    channel: t.Literal["agent", "web_ui"]
+class BaseChatDescriptor[ChannelTypeLiteral](base.BaseModel):
+    channel: ChannelTypeLiteral
     chat_id: str
 
-    def __eq__(self, other: any) -> bool:
-        if not isinstance(other, BasicChatDescriptor):
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, BaseChatDescriptor):
             return False
         # channel/chat_id uniquely identify a chat, everything else is
         # optional.
@@ -44,13 +44,21 @@ class BasicChatDescriptor(base.BaseModel):
         return hash((self.channel, self.chat_id))
 
 
-class MatrixChatDescriptor(BasicChatDescriptor):
+class WebUiChatDescriptor(BaseChatDescriptor[t.Literal["web_ui"]]):
+    channel: t.Literal["web_ui"] = "web_ui"
+
+
+class AgentChatDescriptor(BaseChatDescriptor[t.Literal["agent"]]):
+    channel: t.Literal["agent"] = "agent"
+
+
+class MatrixChatDescriptor(BaseChatDescriptor[t.Literal["matrix"]]):
     channel: t.Literal["matrix"] = "matrix"
-    room_name: t.Optional[str]
+    room_name: str | None
 
 
-class GithubChatDescriptor(BasicChatDescriptor):
-    _chat_id_regex: t.ClassVar[re.Pattern] = re.compile(
+class GithubChatDescriptor(BaseChatDescriptor[t.Literal["github"]]):
+    _chat_id_regex: t.ClassVar[re.Pattern[str]] = re.compile(
         r"""
         (?i)                   # Case-insensitive matching
         (?P<owner>             # Github username rules:
@@ -107,36 +115,34 @@ class GithubChatDescriptor(BasicChatDescriptor):
 
 
 ChatDescriptor = (
-    BasicChatDescriptor | GithubChatDescriptor | MatrixChatDescriptor
+    WebUiChatDescriptor
+    | AgentChatDescriptor
+    | GithubChatDescriptor
+    | MatrixChatDescriptor
 )
 
-ChannelConfig = t.Annotated[
-    cfg.GithubAccountConfig | cfg.MatrixAccountConfig,
-    pyd.Field(discriminator="type"),
-]
 
-
-class BaseChannelStatus(base.BaseModel):
-    type: ChannelType
+class BaseChannelStatus[ChannelTypeLiteral: ChannelType](base.BaseModel):
+    type: ChannelTypeLiteral
     available: bool
 
 
-class WebUiChannelStatus(BaseChannelStatus):
+class WebUiChannelStatus(BaseChannelStatus[t.Literal["web_ui"]]):
     type: t.Literal["web_ui"] = "web_ui"
 
 
-class AgentChannelStatus(BaseChannelStatus):
+class AgentChannelStatus(BaseChannelStatus[t.Literal["agent"]]):
     type: t.Literal["agent"] = "agent"
 
 
-class GithubChannelStatus(BaseChannelStatus):
+class GithubChannelStatus(BaseChannelStatus[t.Literal["github"]]):
     type: t.Literal["github"] = "github"
     app_id: int
     installation_id: int
     login: str
 
 
-class MatrixChannelStatus(BaseChannelStatus):
+class MatrixChannelStatus(BaseChannelStatus[t.Literal["matrix"]]):
     type: t.Literal["matrix"] = "matrix"
     username: str
 
@@ -152,10 +158,10 @@ ChannelStatus = t.Annotated[
 
 class ChannelInformation(base.BaseModel):
     type: ChannelType
-    id: t.Optional[str]
-    config: ChannelConfig
+    id: str | None
+    config: cfg.ChannelAccountConfig
     status: ChannelStatus
-    assigned_to_agent: t.Optional[uuid.UUID]
+    assigned_to_agent: uuid.UUID | None
 
     @pyd.model_validator(mode="after")
     def check_type_is_consistent(self) -> t.Self:

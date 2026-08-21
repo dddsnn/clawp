@@ -24,8 +24,8 @@ import pydantic as pyd
 import whenever as we
 
 
-class BaseSecretValue(pyd.BaseModel):
-    type: str
+class BaseSecretValue[TypeLiteral](pyd.BaseModel, metaclass=abc.ABCMeta):
+    type: TypeLiteral
 
     @property
     @abc.abstractmethod
@@ -33,10 +33,10 @@ class BaseSecretValue(pyd.BaseModel):
         raise NotImplementedError
 
 
-class EnvironmentSecretValue(BaseSecretValue):
+class EnvironmentSecretValue(BaseSecretValue[t.Literal["environment"]]):
     type: t.Literal["environment"] = "environment"
     variable_name: str
-    _value: t.Optional[str] = pyd.PrivateAttr(default=None)
+    _value: str | None = pyd.PrivateAttr(default=None)
 
     @pyd.model_validator(mode="after")
     def resolve_value(self) -> t.Self:
@@ -54,10 +54,10 @@ class EnvironmentSecretValue(BaseSecretValue):
         return self._value
 
 
-class FileSecretValue(BaseSecretValue):
+class FileSecretValue(BaseSecretValue[t.Literal["file"]]):
     type: t.Literal["file"] = "file"
     path: pathlib.Path
-    _value: t.Optional[str] = pyd.PrivateAttr(default=None)
+    _value: str | None = pyd.PrivateAttr(default=None)
 
     @pyd.model_validator(mode="after")
     def resolve_value(self) -> t.Self:
@@ -77,8 +77,8 @@ class FileSecretValue(BaseSecretValue):
 SecretValue = EnvironmentSecretValue | FileSecretValue
 
 
-class Account(pyd.BaseModel, abc.ABC):
-    type: t.Literal["github", "matrix"]
+class Account[TypeLiteral](pyd.BaseModel, metaclass=abc.ABCMeta):
+    type: TypeLiteral
 
     @pyd.computed_field
     @property
@@ -107,7 +107,7 @@ class OpenRouterConfig(pyd.BaseModel):
     model: ModelConfig
 
 
-class GithubAccountConfig(Account):
+class GithubAccountConfig(Account[t.Literal["github"]]):
     type: t.Literal["github"] = "github"
     app_id: int
     installation_id: int
@@ -130,7 +130,7 @@ class GithubConfig(pyd.BaseModel):
     accounts: list[GithubAccountConfig]
 
 
-class MatrixAccountConfig(Account):
+class MatrixAccountConfig(Account[t.Literal["matrix"]]):
     type: t.Literal["matrix"] = "matrix"
     homeserver: str
     username: str
@@ -144,8 +144,14 @@ class MatrixAccountConfig(Account):
 
 class MatrixConfig(pyd.BaseModel):
     # Default this to None, it will be set relative to the gateway's store_dir.
-    store_dir: pathlib.Path = pyd.Field(default=None, validate_default=False)
+    store_dir: pathlib.Path = pyd.Field(default=None, validate_default=False)  # pyright: ignore[reportAssignmentType]
     accounts: list[MatrixAccountConfig]
+
+
+ChannelAccountConfig = t.Annotated[
+    GithubAccountConfig | MatrixAccountConfig,
+    pyd.Field(discriminator="type"),
+]
 
 
 class ChannelsConfig(pyd.BaseModel):

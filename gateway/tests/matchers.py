@@ -20,11 +20,11 @@ import json
 import hamcrest.core.base_matcher
 
 
-class JsonEquivalentMatcher(hamcrest.core.base_matcher.BaseMatcher):
+class JsonEquivalentMatcher(hamcrest.core.base_matcher.BaseMatcher[str]):
     def __init__(self, json_data):
         self.json_data = json_data
 
-    def _matches(self, item):
+    def _matches(self, item: str):
         try:
             return self.json_data == json.loads(item)
         except json.JSONDecodeError:

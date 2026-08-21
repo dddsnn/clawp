@@ -368,7 +368,7 @@ export const ChannelStatusSchema = z.discriminatedUnion('type', [
   MatrixChannelStatusSchema,
 ]);
 
-export const ChannelConfigSchema = z.discriminatedUnion('type', [
+export const ChannelAccountConfigSchema = z.discriminatedUnion('type', [
   GithubAccountConfigSchema,
   MatrixAccountConfigSchema,
 ]);
@@ -376,7 +376,7 @@ export const ChannelConfigSchema = z.discriminatedUnion('type', [
 export const ChannelInformationSchema = z.object({
   type: z.enum(['github', 'matrix']),
   id: z.string().nullable(),
-  config: ChannelConfigSchema,
+  config: ChannelAccountConfigSchema,
   status: ChannelStatusSchema,
   assigned_to_agent: z.uuid().nullable(),
 });

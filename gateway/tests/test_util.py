@@ -31,7 +31,7 @@ class TestStreamableList:
         return util.StreamableList()
 
     @pytest.fixture
-    def stream_into_list(self, ls):
+    def stream_into_list(self, ls: util.StreamableList[float]):
         async def streamer(output):
             async for element in ls.stream():
                 output.append(element)
@@ -44,7 +44,7 @@ class TestStreamableList:
             await asyncio.sleep(10**-3)
 
     @pytest.fixture
-    def read_then_wait(self, ls):
+    def read_then_wait(self, ls: util.StreamableList[float]):
         async def waiter(continue_condition, element_queue):
             async for element in ls.stream():
                 async with continue_condition:
@@ -53,29 +53,35 @@ class TestStreamableList:
 
         return waiter
 
-    async def test_is_empty_on_construction(self, ls):
+    async def test_is_empty_on_construction(
+        self, ls: util.StreamableList[float]
+    ):
         assert not ls
         assert list(ls) == []
         with pytest.raises(IndexError):
             ls[0]
 
-    async def test_append(self, ls):
+    async def test_append(self, ls: util.StreamableList[float]):
         await ls.append(1)
         assert ls
         assert list(ls) == [1]
         assert ls[0] == 1
 
-    async def test_finalized(self, ls):
+    async def test_finalized(self, ls: util.StreamableList[float]):
         assert not ls.finalized()
         await ls.finalize()
         assert ls.finalized()
 
-    async def test_append_raises_if_finalized(self, ls):
+    async def test_append_raises_if_finalized(
+        self, ls: util.StreamableList[float]
+    ):
         await ls.finalize()
         with pytest.raises(ValueError):
             await ls.append(1)
 
-    async def test_wait_finalize_waits_until_finalized(self, ls):
+    async def test_wait_finalize_waits_until_finalized(
+        self, ls: util.StreamableList[float]
+    ):
         wait_task = asyncio.create_task(ls.wait_finalized())
         with pytest.raises(asyncio.TimeoutError):
             async with asyncio.timeout(10**-3):
@@ -91,7 +97,7 @@ class TestStreamableList:
         await ls.wait_finalized()
 
     async def test_timeout_in_wait_finalize_doesnt_cancel_other_waiters(
-        self, ls
+        self, ls: util.StreamableList[float]
     ):
         wait_task_1 = asyncio.create_task(ls.wait_finalized())
         wait_task_2 = asyncio.create_task(ls.wait_finalized())
@@ -102,7 +108,9 @@ class TestStreamableList:
         await ls.finalize()
         await wait_task_2
 
-    async def test_stream(self, ls, stream_into_list):
+    async def test_stream(
+        self, ls: util.StreamableList[float], stream_into_list
+    ):
         output = []
         stream_task = asyncio.create_task(stream_into_list(output))
         await ls.append(1)
@@ -113,7 +121,7 @@ class TestStreamableList:
         await stream_task
 
     async def test_stream_blocks_while_not_finalized(
-        self, ls, stream_into_list
+        self, ls: util.StreamableList[float], stream_into_list
     ):
         stream_task = asyncio.create_task(stream_into_list([]))
         with pytest.raises(TimeoutError):
@@ -122,27 +130,31 @@ class TestStreamableList:
         await ls.finalize()
         await stream_task
 
-    async def test_stream_exits_when_finalized(self, ls, stream_into_list):
+    async def test_stream_exits_when_finalized(
+        self, ls: util.StreamableList[float], stream_into_list
+    ):
         output = []
         stream_task = asyncio.create_task(stream_into_list(output))
         await ls.finalize()
         await self.wait_for_list_content(output, ["finalized"])
         await stream_task
 
-    async def test_compact_on_finalize(self, ls):
+    async def test_compact_on_finalize(self, ls: util.StreamableList[float]):
         await ls.append(1)
         await ls.append(2)
-        await ls.finalize(compact=lambda ls: [sum(ls)])
+        await ls.finalize(compact=lambda ll: [sum(ll)])
         assert list(ls) == [3]
 
-    async def test_compact_waits_until_readers_done(self, ls, read_then_wait):
+    async def test_compact_waits_until_readers_done(
+        self, ls: util.StreamableList[float], read_then_wait
+    ):
         await ls.append(1)
         continue_condition = asyncio.Condition()
         read_task = asyncio.create_task(
             read_then_wait(continue_condition, asyncio.Queue())
         )
         finalize_task = asyncio.create_task(
-            ls.finalize(compact=lambda ls: [sum(ls) + 0.5])
+            ls.finalize(compact=lambda ll: [sum(ll) + 0.5])
         )
         with pytest.raises(TimeoutError):
             async with asyncio.timeout(10**-3):
@@ -155,7 +167,7 @@ class TestStreamableList:
         assert list(ls) == [1.5]
 
     async def test_compact_waits_if_new_reader_is_added_later(
-        self, ls, read_then_wait
+        self, ls: util.StreamableList[float], read_then_wait
     ):
         await ls.append(1)
         await ls.append(2)
@@ -168,7 +180,7 @@ class TestStreamableList:
         async with continue_condition:
             continue_condition.notify_all()
         finalize_task = asyncio.create_task(
-            ls.finalize(compact=lambda ls: [sum(ls) + 0.5])
+            ls.finalize(compact=lambda ll: [sum(ll) + 0.5])
         )
         queue_2 = asyncio.Queue()
         read_task_2 = asyncio.create_task(
@@ -376,17 +388,17 @@ class TestPublisher:
             assert await element_queue.get() == 1
             async with continue_condition:
                 continue_condition.notify_all()
-            await self.wait_until(lambda: len(publisher._history) == 2)
+            await self.wait_until(lambda: len(publisher._history) == 2)  # pyright: ignore[reportPrivateUsage]
 
             assert await element_queue.get() == 2
             async with continue_condition:
                 continue_condition.notify_all()
-            await self.wait_until(lambda: len(publisher._history) == 1)
+            await self.wait_until(lambda: len(publisher._history) == 1)  # pyright: ignore[reportPrivateUsage]
 
             assert await element_queue.get() == 3
             async with continue_condition:
                 continue_condition.notify_all()
-            await self.wait_until(lambda: len(publisher._history) == 1)
+            await self.wait_until(lambda: len(publisher._history) == 1)  # pyright: ignore[reportPrivateUsage]
         assert read_task
         await read_task
 
@@ -406,16 +418,16 @@ class TestPublisher:
             await stream_start_event.wait()
             await publisher.append(1)
             await publisher.append(2)
-            await self.wait_until(lambda: len(publisher._history) == 2)
+            await self.wait_until(lambda: len(publisher._history) == 2)  # pyright: ignore[reportPrivateUsage]
             await self.wait_until(
-                lambda: len(publisher._subscriber_next_seq) == 1
+                lambda: len(publisher._subscriber_next_seq) == 1  # pyright: ignore[reportPrivateUsage]
             )
             read_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await read_task
-            await self.wait_until(lambda: len(publisher._history) == 0)
+            await self.wait_until(lambda: len(publisher._history) == 0)  # pyright: ignore[reportPrivateUsage]
             await self.wait_until(
-                lambda: len(publisher._subscriber_next_seq) == 0
+                lambda: len(publisher._subscriber_next_seq) == 0  # pyright: ignore[reportPrivateUsage]
             )
 
     async def test_subscriptions_exit_on_aexit(self):
@@ -445,7 +457,7 @@ class TestFutureValue:
     async def test_set_and_get_value(self):
         v = util.FutureValue()
         v.value = 5
-        assert await v.value == 5
+        assert await v.value == 5  # pyright: ignore[reportGeneralTypeIssues]
 
     async def test_get_blocks_until_set(self):
         v = util.FutureValue()
@@ -454,7 +466,7 @@ class TestFutureValue:
             async with asyncio.timeout(10**-3):
                 await asyncio.shield(get_task)
         v.value = 5
-        assert await v.value == 5
+        assert await v.value == 5  # pyright: ignore[reportGeneralTypeIssues]
 
     async def test_set_raises_if_already_set(self):
         v = util.FutureValue()

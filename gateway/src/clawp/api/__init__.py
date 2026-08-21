@@ -15,4 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+# pyright: reportImportCycles=false,reportUnusedImport=false
+# ruff: noqa: F401
+
 from .api import Api

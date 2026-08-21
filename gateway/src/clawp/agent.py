@@ -15,6 +15,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+# pyright: reportImportCycles=false
+
 import asyncio
 import collections.abc as cl_abc
 import contextlib
@@ -40,14 +42,14 @@ if t.TYPE_CHECKING:
 
 @dc.dataclass
 class MessageInSession:
-    message: msg.Message
+    message: msg.Message[msg.MessageMetadata]
     message_offset: mdl.MessageOffset
 
     def __post_init__(self) -> None:
-        if not isinstance(self.message, msg.Message):
-            raise ValueError("invalid message")
-        if not isinstance(self.message_offset, mdl.MessageOffset):
-            raise ValueError("invalid message offset")
+        if not isinstance(self.message, msg.Message):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise ValueError("invalid message")  # noqa: TRY004
+        if not isinstance(self.message_offset, mdl.MessageOffset):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise ValueError("invalid message offset")  # noqa: TRY004
 
 
 class SessionTransaction:
@@ -63,7 +65,7 @@ class SessionTransaction:
     reused.
     """
 
-    def __init__(self, session: "Session") -> None:
+    def __init__(self, session: Session) -> None:
         self._session = session
         self._is_active = False
         self._completed_event = asyncio.Event()
@@ -96,7 +98,7 @@ class SessionTransaction:
         """
         if not self._is_active:
             raise RuntimeError("transaction is not active")
-        return self._session._active_chat
+        return self._session._active_chat  # pyright: ignore[reportPrivateUsage]
 
     @active_chat.setter
     def active_chat(self, value: mdl.ChatDescriptor) -> None:
@@ -107,7 +109,7 @@ class SessionTransaction:
         """
         if not self._is_active:
             raise RuntimeError("transaction is not active")
-        self._session._active_chat = value
+        self._session._active_chat = value  # pyright: ignore[reportPrivateUsage]
 
     @property
     def num_messages(self) -> int:
@@ -121,28 +123,31 @@ class SessionTransaction:
     ) -> None:
         if not self._is_active:
             raise RuntimeError("transaction is not active")
-        await self._session._append_incoming_message(incoming_message)
+        await self._session._append_incoming_message(incoming_message)  # pyright: ignore[reportPrivateUsage]
 
     async def request_responses(self) -> None:
         if not self._is_active:
             raise RuntimeError("transaction is not active")
-        await self._session._request_responses()
+        await self._session._request_responses()  # pyright: ignore[reportPrivateUsage]
 
     async def append_internal_message(
-        self, message_class: type[msg.InternalMessage], content: str, **kwargs
+        self,
+        message_class: type[msg.InternalMessage],
+        content: str,
+        **kwargs,
     ) -> None:
         if not self._is_active:
             raise RuntimeError("transaction is not active")
-        await self._session._append_internal_message(
+        await self._session._append_internal_message(  # pyright: ignore[reportPrivateUsage]
             message_class, content, **kwargs
         )
 
     async def append_agent_message(
-        self, message_parts: util.StreamableList
+        self, message_parts: util.StreamableList[msg.AgentMessagePart]
     ) -> None:
         if not self._is_active:
             raise RuntimeError("transaction is not active")
-        await self._session._append_agent_message(message_parts)
+        await self._session._append_agent_message(message_parts)  # pyright: ignore[reportPrivateUsage]
 
     def messages(self) -> cl_abc.Generator[MessageInSession]:
         if not self._is_active:
@@ -184,7 +189,7 @@ class Session:
         model_config: mdl.ModelConfig,
         message_store: store.SessionMessageStore,
         message_sender: chan.MessageSender,
-        provider: "prov.Provider",
+        provider: prov.Provider,
         mcp_client: tool.Client,
         active_chat: mdl.ChatDescriptor,
     ) -> None:
@@ -196,7 +201,7 @@ class Session:
         self._provider = provider
         self._mcp_client = mcp_client
         self._active_chat = active_chat
-        self._messages = None
+        self._messages = []
         self._publisher = util.Publisher()
         self._active_transaction = None
 
@@ -238,7 +243,7 @@ class Session:
     @property
     def num_messages(self) -> int:
         """The number of messages in this session."""
-        return len(self._messages or [])
+        return len(self._messages)
 
     async def _append_incoming_message(
         self, incoming_message: mdl.IncomingMessage
@@ -257,8 +262,7 @@ class Session:
         agent.
         """
         message = incoming_message.message
-        if message.role == "user":
-            assert isinstance(message, mdl.ChatMessage)
+        if isinstance(message, mdl.UserMessage):
             await self._add_metadata_for_user_message(message)
             message = msg.UserMessage(
                 msg.ChatMessageMetadata.from_model(message.metadata),
@@ -289,7 +293,7 @@ class Session:
             msg.SystemMessage, content=message_content
         )
 
-    async def _append_message(self, message: msg.Message):
+    async def _append_message(self, message: msg.Message[msg.MessageMetadata]):
         """
         Append a message.
 
@@ -425,6 +429,8 @@ class Session:
         return need_another_request
 
     async def _handle_tool_calls(self, message: msg.AgentMessage) -> bool:
+        if self._active_transaction is None:
+            raise RuntimeError("no transaction to handle tool calls")
         if not await message.tool_calls:
             return False
         for tool_call in await message.tool_calls:
@@ -448,6 +454,8 @@ class Session:
         tool_call: msg.ToolCall,
         tx_client: tool.ClientSessionTransactionContext,
     ) -> None:
+        if self._active_transaction is None:
+            raise RuntimeError("no transaction to handle tool call")
         arguments = json.loads(tool_call.function.arguments)
         result = await tx_client.call_tool(tool_call.function.name, arguments)
         await self._append_internal_message(
@@ -461,7 +469,10 @@ class Session:
             await result.operation(self._active_transaction)
 
     async def _append_internal_message(
-        self, message_class: type[msg.InternalMessage], content: str, **kwargs
+        self,
+        message_class: type[msg.InternalMessage],
+        content: str,
+        **kwargs,
     ) -> None:
         """
         Append an internal message to this session.
@@ -485,7 +496,7 @@ class Session:
         await self._append_message(message)
 
     async def _append_agent_message(
-        self, message_parts: util.StreamableList
+        self, message_parts: util.StreamableList[msg.AgentMessagePart]
     ) -> None:
         """
         Append an agent message to this session.
@@ -580,7 +591,7 @@ class Agent:
         message_store: store.MessageStore,
         memory_store: store.MemoryStore,
         channels: list[chan.Channel],
-        provider: "prov.Provider",
+        provider: prov.Provider,
     ) -> None:
         self._logger = logging.getLogger(type(self).__name__)
         if not workspace_dir.is_dir():
@@ -603,7 +614,8 @@ class Agent:
             provider=provider,
             mcp_client=self._mcp_client,
         )
-        self._session = None
+        self._process_unread_chats_task = None
+        self._session: Session = None  # pyright: ignore[reportAttributeAccessIssue]
         self._lock = asyncio.Lock()
 
     @property
@@ -665,6 +677,7 @@ class Agent:
             return self
 
     async def __aexit__(self, *args) -> bool:
+        assert self._process_unread_chats_task is not None
         async with self._lock:
             self._process_unread_chats_task.cancel()
             try:
@@ -874,6 +887,7 @@ class Agent:
         in the same order.
         """
         assert len(unread_chats) > 0
+        handle_task = util.create_done_future(None)
         try:
             async with await self._session.transaction() as tx:
                 handle_task = asyncio.create_task(
@@ -953,7 +967,7 @@ class Agent:
         tool_part = msg.AgentMessageToolPart()
         function = msg.ToolCallFunction(
             name="clawp_switch_chat",
-            arguments=chat.model_dump_json(include=("channel", "chat_id")),
+            arguments=chat.model_dump_json(include={"channel", "chat_id"}),
         )
         # A random ID will be generated automatically.
         await tool_part.append(msg.ToolCall(function=function))
@@ -1023,6 +1037,8 @@ class Agent:
         Raises a ValueError if a channel of this type already exists for the
         agent.
         """
+        if channel.id is None:
+            raise ValueError("can't add channels without ID")
         async with await self._session.transaction() as tx, self._lock:
             if channel.type in self.state.claimed_channels:
                 raise ValueError(
@@ -1066,7 +1082,7 @@ class AgentRepository:
         *,
         base_dir: pathlib.Path,
         channel_pool: chan.ChannelPool,
-        provider: "prov.Provider",
+        provider: prov.Provider,
         config: mdl.GatewayConfig,
     ) -> None:
         self._logger = logging.getLogger(type(self).__name__)
@@ -1114,7 +1130,7 @@ class AgentRepository:
         return False
 
     async def _stop_agents(self):
-        stop_tasks = {
+        stop_tasks: set[asyncio.Task[None] | asyncio.Future[None]] = {
             asyncio.create_task(a.__aexit__(None, None, None))
             for a in self._agents.values()
         }
@@ -1297,7 +1313,7 @@ class AgentRepository:
             agent_information.model_dump_json()
         )
         agent_state = mdl.AgentState(
-            active_chat=mdl.BasicChatDescriptor(channel="web_ui", chat_id=""),
+            active_chat=mdl.WebUiChatDescriptor(chat_id=""),
             web_ui_channel=mdl.WebUiChannelState(),
             agent_channel=mdl.AgentChannelState(),
         )

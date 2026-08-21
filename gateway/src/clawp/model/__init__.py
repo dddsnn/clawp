@@ -15,16 +15,19 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+# pyright: reportImportCycles=false,reportUnusedImport=false
+# ruff: noqa: F401
+
 from .agent import (
     AgentInformation,
     AgentPersonality,
     AgentPersonalityWithFileContents,
 )
 from .api import ErrorResponse
-from .base import BaseModel, Iso8601Millis
+from .base import Iso8601Millis
 from .channel import (
     AgentChannelStatus,
-    BasicChatDescriptor,
+    AgentChatDescriptor,
     ChannelInformation,
     ChannelStatus,
     ChannelType,
@@ -34,9 +37,11 @@ from .channel import (
     MatrixChannelStatus,
     MatrixChatDescriptor,
     WebUiChannelStatus,
+    WebUiChatDescriptor,
 )
 from .config import (
     ApiConfig,
+    ChannelAccountConfig,
     ChannelsConfig,
     Config,
     EnvironmentSecretValue,
@@ -52,14 +57,14 @@ from .config import (
 )
 from .memory import Memory
 from .message import (
+    AgentChatMessageMetadata,
     AgentMessage,
     AgentMessageError,
+    AgentStartMessageMetadata,
     BaseMessage,
     BaseStreamingMessageFragment,
     BaseStreamingMessageMarker,
     BaseWebsocketChunk,
-    BasicChatMessageMetadata,
-    BasicStartMessageMetadata,
     ChatMessage,
     ChatMessageMetadata,
     ChatMessageRole,
@@ -69,6 +74,7 @@ from .message import (
     GithubChatMessageMetadata,
     GithubStartMessageMetadata,
     IncomingMessage,
+    InternalMessage,
     InternalMessageMetadata,
     InternalMessageRole,
     MatrixChatMessage,
@@ -79,7 +85,6 @@ from .message import (
     MessageMetadata,
     MessageOffset,
     MessageRole,
-    MessageTypeAdapter,
     NonStreamableMessage,
     StartMessageMetadata,
     StreamingMessageFragment,
@@ -104,6 +109,8 @@ from .message import (
     WebsocketChunkAgentMessageFragment,
     WebsocketChunkAgentMessageMarker,
     WebsocketChunkFullMessage,
+    WebUiChatMessageMetadata,
+    WebUiStartMessageMetadata,
 )
 from .state import (
     AgentChannelState,

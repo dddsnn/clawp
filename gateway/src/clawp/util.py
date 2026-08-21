@@ -84,7 +84,11 @@ class StreamableList[ElementType]:
         async with self._new_element_condition:
             self._new_element_condition.notify_all()
 
-    async def finalize(self, compact=None) -> None:
+    async def finalize(
+        self,
+        compact: cl_abc.Callable[[list[ElementType]], list[ElementType]]
+        | None = None,
+    ) -> None:
         """
         Finalize the list.
 
@@ -177,7 +181,7 @@ class Publisher[ElementType]:
         self._subscriber_id_gen = it.count()
         self._subscriber_next_seq = {}
 
-    async def __aenter__(self) -> "Publisher":
+    async def __aenter__(self) -> t.Self:
         self._running = True
         return self
 
@@ -229,7 +233,7 @@ class Publisher[ElementType]:
                 except StopIteration:
                     async with self._condition:
 
-                        def have_data():
+                        def have_data(wanted_seq=wanted_seq):
                             return (
                                 not self._running
                                 or wanted_seq < self._next_seq
@@ -282,6 +286,7 @@ class FutureValue[ValueType](Value[ValueType]):
     @property
     async def value(self) -> ValueType:
         await self._set_event.wait()
+        assert self._value is not None
         return self._value
 
     @value.setter

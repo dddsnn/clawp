@@ -63,10 +63,10 @@ class Provider(abc.ABC):
     @abc.abstractmethod
     async def stream_agent_message(
         self,
-        message_parts: util.StreamableList,
-        messages: cl_abc.Iterable[msg.Message],
+        message_parts: util.StreamableList[msg.AgentMessagePart],
+        messages: cl_abc.Iterable[msg.Message[msg.MessageMetadata]],
         tools: cl_abc.Iterable[mcp.types.Tool],
-    ) -> cl_abc.Coroutine[None]:
+    ) -> cl_abc.Awaitable[None]:
         """
         Stream an agent response.
 
@@ -114,10 +114,10 @@ class OpenrouterProvider(Provider):
 
     async def stream_agent_message(
         self,
-        message_parts: util.StreamableList,
-        messages: cl_abc.Iterable[msg.Message],
+        message_parts: util.StreamableList[msg.AgentMessagePart],
+        messages: cl_abc.Iterable[msg.Message[msg.MessageMetadata]],
         tools: cl_abc.Iterable[mcp.types.Tool],
-    ) -> cl_abc.Coroutine[None]:
+    ) -> cl_abc.Awaitable[None]:
         try:
             stream = await self._openrouter_client.chat.send_async(
                 messages=await self._as_openrouter_messages(messages),
@@ -135,34 +135,34 @@ class OpenrouterProvider(Provider):
         return stream_reader.read_message()
 
     async def _as_openrouter_messages(
-        self, messages: cl_abc.Iterable[msg.Message]
+        self, messages: cl_abc.Iterable[msg.Message[t.Any]]
     ) -> list[or_comp.ChatMessages]:
         openrouter_messages = []
         for message in messages:
-            if message.role == "agent":
+            if isinstance(message, msg.AgentMessage):
                 openrouter_message = (
                     await self._create_openrouter_assistant_message(message)
                 )
-            elif message.role == "developer":
+            elif isinstance(message, msg.DeveloperMessage):
                 openrouter_message = or_comp.ChatDeveloperMessage(
                     role=message.role, content=await message.content
                 )
-            elif message.role == "system":
+            elif isinstance(message, msg.SystemMessage):
                 openrouter_message = or_comp.ChatSystemMessage(
                     role=message.role, content=await message.content
                 )
-            elif message.role == "tool":
+            elif isinstance(message, msg.ToolMessage):
                 openrouter_message = or_comp.ChatToolMessage(
                     role=message.role,
                     content=await message.content,
                     tool_call_id=message.tool_call_id,
                 )
-            elif message.role == "user":
+            elif isinstance(message, msg.UserMessage):
                 openrouter_message = or_comp.ChatUserMessage(
                     role=message.role, content=await message.content
                 )
             else:
-                raise ValueError(f"invalid message role {message.role}")
+                raise ValueError(f"invalid message role {message.role}")  # noqa: TRY004
             openrouter_messages.append(openrouter_message)
         return openrouter_messages
 
@@ -277,13 +277,13 @@ class OpenrouterStreamReader:
 
     def __init__(
         self,
-        message_parts: util.StreamableList,
-        stream: or_stream.EventStreamAsync,
+        message_parts: util.StreamableList[msg.AgentMessagePart],
+        stream: or_stream.EventStreamAsync[or_comp.ChatStreamChunk],
     ):
         self._logger = logging.getLogger(type(self).__name__)
         self._message_parts = message_parts
         self._stream = stream
-        self._tool_calls_kwargs: dict[int, dict] = {}
+        self._tool_calls_kwargs: dict[int, dict[str, str]] = {}
         self._saw_assistant_role = False
 
     async def read_message(self) -> None:
@@ -322,12 +322,14 @@ class OpenrouterStreamReader:
                     ),
                 )
         except (Exception, asyncio.CancelledError) as e:
+            self._logger.exception("Error in stream.")
             if isinstance(e, asyncio.CancelledError):
-                exc_with_msg = asyncio.CancelledError("stream was cancelled")
-                exc_with_msg.__cause__ = e
-                e = exc_with_msg
+                exc_to_raise = asyncio.CancelledError("stream was cancelled")
+                exc_to_raise.__cause__ = e
+            else:
+                exc_to_raise = e
             await self._append_to_part(msg.AgentMessageErrorPart, e)
-            raise e
+            raise exc_to_raise
         finally:
             try:
                 # Make sure the last part is finalized.
@@ -357,9 +359,9 @@ class OpenrouterStreamReader:
                     finish_reasons.add(payload)
         return finish_reasons
 
-    def _parse_chunk(self, chunk):
-        if not isinstance(chunk, or_comp.ChatStreamChunk):
-            yield (
+    def _parse_chunk(self, chunk: or_comp.ChatStreamChunk):
+        if not isinstance(chunk, or_comp.ChatStreamChunk):  # pyright: ignore[reportUnnecessaryIsInstance]
+            yield (  # pyright: ignore[reportUnreachable]
                 "error",
                 MessageStreamError(
                     f"unexpected chunk type {type(chunk)} in stream"

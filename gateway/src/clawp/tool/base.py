@@ -15,6 +15,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+# pyright: reportImportCycles=false
+
 import collections.abc as cl_abc
 import dataclasses as dc
 import logging
@@ -87,7 +89,7 @@ class ComplexToolResultMetadataRegistry:
         )
 
     def pop_for_result(
-        self, result: fastmcp.tools.ToolResult
+        self, result: fastmcp.client.client.CallToolResult
     ) -> dict[str, t.Any]:
         """
         Get and remove complex metadata referenced by a ToolResult.
@@ -99,8 +101,9 @@ class ComplexToolResultMetadataRegistry:
         :returns: The associated complex metadata dictionary.
         """
         try:
+            assert result.meta is not None
             complex_metadata_id = result.meta["complex_metadata_id"]
-        except TypeError, KeyError:
+        except AssertionError, KeyError:
             return {}
         try:
             return self._registry.pop(complex_metadata_id)
@@ -127,7 +130,7 @@ class SessionOperationToolResult(ToolResult):
     """A tool result instructing an operation on the session."""
 
     operation: cl_abc.Callable[
-        ["agt.SessionTransaction"], cl_abc.Awaitable[None]
+        [agt.SessionTransaction], cl_abc.Awaitable[None]
     ]
     """An operation that should be performed on the session transaction."""
 
@@ -140,7 +143,7 @@ class ClientSessionTransactionContext:
     which sets and unsets a session transaction on the client.
     """
 
-    def __init__(self, client: "Client", tx: "agt.SessionTransaction") -> None:
+    def __init__(self, client: Client, tx: agt.SessionTransaction) -> None:
         self._client = client
         self._tx = tx
 
@@ -162,7 +165,7 @@ class Client:
     def __init__(
         self,
         config: mdl.GatewayConfig,
-        agent: "agt.Agent",
+        agent: agt.Agent,
         extra_env_getter: cl_abc.Callable[
             [], cl_abc.Awaitable[dict[str, str]]
         ],
@@ -203,15 +206,15 @@ class Client:
         return False
 
     def set_session_transaction(
-        self, tx: t.Optional["agt.SessionTransaction"]
+        self, tx: agt.SessionTransaction | None
     ) -> None:
         if self._session_transaction and tx:
             raise RuntimeError("session transaction is already set")
-        self._clawp_server.session_transaction = tx
+        self._clawp_server.set_session_transaction(tx)
         self._session_transaction = tx
 
     def with_session_transaction(
-        self, tx: "agt.SessionTransaction"
+        self, tx: agt.SessionTransaction
     ) -> ClientSessionTransactionContext:
         """
         Set a session transaction.
@@ -232,22 +235,28 @@ class Client:
         if name not in self._tools:
             raise ValueError(f"unknown tool {name}")
         result = await self._client.call_tool(name, *args, **kwargs)
-        result_class, result_kwargs = self._determine_result_type(result)
-        return result_class(**result_kwargs)
+        return self._wrap_result(result)
 
-    def _determine_result_type(self, result):
-        result_kwargs = {"raw_result": result, "content_string": ""}
+    def _wrap_result(
+        self, result: fastmcp.client.client.CallToolResult
+    ) -> ToolResult:
+        content_string = ""
         for block in result.content:
             if not isinstance(block, mcp.types.TextContent):
                 self._logger.warning(
                     f"Ignoring non-text content block {block}."
                 )
                 continue
-            result_kwargs["content_string"] += block.text
+            content_string += block.text
         complex_metadata = self._complex_metadata_registry.pop_for_result(
             result
         )
-        if "session_operation" in complex_metadata:
-            result_kwargs["operation"] = complex_metadata["session_operation"]
-            return SessionOperationToolResult, result_kwargs
-        return ToolResult, result_kwargs
+        try:
+            session_operation = complex_metadata["session_operation"]
+            return SessionOperationToolResult(
+                raw_result=result,
+                content_string=content_string,
+                operation=session_operation,
+            )
+        except KeyError:
+            return ToolResult(raw_result=result, content_string=content_string)

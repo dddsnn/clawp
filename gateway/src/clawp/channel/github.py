@@ -520,7 +520,7 @@ class GithubChannel(base.Channel):
     and the gh CLI.
     """
 
-    _RELEVANT_ISSUE_EVENTS = ["labeled", "unlabeled"]
+    _RELEVANT_ISSUE_EVENTS = ("labeled", "unlabeled")
 
     def __init__(
         self, config: mdl.GithubAccountConfig, state: mdl.GithubChannelState
@@ -529,9 +529,7 @@ class GithubChannel(base.Channel):
         self._config = config
         self._state = state
         self._client = GithubAppClient(self._config)
-        self._progress_checkers = None
-        self._poll_task: asyncio.Task | None = None
-        self._message_templates: dict[str, file.Template] = None
+        self._poll_task: asyncio.Task[None] | None = None
         self._assigned_issues: dict[str, list[gh_iss.Issue]] = {}
 
     async def start(self, agent: agt.Agent) -> None:
@@ -668,9 +666,14 @@ class GithubChannel(base.Channel):
                 repo.get_issues, labels=[self.agent_assigned_label]
             )
 
-    async def _read_paginated_list(self, list_getter, *args, **kwargs) -> list:
+    @staticmethod
+    async def _read_paginated_list[T](list_getter, *args, **kwargs) -> list[T]:
         paginated_list = await asyncio.to_thread(list_getter, *args, **kwargs)
         return await asyncio.to_thread(list, paginated_list)
+
+    @property
+    def type(self) -> t.Literal["github"]:
+        return "github"
 
     @property
     def id(self) -> str:

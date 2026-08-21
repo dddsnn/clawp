@@ -63,7 +63,7 @@ class ChannelRouter(base.MessageSender):
     @dc.dataclass
     class ChannelStatus:
         channel: base.Channel
-        read_task: t.Optional[asyncio.Task] = None
+        read_task: asyncio.Task[None] | None = None
 
     def __init__(self, agent: agt.Agent, channels: list[base.Channel]) -> None:
         self._logger = logging.getLogger(type(self).__name__)
@@ -103,7 +103,7 @@ class ChannelRouter(base.MessageSender):
             self._read_channel(status.channel)
         )
 
-    async def _read_channel(self, channel: base.Channel):
+    async def _read_channel(self, channel: base.Channel) -> None:
         publish_task = None
         try:
             async for message in channel.incoming_messages():
@@ -255,7 +255,7 @@ class ChannelRouter(base.MessageSender):
 @dc.dataclass
 class PoolChannelStatus:
     channel: base.Channel
-    config: mdl.Account
+    config: mdl.ChannelAccountConfig
     status: t.Literal["available", "acquired"] = "available"
 
 
@@ -279,7 +279,7 @@ class ChannelPool:
 
     def _make_github_channels(
         self, config: mdl.GithubConfig
-    ) -> dict[str, github.GithubChannel]:
+    ) -> dict[str, PoolChannelStatus]:
         channels = {}
         for account in config.accounts:
             try:
@@ -305,7 +305,7 @@ class ChannelPool:
 
     def _make_matrix_channels(
         self, config: mdl.MatrixConfig
-    ) -> dict[str, matrix.MatrixChannel]:
+    ) -> dict[str, PoolChannelStatus]:
         channels = {}
         for account in config.accounts:
             channel_status = PoolChannelStatus(
@@ -357,6 +357,8 @@ class ChannelPool:
         Raises NoSuchChannelError if the channel doesn't exist, or
         ChannelStateError if it has not been acquired.
         """
+        if channel.id is None:
+            raise ValueError("channel ID must not be None")
         try:
             status = self._channels[channel.type][channel.id]
         except KeyError:

@@ -19,6 +19,7 @@ import pathlib
 import typing as t
 import uuid
 
+import pydantic as pyd
 import whenever as we
 
 from .. import message as msg
@@ -55,8 +56,9 @@ class WebUiChannel(base.Channel):
         super().__init__("web_ui")
         self._state = state
         self._messages: list[mdl.UserMessage | mdl.AgentMessage] = []
-        self._messages_io = store.JsonlIO(
-            messages_dir / self._MESSAGES_FILE_NAME, mdl.MessageTypeAdapter
+        self._messages_io = store.JsonlIO[mdl.Message](
+            messages_dir / self._MESSAGES_FILE_NAME,
+            pyd.TypeAdapter(mdl.Message),
         )
 
     async def start(self, agent: agt.Agent) -> None:
@@ -119,6 +121,10 @@ class WebUiChannel(base.Channel):
             await self._messages_io.append(message)
 
     @property
+    def type(self) -> t.Literal["web_ui"]:
+        return "web_ui"
+
+    @property
     def id(self) -> None:
         return None
 
@@ -128,9 +134,9 @@ class WebUiChannel(base.Channel):
 
     async def get_chat_descriptor(
         self, chat_id: str
-    ) -> mdl.BasicChatDescriptor:
+    ) -> mdl.WebUiChatDescriptor:
         self._assert_valid_chat_id(chat_id)
-        return mdl.BasicChatDescriptor(channel=self.type, chat_id=chat_id)
+        return mdl.WebUiChatDescriptor(channel=self.type, chat_id=chat_id)
 
     def _assert_valid_chat_id(self, chat_id: str) -> None:
         if chat_id != "":
@@ -165,13 +171,13 @@ class WebUiChannel(base.Channel):
     def make_outgoing_start_metadata(
         self, chat: mdl.ChatDescriptor
     ) -> tuple[
-        mdl.BasicStartMessageMetadata, type[mdl.BasicChatMessageMetadata]
+        mdl.WebUiStartMessageMetadata, type[mdl.WebUiChatMessageMetadata]
     ]:
         if chat.channel != "web_ui":
             raise ValueError(f"got descriptor for {chat.channel}")
         return (
-            mdl.BasicStartMessageMetadata(chat=chat),
-            mdl.BasicChatMessageMetadata,
+            mdl.WebUiStartMessageMetadata(chat=chat),
+            mdl.WebUiChatMessageMetadata,
         )
 
     async def send(self, message: msg.AgentMessage) -> None:
@@ -190,8 +196,8 @@ class WebUiChannel(base.Channel):
         The message will appear has having arrived on the channel and will be
         delivered to the agent.
         """
-        chat = mdl.BasicChatDescriptor(channel=self.type, chat_id="")
-        metadata = mdl.BasicChatMessageMetadata(time=time, chat=chat)
+        chat = mdl.WebUiChatDescriptor(channel=self.type, chat_id="")
+        metadata = mdl.WebUiChatMessageMetadata(time=time, chat=chat)
         message = mdl.UserMessage(metadata=metadata, content=content)
         await self._append_message(message)
         await self._publisher.append(self._make_incoming_message(message))
@@ -215,7 +221,7 @@ class AgentChannel(base.Channel):
 
     def __init__(
         self,
-        agent_repo: "agt.AgentRepository",
+        agent_repo: agt.AgentRepository,
         messages_dir: pathlib.Path,
         state: mdl.AgentChannelState,
     ) -> None:
@@ -231,7 +237,9 @@ class AgentChannel(base.Channel):
         self._messages: dict[
             uuid.UUID, list[mdl.UserMessage | mdl.AgentMessage]
         ] = {}
-        self._chat_ios: dict[uuid.UUID, store.JsonlIO] = {}
+        self._chat_ios: dict[
+            uuid.UUID, store.JsonlIO[mdl.UserMessage | mdl.AgentMessage]
+        ] = {}
 
     async def start(self, agent: agt.Agent) -> None:
         await super().start(agent)
@@ -246,12 +254,15 @@ class AgentChannel(base.Channel):
     def _messages_path(self, peer_agent_id: uuid.UUID):
         return self._messages_dir / f"{peer_agent_id}.jsonl"
 
-    def _io_for_chat(self, peer_agent_id: uuid.UUID) -> store.JsonlIO:
+    def _io_for_chat(
+        self, peer_agent_id: uuid.UUID
+    ) -> store.JsonlIO[mdl.UserMessage | mdl.AgentMessage]:
         try:
             return self._chat_ios[peer_agent_id]
         except KeyError:
-            io = store.JsonlIO(
-                self._messages_path(peer_agent_id), mdl.MessageTypeAdapter
+            io = store.JsonlIO[mdl.UserMessage | mdl.AgentMessage](
+                self._messages_path(peer_agent_id),
+                pyd.TypeAdapter(mdl.UserMessage | mdl.AgentMessage),
             )
             self._chat_ios[peer_agent_id] = io
             return io
@@ -273,7 +284,7 @@ class AgentChannel(base.Channel):
             models = [model async for model in io.read_all()]
             chat_messages: list[mdl.UserMessage | mdl.AgentMessage] = []
             for model in models:
-                if not isinstance(model, (mdl.UserMessage, mdl.AgentMessage)):
+                if not isinstance(model, (mdl.UserMessage, mdl.AgentMessage)):  # pyright: ignore[reportUnnecessaryIsInstance]
                     raise base.ChannelError(
                         "agent channel file contains message of type "
                         f"{type(model)} (only user and agent messages allowed)"
@@ -324,6 +335,10 @@ class AgentChannel(base.Channel):
             await io.append(message)
 
     @property
+    def type(self) -> t.Literal["agent"]:
+        return "agent"
+
+    @property
     def id(self) -> str:
         return str(self._agent.information.id)
 
@@ -335,9 +350,9 @@ class AgentChannel(base.Channel):
         # Get the other agent to make sure the ID is in order and the agent
         # exists.
         self._get_agent(chat_id)
-        return mdl.BasicChatDescriptor(channel=self.type, chat_id=chat_id)
+        return mdl.AgentChatDescriptor(channel=self.type, chat_id=chat_id)
 
-    def _get_agent(self, chat_id: str) -> "agt.Agent":
+    def _get_agent(self, chat_id: str) -> agt.Agent:
         try:
             agent_id = uuid.UUID(chat_id)
         except ValueError:
@@ -386,13 +401,13 @@ class AgentChannel(base.Channel):
     def make_outgoing_start_metadata(
         self, chat: mdl.ChatDescriptor
     ) -> tuple[
-        mdl.BasicStartMessageMetadata, type[mdl.BasicChatMessageMetadata]
+        mdl.AgentStartMessageMetadata, type[mdl.AgentChatMessageMetadata]
     ]:
         if chat.channel != "agent":
             raise ValueError(f"got descriptor for {chat.channel}")
         return (
-            mdl.BasicStartMessageMetadata(chat=chat),
-            mdl.BasicChatMessageMetadata,
+            mdl.AgentStartMessageMetadata(chat=chat),
+            mdl.AgentChatMessageMetadata,
         )
 
     async def send(self, message: msg.AgentMessage) -> None:
@@ -428,14 +443,14 @@ class AgentChannel(base.Channel):
         message. That message will appear has having arrived on the channel and
         will be delivered to the agent.
         """
-        chat = mdl.BasicChatDescriptor(
+        chat = mdl.AgentChatDescriptor(
             channel=self.type, chat_id=str(sender_id)
         )
-        metadata = mdl.BasicChatMessageMetadata(
+        metadata = mdl.AgentChatMessageMetadata(
             time=await message.metadata.time.value, chat=chat
         )
-        message = mdl.UserMessage(
+        user_message = mdl.UserMessage(
             metadata=metadata, content=await message.content
         )
-        await self._append_message(sender_id, message)
-        await self._publisher.append(self._make_incoming_message(message))
+        await self._append_message(sender_id, user_message)
+        await self._publisher.append(self._make_incoming_message(user_message))

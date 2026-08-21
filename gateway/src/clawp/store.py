@@ -44,18 +44,22 @@ class StoreFormatError(StoreError, ValueError):
     """Raised when the file structure is invalid."""
 
 
-class JsonlIO[ModelType: mdl.BaseModel | pyd.TypeAdapter]:
+class JsonlIO[ModelType: pyd.BaseModel]:
     """
     IO on a JSONL file.
 
     Represents one JSONL file with a header.
     """
 
-    def __init__(self, file_path: pathlib.Path, model_type: type[ModelType]):
+    def __init__(
+        self,
+        file_path: pathlib.Path,
+        model_type: type[ModelType] | pyd.TypeAdapter[ModelType],
+    ):
         self._logger = logging.getLogger(type(self).__name__)
         self._file_path = file_path
         self._model_type = model_type
-        self._write_file: t.IO | None = None
+        self._write_file: t.IO[str] | None = None
         self._lock = asyncio.Lock()
 
     async def close(self) -> None:
@@ -71,6 +75,7 @@ class JsonlIO[ModelType: mdl.BaseModel | pyd.TypeAdapter]:
                 self._write_file = None
 
     def _sync_close(self):
+        assert self._write_file is not None
         try:
             self._write_file.close()
         except Exception:
@@ -92,7 +97,7 @@ class JsonlIO[ModelType: mdl.BaseModel | pyd.TypeAdapter]:
         return await asyncio.to_thread(self._file_path.exists)
 
     @property
-    async def header(self) -> dict:
+    async def header(self) -> dict[str, t.Any]:
         """
         Read the file's header dict.
 
@@ -125,7 +130,7 @@ class JsonlIO[ModelType: mdl.BaseModel | pyd.TypeAdapter]:
             raise StoreFormatError("'version' is not an integer")
         return h
 
-    async def create(self, header: dict) -> None:
+    async def create(self, header: dict[str, t.Any]) -> None:
         """
         Create the file with the given header.
 
@@ -174,9 +179,10 @@ class JsonlIO[ModelType: mdl.BaseModel | pyd.TypeAdapter]:
             # Open to check that the file exists. Bubble up the
             # FileNotFoundError.
             pass
-        self._write_file = open(self._file_path, "a")
+        self._write_file = open(self._file_path, "a")  # noqa: SIM115
 
     def _sync_append(self, model: ModelType):
+        assert self._write_file is not None
         self._write_file.write(model.model_dump_json() + "\n")
         self._write_file.flush()
         os.fsync(self._write_file.fileno())
@@ -345,7 +351,7 @@ class MessageStore:
     _upgraders dictionary
     """
 
-    _active_base_dirs = set()
+    _active_base_dirs = set()  # noqa: RUF012
     _active_base_dirs_lock = asyncio.Lock()
 
     def __init__(self, base_dir: pathlib.Path) -> None:
@@ -391,7 +397,7 @@ class MessageStore:
         return self._sessions_dir() / f"{session_seq}.jsonl"
 
     async def append_message(
-        self, session_seq: int, message: msg.Message
+        self, session_seq: int, message: msg.Message[msg.MessageMetadata]
     ) -> None:
         """
         Append a message to a session file.
@@ -409,17 +415,20 @@ class MessageStore:
                 await self._ensure_session_file(session_seq, io)
                 await io.append(await message.model)
 
-    def _get_io(self, session_seq):
+    def _get_io(self, session_seq) -> JsonlIO[mdl.Message]:
         try:
             io = self._open_ios[session_seq]
         except KeyError:
             io = JsonlIO(
-                self._session_path(session_seq), mdl.MessageTypeAdapter
+                self._session_path(session_seq),
+                pyd.TypeAdapter[mdl.Message](mdl.Message),
             )
             self._open_ios[session_seq] = io
         return io
 
-    async def _ensure_session_file(self, session_seq: int, io: JsonlIO):
+    async def _ensure_session_file(
+        self, session_seq: int, io: JsonlIO[mdl.Message]
+    ):
         path = self._session_path(session_seq)
         for seq in range(session_seq):
             if not path.with_name(f"{seq}.jsonl").exists():
@@ -438,7 +447,7 @@ class MessageStore:
 
     async def read_session_messages(
         self, session_seq: int
-    ) -> list[msg.Message]:
+    ) -> list[msg.Message[msg.MessageMetadata]]:
         """
         Read all messages from a session file.
 
@@ -492,7 +501,7 @@ class MessageStore:
 
     def get_session_message_store(
         self, session_seq: int
-    ) -> "SessionMessageStore":
+    ) -> SessionMessageStore:
         """Get a message store specific to a session."""
         return SessionMessageStore(session_seq, self)
 
@@ -563,7 +572,9 @@ class MessageStore:
             # jsonl lines parse.
             if version_on_disk == self.VERSION:
                 for seq, file in list(self._list_all_session_files()):
-                    io = JsonlIO(file, mdl.MessageTypeAdapter)
+                    io = JsonlIO(
+                        file, pyd.TypeAdapter[mdl.Message](mdl.Message)
+                    )
                     await io.upgrade_and_validate(self._upgraders)
             self._logger.debug(
                 f"Found valid message store at {self._base_dir} with version "
@@ -582,7 +593,7 @@ class MessageStore:
 
     async def _ensure_valid_session_format(self, seq: int):
         path = self._session_path(seq)
-        io = JsonlIO(path, mdl.MessageTypeAdapter)
+        io = JsonlIO(path, pyd.TypeAdapter[mdl.Message](mdl.Message))
         try:
             header_dict = await io.header
             assert isinstance(header_dict["session_seq"], int)
@@ -620,10 +631,10 @@ class MessageStore:
         )
         for _, file in list(self._list_all_session_files()):
             assert file.is_file()
-            io = JsonlIO(file, mdl.MessageTypeAdapter)
+            io = JsonlIO(file, pyd.TypeAdapter[mdl.Message](mdl.Message))
             await io.upgrade_and_validate(self._upgraders)
 
-    _upgraders: dict[int, t.Callable[[pathlib.Path], None]] = {}
+    _upgraders: dict[int, t.Callable[[pathlib.Path], None]] = {}  # noqa: RUF012
     """
     Registry of upgrade functions, keyed by the version they upgrade from.
 
@@ -648,12 +659,16 @@ class SessionMessageStore:
         self._session_seq = session_seq
         self._message_store = message_store
 
-    async def append_message(self, message: msg.Message) -> None:
+    async def append_message(
+        self, message: msg.Message[msg.MessageMetadata]
+    ) -> None:
         return await self._message_store.append_message(
             self._session_seq, message
         )
 
-    async def read_session_messages(self) -> list[msg.Message]:
+    async def read_session_messages(
+        self,
+    ) -> list[msg.Message[msg.MessageMetadata]]:
         return await self._message_store.read_session_messages(
             self._session_seq
         )
@@ -676,9 +691,9 @@ class MemoryStore(abc.ABC):
     async def search_memory(
         self,
         *,
-        start_time: t.Optional[we.Instant],
-        end_time: t.Optional[we.Instant],
-        search_term: t.Optional[str],
+        start_time: we.Instant | None,
+        end_time: we.Instant | None,
+        search_term: str | None,
     ) -> cl_abc.AsyncGenerator[mdl.Memory]:
         """
         Search memories.
@@ -697,6 +712,7 @@ class MemoryStore(abc.ABC):
         If no filters are given, all memories are returned.
         """
         raise NotImplementedError
+        yield  # pyright: ignore[reportUnreachable] (to make it a generator)
 
 
 class JsonlMemoryStore(MemoryStore):
@@ -720,22 +736,21 @@ class JsonlMemoryStore(MemoryStore):
     async def search_memory(
         self,
         *,
-        start_time: t.Optional[we.Instant] = None,
-        end_time: t.Optional[we.Instant] = None,
-        search_term: t.Optional[str] = None,
-    ) -> cl_abc.AsyncGenerator[mdl.Memory, None]:
+        start_time: we.Instant | None = None,
+        end_time: we.Instant | None = None,
+        search_term: str | None = None,
+    ) -> cl_abc.AsyncGenerator[mdl.Memory]:
         start_time = start_time or we.Instant.MIN
         end_time = end_time or we.Instant.MAX
 
         def is_relevant(memory):
             if not start_time <= memory.time <= end_time:
                 return False
-            if (
-                search_term is not None
-                and search_term.lower() not in memory.content.lower()
-            ):
-                return False
-            return True
+            search_term_is_relevant = (
+                search_term is None
+                or search_term.lower() in memory.content.lower()
+            )
+            return search_term_is_relevant
 
         try:
             async for memory in self._io.read_all():

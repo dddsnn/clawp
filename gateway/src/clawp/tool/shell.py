@@ -56,7 +56,7 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
     encourage tools to produce cleaner output for our noninteractive purposes.
     """
 
-    EXTRA_ENV_FOR_BETTER_NONINTERACTIVE_DISPLAY = {
+    EXTRA_ENV_FOR_BETTER_NONINTERACTIVE_DISPLAY = {  # noqa: RUF012
         "TERM": "dumb",
         "NO_COLOR": "1",
         "CI": "true",
@@ -66,7 +66,7 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
     def __init__(
         self,
         config: mdl.GatewayConfig,
-        agent: "agt.Agent",
+        agent: agt.Agent,
         extra_env_getter: cl_abc.Callable[
             [], cl_abc.Awaitable[dict[str, str]]
         ],
@@ -103,17 +103,16 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
     async def shell(
         self,
         command: str,
-        cwd: t.Optional[
-            t.Annotated[
-                str,
-                pyd.Field(
-                    description="Change working directory before running the command. Must be "
-                    "relative to your home directory (i.e. start with ~) or be an "
-                    "absolute path. Default: your home directory."
-                ),
-            ]
-        ] = None,
-        env: t.Optional[dict[str, str]] = None,
+        cwd: t.Annotated[
+            str,
+            pyd.Field(
+                description="Change working directory before running the "
+                "command. Must be relative to your home directory (i.e. start "
+                "with ~) or be an absolute path. Default: your home directory."
+            ),
+        ]
+        | None = None,
+        env: dict[str, str] | None = None,
     ) -> mdl.ShellResult:
         """
         Execute a command in a shell.

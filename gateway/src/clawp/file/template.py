@@ -92,9 +92,7 @@ async def render_tutorial(topic: str) -> str:
     return await render_message_template(f"tutorial/{topic}.md")
 
 
-async def render_channel_status(
-    channel: "chan.Channel", available: bool
-) -> str:
+async def render_channel_status(channel: chan.Channel, available: bool) -> str:
     """
     Render a channel status message.
 
@@ -133,11 +131,11 @@ async def render_file_content(
     if not content:
         content = "<file is empty>"
     return await render_message_template(
-        "file_content.txt", file_path=relative_file_path, content=content
+        "file_content.txt", file_path=str(relative_file_path), content=content
     )
 
 
-async def render_workspace_info(agent: "agt.Agent") -> str:
+async def render_workspace_info(agent: agt.Agent) -> str:
     """
     Render a message informing the agent about their workspace.
 
@@ -152,13 +150,13 @@ async def render_workspace_info(agent: "agt.Agent") -> str:
     )
     return await render_message_template(
         "system_information/workspace.md",
-        workspace_dir=agent.workspace_dir,
+        workspace_dir=str(agent.workspace_dir),
         personality_files=personality_files_description,
     )
 
 
 async def render_message_send_error(
-    message: "msg.AgentMessage", exc: Exception
+    message: msg.AgentMessage, exc: Exception
 ) -> str:
     """Render a message informing the agent about a message send error."""
     return await render_message_template(

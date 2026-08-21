@@ -486,7 +486,7 @@ class TestProgressCheckers:
             yarl.URL("https://example.org/endpoint"),
             look_for_changes_in=look_for_changes_in,
         )
-        assert checker.check_url == yarl.URL("https://example.org/endpoint")
+        assert checker.check_url == yarl.URL("https://example.org/endpoint")  # pyright: ignore[reportAttributeAccessIssue]
 
     def test_uses_existing_checker_for_same_url(self, mock_checker):
         client = um.Mock()

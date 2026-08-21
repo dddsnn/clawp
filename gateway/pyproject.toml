@@ -67,3 +67,21 @@ line-length = 79
 
 [tool.ruff.format]
 line-ending = "lf"
+
+[tool.ruff.lint]
+ignore = ["UP032"]
+
+[tool.basedpyright]
+reportUnannotatedClassAttribute = false
+reportUnknownVariableType = false
+reportImplicitStringConcatenation = false
+reportUnknownMemberType = false
+reportUnknownArgumentType = false
+reportAny = false
+reportImplicitOverride = false
+reportUnusedCallResult = false
+reportMissingParameterType = false
+reportUnknownParameterType = false
+reportIncompatibleMethodOverride = false
+reportPrivateLocalImportUsage = false
+reportMissingTypeStubs = false

@@ -16,6 +16,7 @@
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 import functools as ft
+import logging
 import pathlib
 import typing as t
 
@@ -66,10 +67,11 @@ class ClawpMcpServer(fastmcp.FastMCP):
 
     def __init__(
         self,
-        agent: "agt.Agent",
+        agent: agt.Agent,
         complex_metadata_registry: base.ComplexToolResultMetadataRegistry,
     ):
         super().__init__("Clawp system MCP server")
+        self._logger = logging.getLogger(type(self).__name__)
         self._agent = agent
         self._complex_metadata_registry = complex_metadata_registry
         self._session_transaction = None
@@ -80,14 +82,13 @@ class ClawpMcpServer(fastmcp.FastMCP):
         self.add_tool(self.search_memory)
 
     @property
-    def session_transaction(self) -> "agt.SessionTransaction":
+    def session_transaction(self) -> agt.SessionTransaction:
         if self._session_transaction is None:
             raise RuntimeError("no session transaction has been set")
         return self._session_transaction
 
-    @session_transaction.setter
-    def session_transaction(
-        self, value: t.Optional["agt.SessionTransaction"]
+    def set_session_transaction(
+        self, value: agt.SessionTransaction | None
     ) -> None:
         self._session_transaction = value
 
@@ -121,6 +122,10 @@ class ClawpMcpServer(fastmcp.FastMCP):
         try:
             unread_messages = await channel_object.get_unread_messages(chat_id)
         except Exception as e:
+            self._logger.exception(
+                "Error fetching unread messages after switching chat to "
+                "{chat}."
+            )
             raise fastmcp.exceptions.ToolError(
                 f"{content}\n\n But there was an error fetching unread "
                 f"messages: {e}"
@@ -133,7 +138,7 @@ class ClawpMcpServer(fastmcp.FastMCP):
         # Specify an operation on the session that appends all the unread
         # messages after the tool result.
         async def add_unread_messages_to_session(
-            tx: "agt.SessionTransaction",
+            tx: agt.SessionTransaction,
         ) -> None:
             for message in unread_messages:
                 assert message.chat == chat
@@ -154,9 +159,9 @@ class ClawpMcpServer(fastmcp.FastMCP):
 
     async def search_memory(
         self,
-        start_time: t.Optional[base.Iso8601Instant] = None,
-        end_time: t.Optional[base.Iso8601Instant] = None,
-        search_term: t.Optional[str] = None,
+        start_time: base.Iso8601Instant | None = None,
+        end_time: base.Iso8601Instant | None = None,
+        search_term: str | None = None,
     ) -> list[mdl.Memory]:
         """
         Search memories.
