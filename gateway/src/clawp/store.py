@@ -44,17 +44,14 @@ class StoreFormatError(StoreError, ValueError):
     """Raised when the file structure is invalid."""
 
 
-TModel = t.TypeVar("TModel", bound=mdl.BaseModel | pyd.TypeAdapter)
-
-
-class JsonlIO(t.Generic[TModel]):
+class JsonlIO[ModelType: mdl.BaseModel | pyd.TypeAdapter]:
     """
     IO on a JSONL file.
 
     Represents one JSONL file with a header.
     """
 
-    def __init__(self, file_path: pathlib.Path, model_type: type[TModel]):
+    def __init__(self, file_path: pathlib.Path, model_type: type[ModelType]):
         self._logger = logging.getLogger(type(self).__name__)
         self._file_path = file_path
         self._model_type = model_type
@@ -155,7 +152,7 @@ class JsonlIO(t.Generic[TModel]):
             f.flush()
             os.fsync(f.fileno())
 
-    async def append(self, model: TModel) -> None:
+    async def append(self, model: ModelType) -> None:
         """
         Append a model to the file.
 
@@ -179,12 +176,12 @@ class JsonlIO(t.Generic[TModel]):
             pass
         self._write_file = open(self._file_path, "a")
 
-    def _sync_append(self, model: TModel):
+    def _sync_append(self, model: ModelType):
         self._write_file.write(model.model_dump_json() + "\n")
         self._write_file.flush()
         os.fsync(self._write_file.fileno())
 
-    async def read_all(self) -> cl_abc.AsyncGenerator[TModel]:
+    async def read_all(self) -> cl_abc.AsyncGenerator[ModelType]:
         """
         Read all models from the file.
 
@@ -211,7 +208,7 @@ class JsonlIO(t.Generic[TModel]):
                         f"invalid line in {self._file_path}: {line}"
                     ) from e
 
-    def _validate_line(self, line: str) -> TModel:
+    def _validate_line(self, line: str) -> ModelType:
         if isinstance(self._model_type, pyd.TypeAdapter):
             return self._model_type.validate_json(line)
         assert issubclass(self._model_type, pyd.BaseModel)

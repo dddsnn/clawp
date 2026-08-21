@@ -17,20 +17,22 @@
 
 import abc
 import asyncio
-import collections as cl
 import collections.abc as cl_abc
+import dataclasses as dc
 import itertools as it
 import typing as t
 
 
-def create_done_future(result) -> asyncio.Future:
+def create_done_future[ResultType](
+    result: ResultType,
+) -> asyncio.Future[ResultType]:
     """Create a future that is already done."""
     future = asyncio.get_running_loop().create_future()
     future.set_result(result)
     return future
 
 
-class StreamableList:
+class StreamableList[ElementType]:
     """
     A list that can be streamed asynchronously.
 
@@ -47,7 +49,7 @@ class StreamableList:
     finalized (i.e. no more elements can be added).
     """
 
-    def __init__(self, content: list | None = None):
+    def __init__(self, content: list[ElementType] | None = None):
         self._new_element_condition = asyncio.Condition()
         self._num_readers = 0
         self._num_readers_condition = asyncio.Condition()
@@ -64,13 +66,13 @@ class StreamableList:
     def __bool__(self) -> bool:
         return bool(self._list)
 
-    def __getitem__(self, index):
+    def __getitem__(self, index) -> ElementType:
         return self._list[index]
 
-    def __iter__(self) -> cl_abc.Iterator:
+    def __iter__(self) -> cl_abc.Iterator[ElementType]:
         return iter(self._list)
 
-    async def append(self, item) -> None:
+    async def append(self, item: ElementType) -> None:
         """
         Append an element.
 
@@ -114,7 +116,7 @@ class StreamableList:
         """Check whether the list is already finalized."""
         return self._finalized_event.is_set()
 
-    async def stream(self) -> cl_abc.AsyncGenerator:
+    async def stream(self) -> cl_abc.AsyncGenerator[ElementType]:
         """
         Asynchronously stream list elements.
 
@@ -151,7 +153,7 @@ class StreamableList:
             await self._new_element_condition.wait()
 
 
-class Publisher:
+class Publisher[ElementType]:
     """
     A publisher of elements.
 
@@ -160,7 +162,10 @@ class Publisher:
     exit.
     """
 
-    SeqElement = cl.namedtuple("SeqElement", ["seq", "element"])
+    @dc.dataclass
+    class SeqElement:
+        seq: int
+        element: ElementType
 
     def __init__(self):
         self._condition = asyncio.Condition()
@@ -182,7 +187,7 @@ class Publisher:
             self._condition.notify_all()
         return False
 
-    async def append(self, element) -> None:
+    async def append(self, element: ElementType) -> None:
         """
         Append a new element.
 
@@ -195,7 +200,7 @@ class Publisher:
             self._next_seq += 1
             self._condition.notify_all()
 
-    async def subscribe(self) -> cl_abc.AsyncGenerator:
+    async def subscribe(self) -> cl_abc.AsyncGenerator[ElementType]:
         """
         Subscribe to the elements of this publisher.
 
@@ -247,10 +252,7 @@ class Publisher:
         del self._history[:prune_count]
 
 
-ValueType = t.TypeVar("ValueType")
-
-
-class Value(t.Generic[ValueType], metaclass=abc.ABCMeta):
+class Value[ValueType](abc.ABC):
     """A value wrapper."""
 
     @property
@@ -259,7 +261,7 @@ class Value(t.Generic[ValueType], metaclass=abc.ABCMeta):
         raise NotImplementedError
 
 
-class ImmediateValue(Value):
+class ImmediateValue[ValueType](Value[ValueType]):
     """A value that is immediately available."""
 
     def __init__(self, value):
@@ -270,7 +272,7 @@ class ImmediateValue(Value):
         return self._value
 
 
-class FutureValue(Value):
+class FutureValue[ValueType](Value[ValueType]):
     """A value that will be available in the future."""
 
     def __init__(self):
@@ -290,7 +292,7 @@ class FutureValue(Value):
         self._set_event.set()
 
 
-class TtlCache(t.Generic[ValueType]):
+class TtlCache[ValueType]:
     """
     Simple TTL cache for an asynchronous refresh function.
 
