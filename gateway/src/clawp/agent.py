@@ -585,7 +585,7 @@ class Agent:
         return self._channel_router.web_ui_channel
 
     def __str__(self) -> str:
-        return f"{type(self).__name__} {self.information.id}"
+        return f"<Agent {self.information.name} ({self.information.id})>"
 
     async def __aenter__(self) -> t.Self:
         await self._message_store.__aenter__()
