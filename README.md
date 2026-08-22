@@ -37,10 +37,12 @@ directory and mounts `clawp_files/` for data:
 docker compose up --build
 ```
 
-Run tests with the `docker-compose.test.yaml`
+Run tests and linters with the `docker-compose.test.yaml`
 
 ```
-docker compose -f docker-compose.test.yaml up --build --exit-code-from=test
+docker compose -f docker-compose.test.yaml run --build --rm --no-deps test
+docker compose -f docker-compose.test.yaml run --build --rm --no-deps ruff
+docker compose -f docker-compose.test.yaml run --build --rm --no-deps basedpyright
 ```
 
 #### Local
@@ -50,7 +52,7 @@ Clawp needs external dependencies:
 - `uv`
 - `libolm` (for Matrix encryption)
 - the `rust-mcp-filesystem` MCP server, which can be install with
-  `cargo install --locked rust-mcp-filesystem@0.4.1`
+  `cargo install --locked rust-mcp-filesystem@0.4.3`
 
 Then install via
 
@@ -69,10 +71,12 @@ From the root directory, run Clawp with
 uv --project gateway run clawp
 ```
 
-Run tests with
+Run tests and linters with
 
 ```
 uv --project gateway run pytest gateway
+uv --project gateway run ruff check
+uv --project gateway run basedpyright --project gateway
 ```
 
 ### Configuration
@@ -165,7 +169,7 @@ This is how the sandbox is implemented in the `docker-compose.yaml`:
   would make them accessible to the agents).
 
 Security note: The wrapper script uses `runuser` with the `-T` flag to not
-allocate a pseudo-terminal. This strips conole formatting characters and makes
+allocate a pseudo-terminal. This strips console formatting characters and makes
 the output easier to understand. However, it also enables privilege escalation
 via TIOCSTI/TIOCLINUX ioctl command injection if this legacy feature is set in
 the kernel. To run safely, `CONFIG_LEGACY_TIOCSTI` must be unset.
