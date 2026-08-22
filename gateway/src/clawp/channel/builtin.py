@@ -406,7 +406,9 @@ class AgentChannel(base.Channel):
         if chat.channel != "agent":
             raise ValueError(f"got descriptor for {chat.channel}")
         return (
-            mdl.AgentStartMessageMetadata(chat=chat),
+            mdl.AgentStartMessageMetadata(
+                chat=chat, agent_name=self._agent.information.name
+            ),
             mdl.AgentChatMessageMetadata,
         )
 
@@ -430,11 +432,11 @@ class AgentChannel(base.Channel):
         await self._append_message(recipient.information.id, chat_message)
         self._set_read_offset(recipient.information.id, len(messages))
         await recipient_channel.add_incoming_agent_message(
-            message, self._agent.information.id
+            message, self._agent
         )
 
     async def add_incoming_agent_message(
-        self, message: msg.AgentMessage, sender_id: uuid.UUID
+        self, message: msg.AgentMessage, sender: agt.Agent
     ) -> None:
         """
         Add an incoming agent message.
@@ -444,13 +446,15 @@ class AgentChannel(base.Channel):
         will be delivered to the agent.
         """
         chat = mdl.AgentChatDescriptor(
-            channel=self.type, chat_id=str(sender_id)
+            channel=self.type, chat_id=str(sender.information.id)
         )
         metadata = mdl.AgentChatMessageMetadata(
-            time=await message.metadata.time.value, chat=chat
+            time=await message.metadata.time.value,
+            chat=chat,
+            agent_name=sender.information.name,
         )
         user_message = mdl.UserMessage(
             metadata=metadata, content=await message.content
         )
-        await self._append_message(sender_id, user_message)
+        await self._append_message(sender.information.id, user_message)
         await self._publisher.append(self._make_incoming_message(user_message))

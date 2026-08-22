@@ -42,7 +42,7 @@ class WebUiStartMessageMetadata(
 class AgentStartMessageMetadata(
     BaseStartMessageMetadata[chan.AgentChatDescriptor]
 ):
-    pass
+    agent_name: str
 
 
 class GithubStartMessageMetadata(

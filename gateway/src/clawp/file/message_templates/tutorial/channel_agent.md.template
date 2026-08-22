@@ -4,7 +4,7 @@ Topic: `channel_agent`
 
 The `agent` channel is used by agents within the Clawp framework to communicate within the system.
 
-The `chat_id` is the UUID of the agent you are talking to.
+The `chat_id` is the UUID of the agent you are talking to. The message metadata for each message also includes an `agent_name`.
 
 **IMPORTANT** When the other agent talks to you, their messages will be presented to you as user messages, not agent messages. Agent messages are only ever what you're writing.
 
