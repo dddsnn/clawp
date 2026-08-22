@@ -23,9 +23,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM build AS test
 COPY --from=build-rust-mcp-filesystem /dist/rust-mcp-filesystem /usr/local/bin/
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --extra test
+    uv sync --frozen --extra test --extra dev
 COPY tests tests
-CMD ["uv", "run", "pytest"]
+ENTRYPOINT ["uv", "run"]
 
 FROM python:3.14-alpine AS app
 ARG CLAWP_ROOT=/app/clawp_files

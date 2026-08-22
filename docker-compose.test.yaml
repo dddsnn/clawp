@@ -1,5 +1,15 @@
 services:
   test:
+    image: "clawp-gateway-ci:latest"
     build:
       context: "gateway"
       target: "test"
+    command: "pytest"
+
+  basedpyright:
+    image: "clawp-gateway-ci:latest"
+    command: "basedpyright"
+
+  ruff:
+    image: "clawp-gateway-ci:latest"
+    command: "ruff check"

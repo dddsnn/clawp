@@ -1,4 +1,4 @@
-name: test
+name: "test"
 
 on:
   push:
@@ -10,11 +10,17 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: "ubuntu-latest"
     steps:
-      - uses: actions/checkout@v7
-      - name: Run tests
-        run: docker compose -f docker-compose.test.yaml up --build --exit-code-from=test
-      - name: Clean up
-        if: ${{ always() }}
-        run: docker compose -f docker-compose.test.yaml down
+      - uses: "actions/checkout@v7"
+      - name: "Build CI image"
+        run: "docker compose -f docker-compose.test.yaml build test"
+      - name: "Run tests"
+        run: "docker compose -f docker-compose.test.yaml run --rm --no-deps test"
+      - name: "Run BasedPyright"
+        run: "docker compose -f docker-compose.test.yaml run --rm --no-deps basedpyright"
+      - name: "Run Ruff"
+        run: "docker compose -f docker-compose.test.yaml run --rm --no-deps ruff"
+      - name: "Clean up"
+        if: "${{ always() }}"
+        run: "docker compose -f docker-compose.test.yaml down"
