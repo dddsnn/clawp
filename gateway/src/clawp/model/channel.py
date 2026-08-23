@@ -24,7 +24,7 @@ import pydantic as pyd
 from . import base
 from . import config as cfg
 
-ChannelType = t.Literal["agent", "github", "matrix", "web_ui"]
+ChannelType = t.Literal["agent", "github", "matrix", "system", "web_ui"]
 
 
 class BaseChatDescriptor[ChannelTypeLiteral](base.BaseModel):
@@ -42,6 +42,10 @@ class BaseChatDescriptor[ChannelTypeLiteral](base.BaseModel):
 
     def __hash__(self) -> int:
         return hash((self.channel, self.chat_id))
+
+
+class SystemChatDescriptor(BaseChatDescriptor[t.Literal["system"]]):
+    channel: t.Literal["system"] = "system"
 
 
 class WebUiChatDescriptor(BaseChatDescriptor[t.Literal["web_ui"]]):
@@ -115,7 +119,8 @@ class GithubChatDescriptor(BaseChatDescriptor[t.Literal["github"]]):
 
 
 ChatDescriptor = (
-    WebUiChatDescriptor
+    SystemChatDescriptor
+    | WebUiChatDescriptor
     | AgentChatDescriptor
     | GithubChatDescriptor
     | MatrixChatDescriptor
@@ -125,6 +130,10 @@ ChatDescriptor = (
 class BaseChannelStatus[ChannelTypeLiteral: ChannelType](base.BaseModel):
     type: ChannelTypeLiteral
     available: bool
+
+
+class SystemChannelStatus(BaseChannelStatus[t.Literal["system"]]):
+    type: t.Literal["system"] = "system"
 
 
 class WebUiChannelStatus(BaseChannelStatus[t.Literal["web_ui"]]):

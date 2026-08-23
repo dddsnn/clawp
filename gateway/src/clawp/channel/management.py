@@ -75,7 +75,11 @@ class ChannelRouter(base.MessageSender):
             if channel.type in self._stati:
                 raise ValueError(f"Channel {channel.type} specified twice.")
             self._stati[channel.type] = self.ChannelStatus(channel)
-        for mandatory_class in [builtin.WebUiChannel, builtin.AgentChannel]:
+        for mandatory_class in [
+            builtin.SystemChannel,
+            builtin.WebUiChannel,
+            builtin.AgentChannel,
+        ]:
             if not any(isinstance(c, mandatory_class) for c in channels):
                 raise ValueError(f"no channel of type {mandatory_class}")
 
@@ -169,6 +173,12 @@ class ChannelRouter(base.MessageSender):
     @property
     def channels(self) -> dict[str, base.Channel]:
         return {t: s.channel for t, s in self._stati.items()}
+
+    @property
+    def system_channel(self) -> builtin.SystemChannel:
+        system_channel = self.channels["system"]
+        assert isinstance(system_channel, builtin.SystemChannel)
+        return system_channel
 
     @property
     def web_ui_channel(self) -> builtin.WebUiChannel:

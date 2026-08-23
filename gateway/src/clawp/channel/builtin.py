@@ -31,6 +31,75 @@ if t.TYPE_CHECKING:
     from .. import agent as agt
 
 
+class SystemChannel(base.Channel):
+    """
+    System channel.
+
+    This channel is used when the system needs to communicate directly with
+    the agent (because it needs something from them). The agent is not supposed
+    to control it themselves (i.e. switch to it or switch back to another
+    channel). Instead, the system switches them, gets what it needs, then
+    switches them back.
+
+    The channel never has unread messages for the agent, the system has to
+    directly append messages to the session (so also no automatic metadata
+    messages are generated). Any messages the agent responds with are appended
+    to an internal list that can be retrieved.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("system")
+        self._received_messages = []
+
+    @property
+    def type(self) -> t.Literal["system"]:
+        return "system"
+
+    @property
+    def id(self) -> None:
+        return None
+
+    @property
+    async def status(self) -> mdl.SystemChannelStatus:
+        return mdl.SystemChannelStatus(available=True)
+
+    async def get_chat_descriptor(
+        self, chat_id: str
+    ) -> mdl.SystemChatDescriptor:
+        return mdl.SystemChatDescriptor(chat_id="")
+
+    async def num_unread_messages(self, chat_id: str) -> int:
+        return 0
+
+    async def get_unread_messages(
+        self, chat_id: str
+    ) -> list[mdl.IncomingMessage]:
+        return []
+
+    def make_outgoing_start_metadata(
+        self, chat: mdl.SystemChatDescriptor
+    ) -> tuple[
+        mdl.SystemStartMessageMetadata, type[mdl.SystemChatMessageMetadata]
+    ]:
+        return (
+            mdl.SystemStartMessageMetadata(chat=chat),
+            mdl.SystemChatMessageMetadata,
+        )
+
+    async def send(self, message: msg.AgentMessage) -> None:
+        self._received_messages.append(message)
+
+    def pop_received_messages(self) -> list[msg.AgentMessage]:
+        """
+        Get all messages received from the agent.
+
+        Returns messages from the agent and clears the inbox.
+        """
+        result = self._received_messages
+        self._received_messages = []
+        return result
+
+
 class WebUiChannel(base.Channel):
     """
     Web UI channel.

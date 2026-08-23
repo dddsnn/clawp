@@ -33,6 +33,12 @@ class BaseStartMessageMetadata[ChatDescriptorType](base.BaseModel):
     chat: pyd.SerializeAsAny[ChatDescriptorType]
 
 
+class SystemStartMessageMetadata(
+    BaseStartMessageMetadata[chan.SystemChatDescriptor]
+):
+    pass
+
+
 class WebUiStartMessageMetadata(
     BaseStartMessageMetadata[chan.WebUiChatDescriptor]
 ):
@@ -60,7 +66,8 @@ class MatrixStartMessageMetadata(
 
 
 StartMessageMetadata = (
-    WebUiStartMessageMetadata
+    SystemStartMessageMetadata
+    | WebUiStartMessageMetadata
     | AgentStartMessageMetadata
     | GithubStartMessageMetadata
     | MatrixStartMessageMetadata
@@ -75,6 +82,14 @@ class EndMessageMetadata(base.BaseModel):
 
 class InternalMessageMetadata(EndMessageMetadata):
     """Full message metadata for internal messages."""
+
+
+class SystemChatMessageMetadata(
+    SystemStartMessageMetadata, EndMessageMetadata
+):
+    start_metadata_class: t.ClassVar[type[SystemStartMessageMetadata]] = (
+        SystemStartMessageMetadata
+    )
 
 
 class WebUiChatMessageMetadata(WebUiStartMessageMetadata, EndMessageMetadata):
@@ -106,7 +121,8 @@ class MatrixChatMessageMetadata(
 
 
 ChatMessageMetadata = (
-    WebUiChatMessageMetadata
+    SystemChatMessageMetadata
+    | WebUiChatMessageMetadata
     | AgentChatMessageMetadata
     | GithubChatMessageMetadata
     | MatrixChatMessageMetadata

@@ -746,6 +746,8 @@ class Agent:
             await tx.append_internal_message(msg.DeveloperMessage, message)
         # Tell the agent about available channels.
         for channel in self._channel_router.channels.values():
+            if channel.type == "system":
+                continue
             await self._add_channel_status_message_locked(channel, tx)
         # Tell the agent about their workspace and personality files.
         await tx.append_internal_message(
@@ -1184,7 +1186,8 @@ class AgentRepository:
                     f"Agent {agent_information.id} claims channel "
                     f"{ch_type}:{ch_id}, but it's not available: {e}."
                 )
-        # Add the builtin web_ui and agent channels.
+        # Add the builtin system, web_ui, and agent channels.
+        channels.append(chan.SystemChannel())
         channels.append(
             chan.WebUiChannel(
                 self._web_ui_channel_state_dir(dir), agent_state.web_ui_channel

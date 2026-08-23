@@ -36,6 +36,8 @@ from .channel import (
     GithubChatDescriptor,
     MatrixChannelStatus,
     MatrixChatDescriptor,
+    SystemChannelStatus,
+    SystemChatDescriptor,
     WebUiChannelStatus,
     WebUiChatDescriptor,
 )
@@ -96,7 +98,9 @@ from .message import (
     StreamingMessageMarkerMessageStart,
     StreamingMessageMarkerPartEnd,
     StreamingMessageMarkerPartStart,
+    SystemChatMessageMetadata,
     SystemMessage,
+    SystemStartMessageMetadata,
     ToolCall,
     ToolCallFunction,
     ToolMessage,

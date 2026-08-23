@@ -23,7 +23,7 @@ from .base import (
     ChatIdError,
     MessageSender,
 )
-from .builtin import AgentChannel, WebUiChannel
+from .builtin import AgentChannel, SystemChannel, WebUiChannel
 from .github import GithubChannel
 from .management import (
     ChannelError,

@@ -20,7 +20,6 @@ import { z } from 'zod';
 export const Iso8601Schema = z.string().transform((str) => new Date(str));
 
 export const BaseChatDescriptorSchema = z.object({
-  channel: z.enum(['agent', 'matrix', 'web_ui']),
   chat_id: z.string(),
 });
 
@@ -44,6 +43,10 @@ export const MatrixChatDescriptorSchema = BaseChatDescriptorSchema.extend({
   room_name: z.string().nullable(),
 });
 
+export const SystemChatDescriptorSchema = BaseChatDescriptorSchema.extend({
+  channel: z.literal('system'),
+});
+
 export const WebUiChatDescriptorSchema = BaseChatDescriptorSchema.extend({
   channel: z.literal('web_ui'),
   chat_id: z.literal(''),
@@ -53,12 +56,15 @@ export type ChatDescriptor =
 | z.infer<typeof AgentChatDescriptorSchema>
 | z.infer<typeof GithubChatDescriptorSchema>
 | z.infer<typeof MatrixChatDescriptorSchema>
+| z.infer<typeof SystemChatDescriptorSchema>
 | z.infer<typeof WebUiChatDescriptorSchema>;
 
 
 export const ChatDescriptorSchema: z.ZodType<ChatDescriptor> = z.lazy(() => z.union([
   AgentChatDescriptorSchema,
+  GithubChatDescriptorSchema,
   MatrixChatDescriptorSchema,
+  SystemChatDescriptorSchema,
   WebUiChatDescriptorSchema,
 ]));
 
