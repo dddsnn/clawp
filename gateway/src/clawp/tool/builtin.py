@@ -18,7 +18,6 @@
 import functools as ft
 import logging
 import pathlib
-import typing as t
 
 import fastmcp
 import fastmcp.client
@@ -28,12 +27,10 @@ import fastmcp.server
 import fastmcp.server.providers.proxy
 import fastmcp.tools
 
+from .. import agent as agt
 from .. import file
 from .. import model as mdl
 from . import base
-
-if t.TYPE_CHECKING:
-    from .. import agent as agt
 
 
 def make_filesystem_proxy(
@@ -117,7 +114,10 @@ class ClawpMcpServer(fastmcp.FastMCP):
         except KeyError:
             raise ValueError(f"no such channel {channel}")
         chat = await channel_object.get_chat_descriptor(chat_id)
-        self._agent.switch_active_chat(chat, self.session_transaction)
+        try:
+            self._agent.switch_active_chat(chat, self.session_transaction)
+        except agt.ChatSwitchError as e:
+            raise fastmcp.exceptions.ToolError(e)
         content = f"You are now talking in chat {chat.model_dump_json()}."
         try:
             unread_messages = await channel_object.get_unread_messages(chat_id)

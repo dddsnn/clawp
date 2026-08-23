@@ -40,6 +40,10 @@ if t.TYPE_CHECKING:
     from . import provider as prov
 
 
+class ChatSwitchError(Exception):
+    """Raised when there is an error switching chat."""
+
+
 @dc.dataclass
 class MessageInSession:
     message: msg.Message[msg.MessageMetadata]
@@ -160,6 +164,56 @@ class SessionTransaction:
         return self._session.subscribe()
 
 
+class SystemChannelSessionTransaction(SessionTransaction):
+    """
+    Session transaction only allowing the system channel.
+
+    This class is like SessionTransaction, except that everything happens in
+    the special system channel. On __aenter__, the active chat is switched to
+    the system channel and a system message added informing the agent of this
+    (and that they can't switch away). Any attempts to switch channel (via the
+    active_chat setter) raise ChatSwitchError. On __aexit__, the previously
+    active chat is restored and a system message added informing the agent of
+    this.
+    """
+
+    def __init__(self, session: Session) -> None:
+        super().__init__(session)
+        self._previous_active_chat = mdl.WebUiChatDescriptor(chat_id="")
+
+    async def __aenter__(self) -> t.Self:
+        await super().__aenter__()
+        self._previous_active_chat = self._session._active_chat  # pyright: ignore[reportPrivateUsage]
+        self._session._active_chat = mdl.SystemChatDescriptor(chat_id="")  # pyright: ignore[reportPrivateUsage]
+        await self.append_internal_message(
+            msg.SystemMessage,
+            "You were switched to the system channel. You cannot switch away "
+            "(but you can make other tool calls).",
+        )
+        return self
+
+    async def __aexit__(self, *args) -> bool:
+        self._session._active_chat = self._previous_active_chat  # pyright: ignore[reportPrivateUsage]
+        await self.append_internal_message(
+            msg.SystemMessage,
+            "You were switched back from the system channel to your previous "
+            f"chat {self._session._active_chat.model_dump_json()}.",  # pyright: ignore[reportPrivateUsage]
+        )
+        return await super().__aexit__(*args)
+
+    @property
+    def active_chat(self) -> mdl.ChatDescriptor:
+        if not self._is_active:
+            raise RuntimeError("transaction is not active")
+        return mdl.SystemChatDescriptor(chat_id="")
+
+    @active_chat.setter
+    def active_chat(self, value: mdl.ChatDescriptor) -> None:
+        if not self._is_active:
+            raise RuntimeError("transaction is not active")
+        raise ChatSwitchError("cannot switch away from the system channel")
+
+
 class Session:
     """
     Session with an agent.
@@ -230,6 +284,17 @@ class Session:
         at a time. If there is still an active transaction, blocks until it
         completes.
         """
+        return await self._transaction(SessionTransaction)
+
+    async def system_channel_transaction(
+        self,
+    ) -> SystemChannelSessionTransaction:
+        """
+        Create a transaction in the special system channel.
+        """
+        return await self._transaction(SystemChannelSessionTransaction)
+
+    async def _transaction[T: SessionTransaction](self, tx_type: type[T]) -> T:
         if self._active_transaction:
             if not self._active_transaction.is_complete():
                 self._logger.debug(
@@ -237,7 +302,7 @@ class Session:
                     "starting the next one."
                 )
             await self._active_transaction.wait()
-        self._active_transaction = SessionTransaction(self)
+        self._active_transaction = tx_type(self)
         return self._active_transaction
 
     @property
@@ -636,10 +701,14 @@ class Agent:
         sent in that new chat. Raises an error if the given chat is equal to
         the active one.
         """
-        if self._agent_state.active_chat == chat:
+        if tx.active_chat == chat:
             raise ValueError("new chat is the same as the current one")
-        self._agent_state.active_chat = chat
+        if chat.channel == "system":
+            raise ChatSwitchError("cannot switch to the system channel")
+        # Switch the active chat in the transaction first, since that may raise
+        # an exception if we're not allowed to switch the chat.
         tx.active_chat = chat
+        self.state.active_chat = chat
 
     @property
     def workspace_dir(self) -> pathlib.Path:
@@ -725,7 +794,8 @@ class Agent:
         async with await self._session.transaction() as tx:
             if active_session_seq == 0 and not tx.num_messages:
                 self._logger.info(
-                    f"Existing agent {self} has no sessions. Starting the first one."
+                    f"Existing agent {self} has no sessions. Starting the "
+                    "first one."
                 )
                 await self._send_session_init_messages_locked(tx)
 
