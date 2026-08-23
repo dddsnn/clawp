@@ -787,7 +787,6 @@ class GithubChannel(base.Channel):
     ) -> tuple[
         mdl.GithubStartMessageMetadata, type[mdl.GithubChatMessageMetadata]
     ]:
-        assert isinstance(chat, mdl.GithubChatDescriptor)
         # comment_type is comment, since sending a message only works when the
         # issue already exists (so it can't be the description).
         return (

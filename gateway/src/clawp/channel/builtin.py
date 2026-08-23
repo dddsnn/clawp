@@ -238,12 +238,10 @@ class WebUiChannel(base.Channel):
         return mdl.IncomingMessage(chat=message.metadata.chat, message=message)
 
     def make_outgoing_start_metadata(
-        self, chat: mdl.ChatDescriptor
+        self, chat: mdl.WebUiChatDescriptor
     ) -> tuple[
         mdl.WebUiStartMessageMetadata, type[mdl.WebUiChatMessageMetadata]
     ]:
-        if chat.channel != "web_ui":
-            raise ValueError(f"got descriptor for {chat.channel}")
         return (
             mdl.WebUiStartMessageMetadata(chat=chat),
             mdl.WebUiChatMessageMetadata,
@@ -468,12 +466,10 @@ class AgentChannel(base.Channel):
         return mdl.IncomingMessage(chat=message.metadata.chat, message=message)
 
     def make_outgoing_start_metadata(
-        self, chat: mdl.ChatDescriptor
+        self, chat: mdl.AgentChatDescriptor
     ) -> tuple[
         mdl.AgentStartMessageMetadata, type[mdl.AgentChatMessageMetadata]
     ]:
-        if chat.channel != "agent":
-            raise ValueError(f"got descriptor for {chat.channel}")
         return (
             mdl.AgentStartMessageMetadata(
                 chat=chat, agent_name=self._agent.information.name

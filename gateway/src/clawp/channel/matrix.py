@@ -147,8 +147,6 @@ class MatrixChannel(base.Channel):
         mdl.MatrixStartMessageMetadata,
         type[mdl.MatrixChatMessageMetadata],
     ]:
-        if chat.channel != "matrix":
-            raise ValueError(f"got descriptor for {chat.channel}")  # pyright: ignore[reportUnreachable]
         start_metadata = mdl.MatrixStartMessageMetadata(
             chat=chat,
             sender_id=self.id,
