@@ -17,6 +17,7 @@
 
 import asyncio
 import contextlib
+import itertools as it
 import unittest.mock as um
 
 import async_solipsism
@@ -547,3 +548,198 @@ class TestTtlCache:
             await cache.get()
         assert await cache.get() == "second"
         assert refresh.await_count == 3
+
+
+class MockContextManager:
+    def __init__(self, counter, enter_result, exit_result=False):
+        self._counter = counter
+        self._enter_result = enter_result
+        self._exit_result = exit_result
+        self.calls = []
+
+    async def __aenter__(self):
+        self.calls.append(("__aenter__", (), next(self._counter)))
+        return self._enter_result
+
+    async def __aexit__(self, *args):
+        self.calls.append(("__aexit__", args, next(self._counter)))
+        return self._exit_result
+
+
+class MockManager:
+    def __init__(self):
+        self.counter = it.count()
+
+    def create_context_manager(self, enter_result, exit_result=False):
+        return MockContextManager(self.counter, enter_result, exit_result)
+
+    def create_factory(self, context_manager):
+        calls = []
+
+        async def factory():
+            calls.append(("factory", (), next(self.counter)))
+            return context_manager
+
+        return factory, calls
+
+
+class TestDependencyContextManager:
+    async def test_raises_if_no_primary(self):
+        cm = util.DependencyContextManager()
+        with pytest.raises(ValueError):
+            async with cm:
+                pass
+
+    async def test_raises_if_more_than_one_primary(self):
+        manager = MockManager()
+        cm = util.DependencyContextManager()
+        cm.register_primary(manager.create_context_manager(None))
+        with pytest.raises(ValueError):
+            cm.register_primary(manager.create_context_manager(None))
+
+    async def test_wraps_single_primary(self):
+        manager = MockManager()
+        primary_enter_result = object()
+        cm = util.DependencyContextManager()
+        primary = manager.create_context_manager(primary_enter_result)
+        cm.register_primary(primary)
+        async with cm as enter_result:
+            assert enter_result is primary_enter_result
+            assert primary.calls == [("__aenter__", (), 0)]
+        assert primary.calls == [
+            ("__aenter__", (), 0),
+            ("__aexit__", (None, None, None), 1),
+        ]
+
+    async def test_enters_in_registration_order_and_exits_in_reverse_order(
+        self,
+    ):
+        manager = MockManager()
+        primary_result = object()
+        primary = manager.create_context_manager(primary_result)
+        dependency_1 = manager.create_context_manager(None)
+        dependency_2 = manager.create_context_manager(None)
+
+        cm = util.DependencyContextManager()
+        cm.register_dependency(dependency_1)
+        cm.register_primary(primary)
+        cm.register_dependency(dependency_2)
+
+        async with cm as enter_result:
+            assert enter_result is primary_result
+
+        assert dependency_1.calls == [
+            ("__aenter__", (), 0),
+            ("__aexit__", (None, None, None), 5),
+        ]
+        assert primary.calls == [
+            ("__aenter__", (), 1),
+            ("__aexit__", (None, None, None), 4),
+        ]
+        assert dependency_2.calls == [
+            ("__aenter__", (), 2),
+            ("__aexit__", (None, None, None), 3),
+        ]
+
+    async def test_creates_context_managers_from_factories_on_entry(self):
+        manager = MockManager()
+        primary = manager.create_context_manager("primary")
+        dependency = manager.create_context_manager(None)
+        primary_factory, primary_factory_calls = manager.create_factory(
+            primary
+        )
+        dependency_factory, dependency_factory_calls = manager.create_factory(
+            dependency
+        )
+
+        cm = util.DependencyContextManager()
+        cm.register_primary(primary_factory)
+        cm.register_dependency(dependency_factory)
+
+        assert primary_factory_calls == []
+        assert dependency_factory_calls == []
+        async with cm as enter_result:
+            assert enter_result == "primary"
+
+        assert primary_factory_calls == [("factory", (), 0)]
+        assert primary.calls == [
+            ("__aenter__", (), 1),
+            ("__aexit__", (None, None, None), 5),
+        ]
+        assert dependency_factory_calls == [("factory", (), 2)]
+        assert dependency.calls == [
+            ("__aenter__", (), 3),
+            ("__aexit__", (None, None, None), 4),
+        ]
+
+    async def test_passes_exceptions_to_exit_handlers_in_reverse_order(self):
+        manager = MockManager()
+        primary = manager.create_context_manager(None)
+        dependency = manager.create_context_manager(None)
+        cm = util.DependencyContextManager()
+        cm.register_primary(primary)
+        cm.register_dependency(dependency)
+
+        with pytest.raises(RuntimeError, match="failure"):
+            async with cm:
+                raise RuntimeError("failure")
+
+        assert primary.calls[0] == ("__aenter__", (), 0)
+        assert dependency.calls[0] == (
+            "__aenter__",
+            (),
+            1,
+        )
+        for context_manager, expected_sequence in (
+            (dependency, 2),
+            (primary, 3),
+        ):
+            name, args, sequence = context_manager.calls[1]
+            assert name == "__aexit__"
+            assert args[0] is RuntimeError
+            assert isinstance(args[1], RuntimeError)
+            assert args[1].args == ("failure",)
+            assert args[2] is not None
+            assert sequence == expected_sequence
+
+    async def test_allows_exit_handler_to_suppress_exception(self):
+        manager = MockManager()
+        primary = manager.create_context_manager(None)
+        dependency = manager.create_context_manager(None, exit_result=True)
+        cm = util.DependencyContextManager()
+        cm.register_primary(primary)
+        cm.register_dependency(dependency)
+
+        async with cm:
+            raise RuntimeError("suppressed")
+
+        assert dependency.calls[0] == (  # pyright: ignore[reportUnreachable]
+            "__aenter__",
+            (),
+            1,
+        )
+        name, args, sequence = dependency.calls[1]
+        assert name == "__aexit__"
+        assert args[0] is RuntimeError
+        assert isinstance(args[1], RuntimeError)
+        assert args[1].args == ("suppressed",)
+        assert args[2] is not None
+        assert sequence == 2
+        assert primary.calls == [
+            ("__aenter__", (), 0),
+            ("__aexit__", (None, None, None), 3),
+        ]
+
+    async def test_cannot_register_or_enter_after_entry(self):
+        manager = MockManager()
+        cm = util.DependencyContextManager()
+        cm.register_primary(manager.create_context_manager(None))
+
+        async with cm:
+            pass
+
+        with pytest.raises(RuntimeError):
+            cm.register_dependency(manager.create_context_manager(None))
+        with pytest.raises(RuntimeError):
+            async with cm:
+                pass

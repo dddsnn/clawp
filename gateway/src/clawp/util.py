@@ -18,8 +18,10 @@
 import abc
 import asyncio
 import collections.abc as cl_abc
+import contextlib
 import dataclasses as dc
 import itertools as it
+import sys
 import typing as t
 
 
@@ -30,6 +32,14 @@ def create_done_future[ResultType](
     future = asyncio.get_running_loop().create_future()
     future.set_result(result)
     return future
+
+
+class Missing:
+    pass
+
+
+MISSING = Missing()
+"""Sentinel for missing values."""
 
 
 class StreamableList[ElementType]:
@@ -338,3 +348,96 @@ class TtlCache[ValueType]:
 
     def _is_fresh(self) -> bool:
         return asyncio.get_running_loop().time() < self._expires_at
+
+
+type CM[EnterReturn] = contextlib.AbstractAsyncContextManager[
+    EnterReturn, t.Any
+]
+
+
+class DependencyContextManager[Primary]:
+    """
+    A context manager wrapping a primary context manager and dependencies.
+
+    Multiple context managers can be registered via register_primary() and
+    register_dependency(), although register_primary() must be called exactly
+    once. Context managers can be specified as the object itself, or a
+    factory that returns an awaitable that returns the context manager.
+
+    On __aenter__(), all registered context managers are entered and the
+    primary context manager returned. Any context managers specified as a
+    factory are created just before they are entered. On __aexit__(), the
+    context managers are exited in reverse order, respecting exception
+    handling.
+
+    Registrations must be made before __aenter__() is called. This context
+    manager is single-use: after __aenter__() has been called, it cannot be
+    entered or registered with again.
+    """
+
+    def __init__(self) -> None:
+        self._registrations = []
+        self._exit_stack = contextlib.AsyncExitStack()
+        self._entered = False
+
+    async def __aenter__(self) -> Primary:
+        if self._entered:
+            raise RuntimeError("DependencyContextManager is single-use")
+        if not self._has_primary():
+            raise ValueError("a primary context manager must be registered")
+        self._entered = True
+        primary_value = MISSING
+
+        try:
+            for is_primary, registration in self._registrations:
+                context_manager = await self._resolve_context_manager(
+                    registration
+                )
+                value = await self._exit_stack.enter_async_context(
+                    context_manager
+                )
+                if is_primary:
+                    primary_value = value
+        except BaseException:
+            await self._exit_stack.__aexit__(*sys.exc_info())
+            raise
+
+        assert not isinstance(primary_value, Missing)
+        return primary_value
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool | None:
+        return await self._exit_stack.__aexit__(exc_type, exc, tb)
+
+    def _has_primary(self) -> bool:
+        return any(is_primary for is_primary, _ in self._registrations)
+
+    def register_primary(
+        self,
+        cm: CM[Primary] | cl_abc.Callable[[], cl_abc.Awaitable[CM[Primary]]],
+    ) -> None:
+        if self._has_primary():
+            raise ValueError("a primary context manager is already registered")
+        self._register(cm, True)
+
+    def register_dependency(
+        self, cm: CM[t.Any] | cl_abc.Callable[[], cl_abc.Awaitable[CM[t.Any]]]
+    ) -> None:
+        self._register(cm, False)
+
+    def _register(
+        self,
+        cm: CM[Primary] | cl_abc.Callable[[], cl_abc.Awaitable[CM[Primary]]],
+        is_primary: bool,
+    ) -> None:
+        if self._entered:
+            raise RuntimeError("DependencyContextManager is already entered")
+        self._registrations.append((is_primary, cm))
+
+    async def _resolve_context_manager(
+        self,
+        registration: CM[t.Any]
+        | cl_abc.Callable[[], cl_abc.Awaitable[CM[t.Any]]],
+    ) -> CM[t.Any]:
+        if isinstance(registration, contextlib.AbstractAsyncContextManager):
+            return registration
+        return await registration()
