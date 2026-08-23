@@ -680,7 +680,7 @@ class Agent:
             mcp_client=self._mcp_client,
         )
         self._process_unread_chats_task = None
-        self._session: Session = None  # pyright: ignore[reportAttributeAccessIssue]
+        self._sessions: list[Session] = []
         self._lock = asyncio.Lock()
 
     @property
@@ -738,12 +738,11 @@ class Agent:
         await self._message_store.__aenter__()
         await self._mcp_client.__aenter__()
         await self._channel_router.__aenter__()
-        async with self._lock:
-            self._process_unread_chats_task = asyncio.create_task(
-                self._process_unread_chats()
-            )
-            await self._ensure_active_session_locked()
-            return self
+        await self._load_sessions()
+        self._process_unread_chats_task = asyncio.create_task(
+            self._process_unread_chats()
+        )
+        return self
 
     async def __aexit__(self, *args) -> bool:
         assert self._process_unread_chats_task is not None
@@ -757,7 +756,7 @@ class Agent:
                 self._logger.exception("Error waiting for unread chats task.")
             try:
                 async with asyncio.timeout(20):
-                    await self._session.__aexit__(*args)
+                    await self._sessions[-1].__aexit__(*args)
             except Exception:
                 self._logger.exception("Error shutting down session.")
         try:
@@ -787,27 +786,20 @@ class Agent:
             active_chat=self.state.active_chat,
         )
 
-    async def _ensure_active_session_locked(self):
-        active_session_seq = self._message_store.get_active_session_seq()
-        self._session = self._make_session(active_session_seq)
-        await self._session.__aenter__()
-        async with await self._session.transaction() as tx:
-            if active_session_seq == 0 and not tx.num_messages:
-                self._logger.info(
-                    f"Existing agent {self} has no sessions. Starting the "
-                    "first one."
-                )
-                await self._send_session_init_messages_locked(tx)
-
-    async def _start_new_session_locked(self):
-        if self._session:
-            await self._session.__aexit__(None, None, None)
-        self._session = self._make_session(
-            self._message_store.get_active_session_seq() + 1
-        )
-        await self._session.__aenter__()
-        async with await self._session.transaction() as tx:
-            await self._send_session_init_messages_locked(tx)
+    async def _load_sessions(self):
+        async with self._lock:
+            assert len(self._sessions) == 0
+            active_session_seq = self._message_store.get_active_session_seq()
+            for i in range(active_session_seq + 1):
+                self._sessions.append(self._make_session(i))
+            await self._sessions[-1].__aenter__()
+            async with await self._sessions[-1].transaction() as tx:
+                if active_session_seq == 0 and not tx.num_messages:
+                    self._logger.info(
+                        f"Existing agent {self} has no sessions. Starting the "
+                        "first one."
+                    )
+                    await self._send_session_init_messages_locked(tx)
 
     async def _send_session_init_messages_locked(
         self, tx: SessionTransaction
@@ -898,36 +890,37 @@ class Agent:
         unread_chats_iter = self._channel_router.unread_message_chats()
         unread_chats: list[mdl.ChatDescriptor] = []
         while True:
-            acquire_lock_task = None
+            locked_tx_cm = acquire_locked_tx_task = None
             try:
                 async with asyncio.TaskGroup() as tg:
-                    # Use eager_start in here to make sure we get a message or
-                    # the lock immediately if available.
+                    # Use eager_start in here to make sure we get a message
+                    # immediately if available.
                     get_chat_task = tg.create_task(
                         anext(unread_chats_iter), eager_start=True
                     )
                     if not unread_chats:
                         # Need at least one chat with unread messages.
                         await get_chat_task
-                    acquire_lock_task = tg.create_task(
-                        self._lock.acquire(), eager_start=True
+                    locked_tx_cm = self._locked_transaction()
+                    acquire_locked_tx_task = tg.create_task(
+                        locked_tx_cm.__aenter__()
                     )
                     done, _ = await asyncio.wait(
-                        {get_chat_task, acquire_lock_task},
+                        {get_chat_task, acquire_locked_tx_task},
                         return_when=asyncio.FIRST_COMPLETED,
                     )
                     if get_chat_task in done:
                         unread_chats.append(get_chat_task.result())
                     else:
                         get_chat_task.cancel()
-                        assert acquire_lock_task.done()
+                        assert acquire_locked_tx_task.done()
                     assert len(unread_chats) > 0
-                    if acquire_lock_task not in done:
+                    if acquire_locked_tx_task not in done:
                         # We don't have the lock, the agent must be busy. Keep
                         # reading and adding chats until we get the lock.
                         continue
                     unread_chats = await self._handle_unread_chats_locked(
-                        unread_chats
+                        unread_chats, acquire_locked_tx_task.result()
                     )
             except ExceptionGroup as e:
                 _, other_exceptions = e.split(StopAsyncIteration)
@@ -939,18 +932,39 @@ class Agent:
                     f"{unread_chats})."
                 )
             finally:
-                if acquire_lock_task is not None:
+                if acquire_locked_tx_task is not None:
+                    assert locked_tx_cm is not None
                     try:
-                        await acquire_lock_task
-                        # The lock was acquired by us.
-                        self._lock.release()
+                        await acquire_locked_tx_task
+                        # We got the lock and transaction earlier, release.
+                        await locked_tx_cm.__aexit__(None, None, None)
                     except asyncio.CancelledError:
                         # We didn't manage to acquire the lock, no need to
                         # release.
                         pass
 
+    def _locked_transaction(
+        self,
+    ) -> util.DependencyContextManager[SessionTransaction]:
+        """
+        Lock, and get a transaction.
+
+        Almost always, using a session transaction is enough to ensure the
+        necessary mutual exclusion in the session. We only need our internal
+        lock to handle situations like session rollover (when we create a new
+        session), so that someone waiting on a transaction doesn't accidentally
+        get one on the old session.
+
+        This helper function returns a context manager that acquires the lock
+        and returns the current session when it is entered.
+        """
+        manager = util.DependencyContextManager()
+        manager.register_dependency(self._lock)
+        manager.register_primary(lambda: self._sessions[-1].transaction())
+        return manager
+
     async def _handle_unread_chats_locked(
-        self, unread_chats: list[mdl.ChatDescriptor]
+        self, unread_chats: list[mdl.ChatDescriptor], tx: SessionTransaction
     ) -> list[mdl.ChatDescriptor]:
         """
         Handle messages from the first of a list of unread chats.
@@ -962,11 +976,10 @@ class Agent:
         assert len(unread_chats) > 0
         handle_task = util.create_done_future(None)
         try:
-            async with await self._session.transaction() as tx:
-                handle_task = asyncio.create_task(
-                    self._handle_first_unread_chat_locked(unread_chats, tx)
-                )
-                await asyncio.shield(handle_task)
+            handle_task = asyncio.create_task(
+                self._handle_first_unread_chat_locked(unread_chats, tx)
+            )
+            await asyncio.shield(handle_task)
             return [c for c in unread_chats if c != unread_chats[0]]
         except asyncio.CancelledError:
             try:
@@ -1073,7 +1086,7 @@ class Agent:
         any message.
         """
         try:
-            async with await self._session.transaction() as tx:
+            async with self._locked_transaction() as tx:
                 await tx.request_responses()
         except Exception:
             self._logger.exception("Error requesting responses.")
@@ -1088,7 +1101,7 @@ class Agent:
         Yields messages in the context of their session, i.e. with session and
         message sequence numbers.
         """
-        return self._session.messages()
+        return self._sessions[-1].messages()
 
     def subscribe(self) -> cl_abc.AsyncGenerator[MessageInSession]:
         """
@@ -1101,7 +1114,7 @@ class Agent:
         Yields messages in the context of their session, i.e. with session and
         message sequence numbers.
         """
-        return self._session.subscribe()
+        return self._sessions[-1].subscribe()
 
     async def add_channel(self, channel: chan.Channel) -> None:
         """
@@ -1112,7 +1125,7 @@ class Agent:
         """
         if channel.id is None:
             raise ValueError("can't add channels without ID")
-        async with await self._session.transaction() as tx, self._lock:
+        async with self._locked_transaction() as tx:
             if channel.type in self.state.claimed_channels:
                 raise ValueError(
                     f"agent already has a channel of type {channel.type}"
@@ -1127,7 +1140,7 @@ class Agent:
 
         Raises a ValueError if the agent currently has no channel of this type.
         """
-        async with await self._session.transaction() as tx, self._lock:
+        async with self._locked_transaction() as tx:
             try:
                 channel = self.channels[channel_type]
                 assert channel_type in self.state.claimed_channels
