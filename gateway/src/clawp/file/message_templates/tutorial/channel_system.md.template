@@ -1,0 +1,5 @@
+# Tutorial: Channel `system`
+
+Topic: `channel_system`
+
+The `system` channel is a special channel used when the system needs something from you directly. You don't have control over it, instead the system will pull you into it, query you, and switch you back to your previous chat.

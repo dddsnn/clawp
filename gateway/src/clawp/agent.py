@@ -856,6 +856,7 @@ class Agent:
             "channel_agent",
             "channel_github",
             "channel_matrix",
+            "channel_system",
             "system_workspace_memory",
         ]
         for topic in tutorial_topics:
