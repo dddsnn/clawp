@@ -255,12 +255,14 @@ class Session:
         self._provider = provider
         self._mcp_client = mcp_client
         self._active_chat = active_chat
+        self._is_loaded = False
         self._messages = []
         self._publisher = util.Publisher()
         self._active_transaction = None
 
     async def __aenter__(self) -> t.Self:
-        self._messages = await self._message_store.read_session_messages()
+        if not self._is_loaded:
+            await self.load()
         await self._publisher.__aenter__()
         return self
 
@@ -275,6 +277,16 @@ class Session:
             await self._active_transaction.wait()
         await self._publisher.__aexit__(*args)
         return False
+
+    async def load(self) -> None:
+        """Load messages from the store."""
+        if self._is_loaded:
+            self._logger.warning(
+                "Ignoring call to load(), since we're already loaded."
+            )
+            return
+        self._messages = await self._message_store.read_session_messages()
+        self._is_loaded = True
 
     async def transaction(self) -> SessionTransaction:
         """
