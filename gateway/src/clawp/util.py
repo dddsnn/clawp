@@ -252,8 +252,6 @@ class Publisher[ElementType]:
                         await self._condition.wait_for(have_data)
                 if not self._running:
                     return
-        except asyncio.CancelledError:
-            return
         finally:
             del self._subscriber_next_seq[subscriber_id]
             self._prune_history()

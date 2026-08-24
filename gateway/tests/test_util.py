@@ -447,6 +447,17 @@ class TestPublisher:
         await subscription_task
         assert output == ["end"]
 
+    async def test_cancellation_in_subscription_is_bubbled_up(self):
+        async def read(publisher):
+            async for _ in publisher.subscribe():
+                pass
+
+        async with util.Publisher() as publisher:
+            task = asyncio.create_task(read(publisher), eager_start=True)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
 
 class TestImmediateValue:
     async def test_get_value(self):
