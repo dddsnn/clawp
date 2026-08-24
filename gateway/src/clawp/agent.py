@@ -694,6 +694,7 @@ class Agent:
         self._process_unread_chats_task = None
         self._sessions: list[Session] = []
         self._lock = asyncio.Lock()
+        self._new_session_condition = asyncio.Condition()
 
     @property
     def information(self) -> mdl.AgentInformation:
@@ -1103,7 +1104,7 @@ class Agent:
         except Exception:
             self._logger.exception("Error requesting responses.")
 
-    def messages(self) -> cl_abc.Generator[MessageInSession]:
+    def messages(self) -> cl_abc.Iterable[MessageInSession]:
         """
         Iterate all of this agent's messages.
 
@@ -1113,9 +1114,9 @@ class Agent:
         Yields messages in the context of their session, i.e. with session and
         message sequence numbers.
         """
-        return self._sessions[-1].messages()
+        return it.chain(*[s.messages() for s in self._sessions])
 
-    def subscribe(self) -> cl_abc.AsyncGenerator[MessageInSession]:
+    async def subscribe(self) -> cl_abc.AsyncGenerator[MessageInSession]:
         """
         Subscribe to the this agent's messages.
 
@@ -1124,9 +1125,33 @@ class Agent:
         user/system/developer/tool messages.
 
         Yields messages in the context of their session, i.e. with session and
-        message sequence numbers.
+        message sequence numbers. When a new session is started, the
+        subscription switches to yielding messages from it.
         """
-        return self._sessions[-1].subscribe()
+        for expected_number_of_sessions in it.count(len(self._sessions)):
+            if len(self._sessions) != expected_number_of_sessions:
+                self._logger.warning(
+                    f"In subscription, expected {expected_number_of_sessions} "
+                    f"sessions, but actually found {len(self._sessions)}."
+                )
+            async with self._new_session_condition:
+                # Start a task that waits on the condition that gets set when a
+                # new session has been appended.
+                wait_for_next_session_task = asyncio.create_task(
+                    self._new_session_condition.wait(), eager_start=True
+                )
+                try:
+                    async for message in self._sessions[-1].subscribe():
+                        yield message
+                    # The current session's subscription is done, which means
+                    # it must have been closed. Wait for the next session to
+                    # get started, then continue subscribing there.
+                    await wait_for_next_session_task
+                except:
+                    wait_for_next_session_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await wait_for_next_session_task
+                    raise
 
     async def add_channel(self, channel: chan.Channel) -> None:
         """
