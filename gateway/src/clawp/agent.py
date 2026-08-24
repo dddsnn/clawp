@@ -80,7 +80,7 @@ class SessionTransaction:
         self._is_active = True
         return self
 
-    async def __aexit__(self, *args) -> bool:
+    async def __aexit__(self, *args) -> t.Literal[False]:
         self._is_active = False
         self._completed_event.set()
         return False
@@ -192,7 +192,7 @@ class SystemChannelSessionTransaction(SessionTransaction):
         )
         return self
 
-    async def __aexit__(self, *args) -> bool:
+    async def __aexit__(self, *args) -> t.Literal[False]:
         self._session._active_chat = self._previous_active_chat  # pyright: ignore[reportPrivateUsage]
         await self.append_internal_message(
             msg.SystemMessage,
@@ -805,6 +805,7 @@ class Agent:
             active_session_seq = self._message_store.get_active_session_seq()
             for i in range(active_session_seq + 1):
                 self._sessions.append(self._make_session(i))
+                await self._sessions[-1].load()
             await self._sessions[-1].__aenter__()
             async with await self._sessions[-1].transaction() as tx:
                 if active_session_seq == 0 and not tx.num_messages:
@@ -812,10 +813,10 @@ class Agent:
                         f"Existing agent {self} has no sessions. Starting the "
                         "first one."
                     )
-                    await self._send_session_init_messages_locked(tx)
+                    await self._append_session_init_messages_locked(tx)
 
-    async def _send_session_init_messages_locked(
-        self, tx: SessionTransaction
+    async def _append_session_init_messages_locked(
+        self, tx: SessionTransaction, compaction_summary: str | None = None
     ) -> None:
         async for message in self._onboarding_messages():
             await tx.append_internal_message(msg.DeveloperMessage, message)
@@ -823,7 +824,7 @@ class Agent:
         for channel in self._channel_router.channels.values():
             if channel.type == "system":
                 continue
-            await self._add_channel_status_message_locked(channel, tx)
+            await self._append_channel_status_message_locked(channel, tx)
         # Tell the agent about their workspace and personality files.
         await tx.append_internal_message(
             msg.SystemMessage, await file.render_workspace_info(self)
@@ -834,15 +835,7 @@ class Agent:
                 await file.render_file_content(self.workspace_dir, pf.path),
             )
         # Tell the agent that this is a new session.
-        await tx.append_internal_message(
-            msg.SystemMessage,
-            await file.render_message_template(
-                "system_information/session_initialization.md",
-                name=self.information.name,
-                information=self.information.model_dump_json(),
-                active_chat=tx.active_chat.model_dump_json(),
-            ),
-        )
+        await self._append_session_start_messages(tx, compaction_summary)
 
     async def _onboarding_messages(self) -> cl_abc.AsyncGenerator[str]:
         """
@@ -867,7 +860,7 @@ class Agent:
         for topic in tutorial_topics:
             yield await file.render_tutorial(topic)
 
-    async def _add_channel_status_message_locked(
+    async def _append_channel_status_message_locked(
         self, channel: chan.Channel, tx: SessionTransaction
     ) -> None:
         await tx.append_internal_message(
@@ -876,6 +869,38 @@ class Agent:
                 channel, available=channel.type in self.channels
             ),
         )
+
+    async def _append_session_start_messages(
+        self, tx: SessionTransaction, compaction_summary: str | None
+    ) -> None:
+        render_kwargs = {
+            "name": self.information.name,
+            "information": self.information.model_dump_json(),
+            "active_chat": tx.active_chat.model_dump_json(),
+        }
+        session_seq = len(self._sessions) - 1
+        if compaction_summary is None:
+            assert session_seq == 0
+            template = (
+                "system_information/session_initialization_first_ever.md"
+            )
+        else:
+            assert session_seq > 0
+            render_kwargs["session_seq"] = str(session_seq)
+            template = (
+                "system_information/session_initialization_after_compaction.md"
+            )
+        await tx.append_internal_message(
+            msg.SystemMessage,
+            await file.render_message_template(template, **render_kwargs),
+        )
+        if compaction_summary:
+            await tx.append_internal_message(
+                msg.SystemMessage,
+                await file.render_message_template(
+                    "compaction_summary.txt", summary=compaction_summary
+                ),
+            )
 
     async def _process_unread_chats(self) -> None:
         """
@@ -1169,7 +1194,7 @@ class Agent:
                 )
             await self._channel_router.add_channel(channel)
             self.state.claimed_channels[channel.type] = channel.id
-            await self._add_channel_status_message_locked(channel, tx)
+            await self._append_channel_status_message_locked(channel, tx)
 
     async def remove_channel(self, channel_type: mdl.ChannelType) -> None:
         """
@@ -1187,7 +1212,53 @@ class Agent:
                 )
             await self._channel_router.remove_channel(channel_type)
             del self.state.claimed_channels[channel_type]
-            await self._add_channel_status_message_locked(channel, tx)
+            await self._append_channel_status_message_locked(channel, tx)
+
+    async def compact_session(self) -> None:
+        """
+        Compact the agent's session.
+
+        The agent is switched to the system channel, where they are prompted to
+        summarize the current session. A new session is started with all the
+        system onboarding messages followed by the agent's own summary of the
+        old session.
+        """
+        async with self._lock:
+            old_num_sessions = len(self._sessions)
+            active_session = self._sessions[-1]
+            async with await active_session.system_channel_transaction() as tx:
+                time_str = we.Instant.now().format_iso(unit="millisecond")
+                await tx.append_internal_message(
+                    msg.SystemMessage,
+                    await file.render_message_template(
+                        "request_compaction_summary.txt", time_str=time_str
+                    ),
+                )
+                await tx.request_responses()
+                responses = (
+                    self._channel_router.system_channel.pop_received_messages()
+                )
+                summary_response = responses[-1]
+                summary = await summary_response.content
+            await self._start_new_session_locked(summary)
+            assert len(self._sessions) == old_num_sessions + 1
+
+    async def _start_new_session_locked(self, compaction_summary: str):
+        assert len(self._sessions) > 0
+        assert len(compaction_summary) > 0
+        await self._sessions[-1].__aexit__(None, None, None)
+        self._sessions.append(
+            self._make_session(
+                self._message_store.get_active_session_seq() + 1
+            )
+        )
+        await self._sessions[-1].__aenter__()
+        async with await self._sessions[-1].transaction() as tx:
+            await self._append_session_init_messages_locked(
+                tx, compaction_summary
+            )
+        async with self._new_session_condition:
+            self._new_session_condition.notify_all()
 
 
 class AgentRepository:

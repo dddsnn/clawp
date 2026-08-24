@@ -1,7 +1,6 @@
 # System information
 
 Hello {name}.
-This is the start of a new session.
-Reason: Initialization (this is your first session ever).
+This is the start of a new session with sequence number 0. It's your first session ever.
 Information about yourself: {information}
 You are talking in chat {active_chat}.

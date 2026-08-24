@@ -1,0 +1,6 @@
+# System information
+
+Hello {name}.
+This is the start of a new session with sequence number {session_seq}. Your compaction summary will follow in the next message.
+Information about yourself: {information}
+You are talking in chat {active_chat}.

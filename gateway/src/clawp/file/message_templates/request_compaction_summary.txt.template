@@ -1,0 +1,3 @@
+It is now {time_str}. A compaction of your session has been triggered. Please summarize your current session. See the `system_sessions` tutorial if you're not sure what this means.
+
+You may make tool calls and will get results back, e.g. to look up something or write files. Only the content of your last message will make up the summary (that's the message in which you make no tool calls, after which you will not be prompted again).

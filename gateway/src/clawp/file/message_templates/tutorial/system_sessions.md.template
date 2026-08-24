@@ -5,3 +5,11 @@ Topic: `system_sessions`
 ## Sessions
 
 A session within the framework represents your context window. It is a list of messages with metadata. Sessions are append-only and messages within a session are immutable. When a session needs to be changed (e.g. to compact your context), it is archived and a new one created. The system will inform you at the start of a session that a new one has started and for what reason.
+
+### Compactions
+
+A compaction can be triggered to reduce the size of your context window and make it easier for you to focus on the important things by removing clutter. The system will ask you to summarize the current session. That compaction summary is your only way of carrying things that only exist in the session on to the next one. After you give your summary, the system will start a new session, initialize it with system messages like this one telling you about Clawp, and finally give you back your compaction summary.
+
+#### What to include in the compaction summary
+
+The purpose of compaction is to significantly reduce the size of your context window, so your summary should be as concise as possible and as detailed as necessary. Leave out unnecessary details. Leave out things that you can easily look up again. Leave out anything that's part of your personality files; those are shown to you on message initialization. Other files in your workspace will persist across the compaction, as will memories you logged using the memory tool (more about those in a later tutorial), so you can refer to them in your summary and can leave out details. However, you should include some details if you were working on an unfinished task before the compaction, just so you can easily pick up where you left.
