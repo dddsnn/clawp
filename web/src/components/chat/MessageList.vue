@@ -134,7 +134,7 @@ onMounted(() => {
       <!-- Message List -->
       <MessageBubble
         v-for="entry in presentedMessages"
-        :key="entry.messageInSession.message_offset.message_seq"
+        :key="`${entry.messageInSession.message_offset.session_seq}:${entry.messageInSession.message_offset.message_seq}`"
         :message="entry.messageInSession.message"
         :display-mode="entry.displayMode"
         :reasoning-visibility-mode="store.visibility.reasoning"

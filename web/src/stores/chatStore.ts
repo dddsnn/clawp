@@ -29,6 +29,14 @@ import type {
 
 type ActivePartType = StreamingMessageMarkerPartStart['part_type'];
 
+function sameMessageOffset(a: MessageOffset, b: MessageOffset): boolean {
+  return a.session_seq === b.session_seq && a.message_seq === b.message_seq;
+}
+
+function compareMessageOffsets(a: MessageOffset, b: MessageOffset): number {
+  return a.session_seq - b.session_seq || a.message_seq - b.message_seq;
+}
+
 export type MessageVisibilityMode = 'show' | 'hint' | 'hide';
 export type ReasoningVisibilityMode = 'hide' | 'collapsed' | 'expanded';
 
@@ -66,7 +74,7 @@ export const useChatStore = defineStore('chat', () => {
     if (activeStreamingMessage.value) {
       list.push(activeStreamingMessage.value as unknown as MessageInSession);
     }
-    return list;
+    return list.sort((a, b) => compareMessageOffsets(a.message_offset, b.message_offset));
   });
 
   function setConnectionState(state: ConnectionState) {
@@ -78,17 +86,20 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function addMessage(message: MessageInSession) {
-    const seq = message.message_offset.message_seq;
-    // Check if we already have a message with this sequence number
-    const existingIndex = messages.value.findIndex(m => m.message_offset.message_seq === seq);
-    if (existingIndex !== -1) {
-      // If it exists, we assume it's already being handled (e.g. streaming or already complete from history).
+    const existingMessage = messages.value.find((existing) =>
+      sameMessageOffset(existing.message_offset, message.message_offset),
+    );
+    const matchesActiveStream = activeStreamingMessage.value && sameMessageOffset(
+      activeStreamingMessage.value.message_offset,
+      message.message_offset,
+    );
+    if (existingMessage || matchesActiveStream) {
+      // The same message may arrive through history and the WebSocket in either order.
       return;
     }
 
-    // Insert maintaining order
     messages.value.push(message);
-    messages.value.sort((a, b) => a.message_offset.message_seq - b.message_offset.message_seq);
+    messages.value.sort((a, b) => compareMessageOffsets(a.message_offset, b.message_offset));
   }
 
   function clearMessages() {
@@ -100,7 +111,9 @@ export const useChatStore = defineStore('chat', () => {
 
   // Used by the stream to create the placeholder agent message before fragments arrive
   function startStreamingMessage(messageOffset: MessageOffset, metadata: StartMessageMetadata) {
-    const existingMsg = messages.value.find(m => m.message_offset.message_seq === messageOffset.message_seq);
+    const existingMsg = messages.value.find((message) =>
+      sameMessageOffset(message.message_offset, messageOffset),
+    );
     if (existingMsg) {
       // If we already have this message (e.g. from history), we should not start a new stream for it.
       activeStreamingMessage.value = null;
@@ -122,7 +135,7 @@ export const useChatStore = defineStore('chat', () => {
 
   function endStreamingMessage(time: Date) {
     if (!activeStreamingMessage.value) return;
-    
+
     const finalizedMessage: MessageInSession = {
       message: {
         ...activeStreamingMessage.value.message,
@@ -133,10 +146,10 @@ export const useChatStore = defineStore('chat', () => {
       },
       message_offset: activeStreamingMessage.value.message_offset,
     };
-    
-    addMessage(finalizedMessage);
+
     activeStreamingMessage.value = null;
     activeStreamPartType.value = null;
+    addMessage(finalizedMessage);
   }
 
   function setActivePartType(type: ActivePartType) {
