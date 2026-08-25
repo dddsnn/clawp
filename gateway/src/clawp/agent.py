@@ -40,8 +40,12 @@ if t.TYPE_CHECKING:
     from . import provider as prov
 
 
-class ChatSwitchError(Exception):
+class ChatSwitchError(RuntimeError):
     """Raised when there is an error switching chat."""
+
+
+class CompactionError(RuntimeError):
+    """Raised when there is an error compacting an agent's session."""
 
 
 @dc.dataclass
@@ -410,7 +414,11 @@ class Session:
 
         All agent messages are sent in the session's active chat (though the
         active chat may change at any point through a tool call by the agent).
+
+        After this coroutine finishes, there is guaranteed to be at least one
+        more message in the session.
         """
+        old_num_messages = len(self._messages)
         num_requests = 0
         while num_requests < self._model_config.doom_loop_max_requests:
             try:
@@ -428,6 +436,7 @@ class Session:
             self._logger.warning(
                 f"Breaking out of request loop after {num_requests} requests."
             )
+        assert len(self._messages) > old_num_messages
 
     async def _request_response(self) -> bool:
         message, stream_coro = await self._request_agent_message()
@@ -657,6 +666,8 @@ class Agent:
     to persist messages in its session, manages its MCP client, and ensures
     sessions are properly opened and closed.
     """
+
+    MAX_REQUEST_COMPACTION_SUMMARY_ATTEMPTS = 5
 
     def __init__(
         self,
@@ -1227,21 +1238,53 @@ class Agent:
             old_num_sessions = len(self._sessions)
             active_session = self._sessions[-1]
             async with await active_session.system_channel_transaction() as tx:
-                time_str = we.Instant.now().format_iso(unit="millisecond")
-                await tx.append_internal_message(
-                    msg.SystemMessage,
-                    await file.render_message_template(
-                        "request_compaction_summary.txt", time_str=time_str
-                    ),
-                )
-                await tx.request_responses()
-                responses = (
-                    self._channel_router.system_channel.pop_received_messages()
-                )
+                try:
+                    compaction_summary = (
+                        await self._request_compaction_summary_locked(tx)
+                    )
+                except CompactionError:
+                    raise
+                except Exception as e:
+                    raise CompactionError(
+                        "error getting compaction summary from agent"
+                    ) from e
+            await self._start_new_session_locked(compaction_summary)
+        assert len(self._sessions) == old_num_sessions + 1
+
+    async def _request_compaction_summary_locked(
+        self, tx: SystemChannelSessionTransaction
+    ) -> str:
+        time_str = we.Instant.now().format_iso(unit="millisecond")
+        await tx.append_internal_message(
+            msg.SystemMessage,
+            await file.render_message_template(
+                "request_compaction_summary.txt", time_str=time_str
+            ),
+        )
+        for i in range(self.MAX_REQUEST_COMPACTION_SUMMARY_ATTEMPTS):
+            await tx.request_responses()
+            responses = (
+                self._channel_router.system_channel.pop_received_messages()
+            )
+            try:
                 summary_response = responses[-1]
                 summary = await summary_response.content
-            await self._start_new_session_locked(summary)
-            assert len(self._sessions) == old_num_sessions + 1
+                assert len(summary) > 0
+                return summary
+            except IndexError, AssertionError:
+                self._logger.debug(
+                    "Received no compaction summary from agent at attempt "
+                    f"{i + 1}, reprompting."
+                )
+            await tx.append_internal_message(
+                msg.SystemMessage,
+                "Your last message contained no content. Please provide a "
+                "compaction summary.",
+            )
+        raise CompactionError(
+            "agent provided no compaction summary after "
+            f"{self.MAX_REQUEST_COMPACTION_SUMMARY_ATTEMPTS} attempts"
+        )
 
     async def _start_new_session_locked(self, compaction_summary: str):
         assert len(self._sessions) > 0
