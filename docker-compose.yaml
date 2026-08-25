@@ -75,6 +75,7 @@ services:
         condition: "service_completed_successfully"
       shell-sandbox:
         condition: "service_started"
+    stop_grace_period: "30s"
 
   # Production web UI served by Nginx, which proxies API and websocket traffic
   # to the gateway so clients use one origin.
