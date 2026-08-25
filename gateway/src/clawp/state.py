@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+import asyncio
 import logging
 import pathlib
 import typing as t
@@ -37,6 +38,15 @@ class GatewayStateManager:
         self._state: mdl.GatewayState = None  # pyright: ignore[reportAttributeAccessIssue]
 
     async def __aenter__(self) -> t.Self:
+        await asyncio.to_thread(self._load_or_create_state)
+        return self
+
+    async def __aexit__(self, *args) -> t.Literal[False]:
+        await asyncio.to_thread(self._write_state)
+        return False
+
+    def _load_or_create_state(self) -> None:
+        assert self._state is None
         if self._state_file.exists() and not self._state_file.is_file():
             raise ValueError(f"{self._state_file} exists but is not a file")
         elif not self._state_file.is_file():
@@ -50,11 +60,10 @@ class GatewayStateManager:
                 self._state_file.read_text()
             )
             self._logger.info(f"Loaded state from file {self._state_file}.")
-        return self
 
-    async def __aexit__(self, *args) -> bool:
+    def _write_state(self) -> None:
+        assert self._state is not None
         self._state_file.write_text(self._state.model_dump_json())
-        return False
 
     @property
     def state(self) -> mdl.GatewayState:
