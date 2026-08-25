@@ -167,6 +167,10 @@ class StreamableList[ElementType]:
             await self._new_element_condition.wait()
 
 
+class PublisherNotRunningError(Exception):
+    """Raised when a Publisher is not running."""
+
+
 class Publisher[ElementType]:
     """
     A publisher of elements.
@@ -209,7 +213,7 @@ class Publisher[ElementType]:
         """
         async with self._condition:
             if not self._running:
-                raise ValueError("Publisher is not running")
+                raise PublisherNotRunningError
             self._history.append(self.SeqElement(self._next_seq, element))
             self._next_seq += 1
             self._condition.notify_all()
@@ -225,7 +229,7 @@ class Publisher[ElementType]:
         The generator exits when the publisher shuts down.
         """
         if not self._running:
-            raise ValueError("Publisher is not running")
+            raise PublisherNotRunningError
         subscriber_id = next(self._subscriber_id_gen)
         self._subscriber_next_seq[subscriber_id] = self._next_seq
         try:

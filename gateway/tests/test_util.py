@@ -246,20 +246,20 @@ class TestPublisher:
 
     async def test_append_raises_if_not_running(self):
         publisher = util.Publisher()
-        with pytest.raises(ValueError):
+        with pytest.raises(util.PublisherNotRunningError):
             await publisher.append(1)
         async with publisher:
             pass
-        with pytest.raises(ValueError):
+        with pytest.raises(util.PublisherNotRunningError):
             await publisher.append(1)
 
     async def test_subscription_raises_if_not_running(self):
         publisher = util.Publisher()
-        with pytest.raises(ValueError):
+        with pytest.raises(util.PublisherNotRunningError):
             await self.stream_into_list(publisher, [], asyncio.Event())
         async with publisher:
             pass
-        with pytest.raises(ValueError):
+        with pytest.raises(util.PublisherNotRunningError):
             await self.stream_into_list(publisher, [], asyncio.Event())
 
     async def test_subscription_yields_new_elements(self):
