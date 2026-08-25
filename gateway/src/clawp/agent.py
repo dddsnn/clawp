@@ -1154,40 +1154,71 @@ class Agent:
 
     async def subscribe(self) -> cl_abc.AsyncGenerator[MessageInSession]:
         """
-        Subscribe to the this agent's messages.
+        Subscribe to all of this agent's new messages.
 
         These are all of the agent's messages in the context of its session and
-        in the same order. This includes all message roles, also
-        user/system/developer/tool messages.
+        in the same order, starting at the time of the call. This includes all
+        message roles, also user/system/developer/tool messages.
 
         Yields messages in the context of their session, i.e. with session and
         message sequence numbers. When a new session is started, the
         subscription switches to yielding messages from it.
         """
-        for expected_number_of_sessions in it.count(len(self._sessions)):
-            if len(self._sessions) != expected_number_of_sessions:
-                self._logger.warning(
-                    f"In subscription, expected {expected_number_of_sessions} "
-                    f"sessions, but actually found {len(self._sessions)}."
-                )
-            async with self._new_session_condition:
-                # Start a task that waits on the condition that gets set when a
-                # new session has been appended.
-                wait_for_next_session_task = asyncio.create_task(
-                    self._new_session_condition.wait(), eager_start=True
-                )
-                try:
-                    async for message in self._sessions[-1].subscribe():
+        assert len(self._sessions) > 0
+        get_history_first = False
+        last_offset = mdl.MessageOffset.prehistoric()
+        for session_index in it.count(len(self._sessions) - 1):
+            session = self._sessions[session_index]
+            session_subscription = session.subscribe()
+            # Start a task to get the first element from the subscription. Use
+            # eager_start=True to make sure we're not missing anything that
+            # gets added just after we fetch the history.
+            first_message_task = asyncio.create_task(
+                anext(session_subscription), eager_start=True
+            )
+            if get_history_first:
+                for message in session.messages():
+                    yield message
+                    last_offset = message.message_offset
+            # In the following, only yield if we haven't seen the message (by
+            # offset) in the history already.
+            try:
+                message = await first_message_task
+                if message.message_offset > last_offset:
+                    yield message
+                    last_offset = message.message_offset
+                async for message in session_subscription:
+                    if message.message_offset > last_offset:
                         yield message
-                    # The current session's subscription is done, which means
-                    # it must have been closed. Wait for the next session to
-                    # get started, then continue subscribing there.
-                    await wait_for_next_session_task
-                except:
-                    wait_for_next_session_task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await wait_for_next_session_task
-                    raise
+                        last_offset = message.message_offset
+            except StopAsyncIteration:
+                # Subscription already ended (in first_message_task).
+                pass
+            except util.PublisherNotRunningError:
+                # The session was already shut down. We got all messages with
+                # the history.
+                pass
+            # The current session's subscription is done, which means
+            # it must have been closed. Wait for the next session to
+            # get started, then continue subscribing there.
+            self._logger.debug(
+                f"Session subscription ended at {last_offset}, waiting for "
+                "next session to start."
+            )
+            # For subsequent sessions, first yield any messages that were added
+            # after the session started but before we subscribed.
+            get_history_first = True
+            async with self._new_session_condition:
+                # Wait for the next session to be added so we can continue the
+                # loop.
+                await self._new_session_condition.wait_for(
+                    lambda wanted_num_sessions=session_index + 2: (
+                        len(self._sessions) >= wanted_num_sessions
+                    )
+                )
+                self._logger.debug(
+                    "Next session started, continuing subscription."
+                )
 
     async def add_channel(self, channel: chan.Channel) -> None:
         """
@@ -1289,18 +1320,21 @@ class Agent:
     async def _start_new_session_locked(self, compaction_summary: str):
         assert len(self._sessions) > 0
         assert len(compaction_summary) > 0
-        await self._sessions[-1].__aexit__(None, None, None)
-        self._sessions.append(
-            self._make_session(
-                self._message_store.get_active_session_seq() + 1
-            )
-        )
-        await self._sessions[-1].__aenter__()
-        async with await self._sessions[-1].transaction() as tx:
-            await self._append_session_init_messages_locked(
-                tx, compaction_summary
-            )
+        self._logger.debug("Closing active session.")
         async with self._new_session_condition:
+            await self._sessions[-1].__aexit__(None, None, None)
+            self._sessions.append(
+                self._make_session(
+                    self._message_store.get_active_session_seq() + 1
+                )
+            )
+            self._logger.debug("Starting new session.")
+            await self._sessions[-1].__aenter__()
+            async with await self._sessions[-1].transaction() as tx:
+                await self._append_session_init_messages_locked(
+                    tx, compaction_summary
+                )
+            self._logger.debug("Setting new session notification.")
             self._new_session_condition.notify_all()
 
 

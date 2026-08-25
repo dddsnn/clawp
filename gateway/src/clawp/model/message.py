@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+import functools as ft
 import typing as t
 
 import pydantic as pyd
@@ -232,9 +233,33 @@ Message = t.Annotated[
 ]
 
 
+@ft.total_ordering
 class MessageOffset(base.BaseModel):
     session_seq: int
     message_seq: int
+
+    @staticmethod
+    def prehistoric() -> MessageOffset:
+        """An impossible offset, before all valid offsets."""
+        return MessageOffset(session_seq=-1, message_seq=0)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, MessageOffset):
+            raise NotImplementedError
+        return (
+            self.session_seq == other.session_seq
+            and self.message_seq == other.message_seq
+        )
+
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, MessageOffset):
+            raise NotImplementedError
+        if self.session_seq < other.session_seq:
+            return True
+        return (
+            self.session_seq == other.session_seq
+            and self.message_seq < other.message_seq
+        )
 
 
 class MessageInSession(base.BaseModel):
