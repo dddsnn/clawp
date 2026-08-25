@@ -446,7 +446,8 @@ class Session:
             await stream_coro
         except Exception, asyncio.CancelledError:
             self._logger.exception(
-                f"Error streaming {message}. Not attempting any further processing."
+                f"Error streaming {message}. Not attempting any further "
+                "processing."
             )
             raise
         assert message.finalized()
@@ -704,7 +705,7 @@ class Agent:
         )
         self._process_unread_chats_task = None
         self._sessions: list[Session] = []
-        self._lock = asyncio.Lock()
+        self._active_session_lock = asyncio.Lock()
         self._new_session_condition = asyncio.Condition()
 
     @property
@@ -770,7 +771,7 @@ class Agent:
 
     async def __aexit__(self, *args) -> bool:
         assert self._process_unread_chats_task is not None
-        async with self._lock:
+        async with self._active_session_lock:
             self._process_unread_chats_task.cancel()
             try:
                 async with asyncio.timeout(120):
@@ -800,18 +801,8 @@ class Agent:
             self._logger.exception("Error shutting down MCP client.")
         return False
 
-    def _make_session(self, session_seq: int) -> Session:
-        message_store = self._message_store.get_session_message_store(
-            session_seq
-        )
-        return self._session_factory(
-            session_seq,
-            message_store=message_store,
-            active_chat=self.state.active_chat,
-        )
-
     async def _load_sessions(self):
-        async with self._lock:
+        async with self._active_session_lock:
             assert len(self._sessions) == 0
             active_session_seq = self._message_store.get_active_session_seq()
             for i in range(active_session_seq + 1):
@@ -825,6 +816,16 @@ class Agent:
                         "first one."
                     )
                     await self._append_session_init_messages_locked(tx)
+
+    def _make_session(self, session_seq: int) -> Session:
+        message_store = self._message_store.get_session_message_store(
+            session_seq
+        )
+        return self._session_factory(
+            session_seq,
+            message_store=message_store,
+            active_chat=self.state.active_chat,
+        )
 
     async def _append_session_init_messages_locked(
         self, tx: SessionTransaction, compaction_summary: str | None = None
@@ -1008,7 +1009,7 @@ class Agent:
         and returns the current session when it is entered.
         """
         manager = util.DependencyContextManager()
-        manager.register_dependency(self._lock)
+        manager.register_dependency(self._active_session_lock)
         manager.register_primary(lambda: self._sessions[-1].transaction())
         return manager
 
@@ -1265,7 +1266,7 @@ class Agent:
         system onboarding messages followed by the agent's own summary of the
         old session.
         """
-        async with self._lock:
+        async with self._active_session_lock:
             old_num_sessions = len(self._sessions)
             active_session = self._sessions[-1]
             async with await active_session.system_channel_transaction() as tx:
