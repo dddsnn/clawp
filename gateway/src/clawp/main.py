@@ -88,8 +88,10 @@ async def main(config: mdl.GatewayConfig):
     )
     state_manager = st.GatewayStateManager(config.files_base_dir)
     openrouter_provider = prov.OpenrouterProvider(config.openrouter)
-    async with contextlib.AsyncExitStack() as stack:
-        await stack.enter_async_context(state_manager)
+    # Enter the state manager separately, to ensure it gets exited first and
+    # can write the state file even if there are problems shutting down other
+    # components.
+    async with contextlib.AsyncExitStack() as stack, state_manager:
         channel_pool = chan.ChannelPool(config.channels, state_manager.state)
         await stack.enter_async_context(openrouter_provider)
         agent_repo = await stack.enter_async_context(
@@ -103,7 +105,10 @@ async def main(config: mdl.GatewayConfig):
         await stack.enter_async_context(
             api.Api(config.api, agent_repo, channel_pool)
         )
+        logger.info("Started up.")
         await shutdown_event.wait()
+        logger.info("Shutting down.")
+    logger.info("Shutdown complete.")
 
 
 def run():
