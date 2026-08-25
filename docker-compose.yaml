@@ -84,9 +84,6 @@ services:
       target: "app"
     ports:
       - "8080:80"
-    depends_on:
-      gateway:
-        condition: "service_started"
 
 volumes:
   # Volume containing persistent data like agents and config.
