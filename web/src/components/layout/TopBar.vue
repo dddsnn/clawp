@@ -55,10 +55,10 @@ const breadcrumbs = computed<Breadcrumb[]>(() => {
 
 <template>
   <div class="sticky top-0 z-10 flex flex-col">
-    <header class="flex items-center gap-6 border-b bg-white px-4 py-3 shadow-sm">
+    <header class="flex h-12 items-center gap-6 border-b bg-white px-4 shadow-sm">
       <h1 class="shrink-0 text-xl font-semibold tracking-tight text-slate-800">Clawp</h1>
 
-      <nav aria-label="Breadcrumb" class="min-w-0 overflow-x-auto">
+      <nav aria-label="Breadcrumb" class="flex min-w-0 self-stretch items-center overflow-x-auto overflow-y-hidden">
         <ol class="flex min-w-max items-center gap-1 text-sm text-slate-500">
           <li>
             <RouterLink v-if="route.name !== 'home'" :to="{ name: 'home' }" class="rounded p-1 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800" title="Home">
