@@ -282,3 +282,9 @@ async def _try_close_websocket(
             await websocket.close(code=close_code)
     except Exception:
         logger.exception("Error while trying to close the websocket.")
+
+
+@router.post("/{agent_id}/compact-session")
+async def compact_session(agent: dep.Agent) -> None:
+    """Compact an agent's session."""
+    await agent.compact_session()
