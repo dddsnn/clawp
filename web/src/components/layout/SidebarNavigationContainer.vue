@@ -93,18 +93,20 @@ const navigateCollection = (target: Exclude<Collection, 'root'>) => {
 };
 
 const navigateBack = () => {
+  const parentRouteName = route.name === 'agents' || route.name === 'personalities' || route.name === 'channels'
+    ? 'home'
+    : collection.value;
   const previousLocation = window.history.state?.back;
+
   if (typeof previousLocation === 'string' && previousLocation.startsWith('/')) {
-    router.back();
-    return;
+    const previousRoute = router.resolve(previousLocation);
+    if (previousRoute.name === parentRouteName) {
+      router.back();
+      return;
+    }
   }
 
-  if (route.name === 'agents' || route.name === 'personalities' || route.name === 'channels') {
-    router.push({ name: 'home' });
-    return;
-  }
-
-  router.push({ name: collection.value });
+  router.push({ name: parentRouteName });
 };
 
 const openHatchModal = () => {
