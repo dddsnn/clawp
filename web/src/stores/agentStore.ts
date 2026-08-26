@@ -22,7 +22,6 @@ import type { AgentInformation } from '../types/api';
 
 export const useAgentStore = defineStore('agent', () => {
   const agents = ref<AgentInformation[]>([]);
-  const selectedAgentId = ref<string | null>(null);
   const agentsLoading = ref(false);
   const agentsError = ref<string | null>(null);
 
@@ -51,17 +50,11 @@ export const useAgentStore = defineStore('agent', () => {
     agents.value = [...agents.value, agent];
   }
 
-  function setSelectedAgentId(id: string | null) {
-    selectedAgentId.value = id;
-  }
-
   return {
     agents,
-    selectedAgentId,
     agentsLoading,
     agentsError,
     fetchAgents,
-    setSelectedAgentId,
     addAgent,
   };
 });

@@ -25,7 +25,6 @@ export const usePersonalityStore = defineStore('personality', () => {
   const personalitiesLoading = ref(false);
   const personalitiesError = ref<string | null>(null);
 
-  const selectedPersonalityName = ref<string | null>(null);
   const personalityDetails = ref<AgentPersonalityWithFileContents | null>(null);
   const personalityDetailsLoading = ref(false);
   const personalityDetailsError = ref<string | null>(null);
@@ -71,20 +70,14 @@ export const usePersonalityStore = defineStore('personality', () => {
     }
   }
 
-  function setSelectedPersonalityName(name: string | null) {
-    selectedPersonalityName.value = name;
-  }
-
   return {
     personalities,
     personalitiesLoading,
     personalitiesError,
-    selectedPersonalityName,
     personalityDetails,
     personalityDetailsLoading,
     personalityDetailsError,
     fetchPersonalities,
     fetchPersonality,
-    setSelectedPersonalityName,
   };
 });

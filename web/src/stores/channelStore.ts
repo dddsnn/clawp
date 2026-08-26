@@ -28,7 +28,6 @@ export const useChannelStore = defineStore('channel', () => {
   const channels = ref<ChannelInformation[]>([]);
   const channelsLoading = ref(false);
   const channelsError = ref<string | null>(null);
-  const selectedChannelKey = ref<string | null>(null);
 
   async function fetchChannels() {
     try {
@@ -42,10 +41,6 @@ export const useChannelStore = defineStore('channel', () => {
     } finally {
       channelsLoading.value = false;
     }
-  }
-
-  function setSelectedChannelKey(key: string | null) {
-    selectedChannelKey.value = key;
   }
 
   function upsertChannel(updatedChannel: ChannelInformation) {
@@ -83,9 +78,7 @@ export const useChannelStore = defineStore('channel', () => {
     channels,
     channelsLoading,
     channelsError,
-    selectedChannelKey,
     fetchChannels,
-    setSelectedChannelKey,
     upsertChannel,
     setAssignedAgent,
   };
