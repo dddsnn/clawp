@@ -18,42 +18,37 @@ with clawp. If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { X } from 'lucide-vue-next';
+import { useRoute, useRouter } from 'vue-router';
 import SidebarNavigation from './SidebarNavigation.vue';
 import { useAgentStore } from '../../stores/agentStore';
 import { usePersonalityStore } from '../../stores/personalityStore';
 import { useChannelStore } from '../../stores/channelStore';
 import { hatchAgent } from '../../services/api';
-
-const emit = defineEmits<{
-  selectAgent: [id: string];
-  selectPersonality: [name: string];
-  selectChannel: [key: string];
-}>();
+import type { ChannelInformation } from '../../types/api';
 
 const agentStore = useAgentStore();
 const personalityStore = usePersonalityStore();
 const channelStore = useChannelStore();
+const route = useRoute();
+const router = useRouter();
 
 const {
   agents,
-  selectedAgentId,
   agentsLoading,
   agentsError,
 } = storeToRefs(agentStore);
 
 const {
   personalities,
-  selectedPersonalityName,
   personalitiesLoading,
   personalitiesError,
 } = storeToRefs(personalityStore);
 
 const {
   channels,
-  selectedChannelKey,
   channelsLoading,
   channelsError,
 } = storeToRefs(channelStore);
@@ -64,36 +59,41 @@ const hatchAgentName = ref<string>('');
 const hatchError = ref<string | null>(null);
 const isHatching = ref(false);
 
-const activeSelectionType = computed<'agent' | 'personality' | 'channel' | null>(() => {
-  if (selectedAgentId.value) {
-    return 'agent';
-  }
+type Collection = 'root' | 'agents' | 'personalities' | 'channels';
 
-  if (selectedPersonalityName.value) {
-    return 'personality';
-  }
-
-  if (selectedChannelKey.value) {
-    return 'channel';
-  }
-
-  return null;
-});
+const collection = computed<Collection>(() => route.meta.collection as Collection ?? 'root');
+const selectedAgentId = computed(() => route.name === 'agent-chat' ? String(route.params.agentId) : null);
+const selectedPersonalityName = computed(() => route.name === 'personality-details' ? String(route.params.personalityName) : null);
+const selectedChannelKey = computed(() => route.name === 'channel-details'
+  ? `${route.params.channelType}:${route.params.channelId}`
+  : null);
 
 const canHatch = computed(() => {
   return !personalitiesLoading.value && personalitiesError.value === null && personalities.value.length > 0;
 });
 
 const handleSelectAgent = (agentId: string) => {
-  emit('selectAgent', agentId);
+  router.push({ name: 'agent-chat', params: { agentId } });
 };
 
 const handleSelectPersonality = (personalityName: string) => {
-  emit('selectPersonality', personalityName);
+  router.push({ name: 'personality-details', params: { personalityName } });
 };
 
-const handleSelectChannel = (channelKey: string) => {
-  emit('selectChannel', channelKey);
+const handleSelectChannel = (channel: ChannelInformation) => {
+  if (channel.id === null) {
+    return;
+  }
+
+  router.push({ name: 'channel-details', params: { channelType: channel.type, channelId: channel.id } });
+};
+
+const navigateCollection = (target: Exclude<Collection, 'root'>) => {
+  router.push({ name: target });
+};
+
+const navigateBack = () => {
+  router.push({ name: 'home' });
 };
 
 const openHatchModal = () => {
@@ -135,7 +135,7 @@ const submitHatchAgent = async () => {
     const newAgent = await hatchAgent(agentName, hatchPersonalityName.value);
     agentStore.addAgent(newAgent);
     closeHatchModalInternal(true);
-    emit('selectAgent', newAgent.id);
+    router.push({ name: 'agent-chat', params: { agentId: newAgent.id } });
   } catch (error) {
     console.error('Failed to hatch agent:', error);
     hatchError.value = error instanceof Error ? error.message : String(error);
@@ -152,21 +152,11 @@ onMounted(async () => {
   ]);
 });
 
-watch(
-  [agents, agentsLoading, agentsError, activeSelectionType],
-  ([loadedAgents, loadingAgents, loadingError, activeType]) => {
-    if (activeType !== null || loadingAgents || loadingError || loadedAgents.length === 0) {
-      return;
-    }
-
-    emit('selectAgent', loadedAgents[0].id);
-  },
-  { immediate: true },
-);
 </script>
 
 <template>
   <SidebarNavigation
+    :collection="collection"
     :agents="agents"
     :selected-agent-id="selectedAgentId"
     :agents-loading="agentsLoading"
@@ -179,9 +169,10 @@ watch(
     :selected-channel-key="selectedChannelKey"
     :channels-loading="channelsLoading"
     :channels-error="channelsError"
-    :active-selection-type="activeSelectionType"
     :can-hatch="canHatch"
     :is-hatching="isHatching"
+    @navigate-collection="navigateCollection"
+    @navigate-back="navigateBack"
     @select-agent="handleSelectAgent"
     @select-personality="handleSelectPersonality"
     @select-channel="handleSelectChannel"

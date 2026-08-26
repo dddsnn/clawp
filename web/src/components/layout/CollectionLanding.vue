@@ -18,21 +18,11 @@ with clawp. If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <script setup lang="ts">
-import TopBar from './components/layout/TopBar.vue';
-import SidebarNavigationContainer from './components/layout/SidebarNavigationContainer.vue';
+defineProps<{ message: string }>();
 </script>
 
 <template>
-  <div class="flex flex-col h-screen w-full bg-slate-50 font-sans overflow-hidden">
-    <TopBar />
-
-    <div class="flex flex-1 overflow-hidden">
-      <SidebarNavigationContainer />
-
-      <!-- Main Content -->
-      <div class="flex-1 flex flex-col relative min-w-0">
-        <RouterView />
-      </div>
-    </div>
+  <div class="flex flex-1 items-center justify-center bg-slate-50 text-slate-400">
+    {{ message }}
   </div>
 </template>
