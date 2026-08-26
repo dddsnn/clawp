@@ -62,6 +62,15 @@ export async function hatchAgent(agentName: string, personalityName: string): Pr
   return AgentInformationSchema.parse(rawData);
 }
 
+export async function compactAgentSession(agentId: string): Promise<void> {
+  const response = await fetch(`/api/v1/agents/${encodeURIComponent(agentId)}/compact-session`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+}
+
 export async function fetchHistory(agentId: string) {
   const response = await fetch(`/api/v1/agents/${agentId}/messages`);
   if (!response.ok) {

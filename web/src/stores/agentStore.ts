@@ -17,11 +17,17 @@
 
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { fetchAgents as fetchAgentsApi } from '../services/api';
+import { compactAgentSession, fetchAgents as fetchAgentsApi } from '../services/api';
 import type { AgentInformation } from '../types/api';
+
+type SessionCompactionState =
+  | { status: 'compacting' }
+  | { status: 'completed' }
+  | { status: 'error'; error: string };
 
 export const useAgentStore = defineStore('agent', () => {
   const agents = ref<AgentInformation[]>([]);
+  const sessionCompactionStates = ref<Record<string, SessionCompactionState>>({});
   const agentsLoading = ref(false);
   const agentsError = ref<string | null>(null);
 
@@ -50,11 +56,41 @@ export const useAgentStore = defineStore('agent', () => {
     agents.value = [...agents.value, agent];
   }
 
+  async function compactSession(agentId: string) {
+    if (sessionCompactionStates.value[agentId]?.status === 'compacting') {
+      return;
+    }
+
+    sessionCompactionStates.value = {
+      ...sessionCompactionStates.value,
+      [agentId]: { status: 'compacting' },
+    };
+
+    try {
+      await compactAgentSession(agentId);
+      sessionCompactionStates.value = {
+        ...sessionCompactionStates.value,
+        [agentId]: { status: 'completed' },
+      };
+    } catch (error) {
+      console.error(`Failed to compact session for agent ${agentId}:`, error);
+      sessionCompactionStates.value = {
+        ...sessionCompactionStates.value,
+        [agentId]: {
+          status: 'error',
+          error: error instanceof Error ? error.message : String(error),
+        },
+      };
+    }
+  }
+
   return {
     agents,
+    sessionCompactionStates,
     agentsLoading,
     agentsError,
     fetchAgents,
+    compactSession,
     addAgent,
   };
 });

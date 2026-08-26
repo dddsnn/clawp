@@ -62,7 +62,15 @@ const isHatching = ref(false);
 type Collection = 'root' | 'agents' | 'personalities' | 'channels';
 
 const collection = computed<Collection>(() => route.meta.collection as Collection ?? 'root');
-const selectedAgentId = computed(() => route.name === 'agent-chat' ? String(route.params.agentId) : null);
+const isAgentPage = computed(() => route.name === 'agent-chat' || route.name === 'agent-management');
+const selectedAgentId = computed(() => isAgentPage.value ? String(route.params.agentId) : null);
+const currentAgent = computed(() => agents.value.find((agent) => agent.id === selectedAgentId.value) ?? null);
+const currentAgentPage = computed<'chat' | 'management' | null>(() => {
+  if (route.name === 'agent-chat') return 'chat';
+  if (route.name === 'agent-management') return 'management';
+  return null;
+});
+const navigationPane = computed<Collection | 'agent'>(() => isAgentPage.value ? 'agent' : collection.value);
 const selectedPersonalityName = computed(() => route.name === 'personality-details' ? String(route.params.personalityName) : null);
 const selectedChannelKey = computed(() => route.name === 'channel-details'
   ? `${route.params.channelType}:${route.params.channelId}`
@@ -74,6 +82,14 @@ const canHatch = computed(() => {
 
 const handleSelectAgent = (agentId: string) => {
   router.push({ name: 'agent-chat', params: { agentId } });
+};
+
+const navigateAgentPage = (page: 'chat' | 'management') => {
+  if (!selectedAgentId.value) {
+    return;
+  }
+
+  router.push({ name: page === 'chat' ? 'agent-chat' : 'agent-management', params: { agentId: selectedAgentId.value } });
 };
 
 const handleSelectPersonality = (personalityName: string) => {
@@ -169,7 +185,7 @@ onMounted(async () => {
 
 <template>
   <SidebarNavigation
-    :collection="collection"
+    :collection="navigationPane"
     :agents="agents"
     :selected-agent-id="selectedAgentId"
     :agents-loading="agentsLoading"
@@ -180,6 +196,9 @@ onMounted(async () => {
     :personalities-error="personalitiesError"
     :channels="channels"
     :selected-channel-key="selectedChannelKey"
+    :current-agent="currentAgent"
+    :current-agent-id="selectedAgentId"
+    :current-agent-page="currentAgentPage"
     :channels-loading="channelsLoading"
     :channels-error="channelsError"
     :can-hatch="canHatch"
@@ -187,6 +206,7 @@ onMounted(async () => {
     @navigate-collection="navigateCollection"
     @navigate-back="navigateBack"
     @select-agent="handleSelectAgent"
+    @navigate-agent-page="navigateAgentPage"
     @select-personality="handleSelectPersonality"
     @select-channel="handleSelectChannel"
     @open-hatch-modal="openHatchModal"

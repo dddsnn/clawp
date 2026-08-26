@@ -18,14 +18,15 @@ with clawp. If not, see <https://www.gnu.org/licenses/>.
 -->
 
 <script setup lang="ts">
-import { AlertCircle, Bot, BotOff, ChevronLeft, Loader2, Plus, Radio, User } from 'lucide-vue-next';
+import { AlertCircle, Bot, BotOff, ChevronLeft, Loader2, MessageCircle, Plus, Radio, Settings, User } from 'lucide-vue-next';
 import type { AgentInformation, AgentPersonality, ChannelInformation } from '../../types/api';
 import { getChannelKey } from '../../stores/channelStore';
 
 type Collection = 'root' | 'agents' | 'personalities' | 'channels';
+type NavigationPane = Collection | 'agent';
 
 defineProps<{
-  collection: Collection;
+  collection: NavigationPane;
   agents: AgentInformation[];
   selectedAgentId: string | null;
   agentsLoading: boolean;
@@ -36,6 +37,9 @@ defineProps<{
   personalitiesError: string | null;
   channels: ChannelInformation[];
   selectedChannelKey: string | null;
+  currentAgent: AgentInformation | null;
+  currentAgentId: string | null;
+  currentAgentPage: 'chat' | 'management' | null;
   channelsLoading: boolean;
   channelsError: string | null;
   canHatch: boolean;
@@ -48,6 +52,7 @@ const emit = defineEmits<{
   selectAgent: [id: string];
   selectPersonality: [name: string];
   selectChannel: [channel: ChannelInformation];
+  navigateAgentPage: [page: 'chat' | 'management'];
   openHatchModal: [];
 }>();
 </script>
@@ -79,7 +84,21 @@ const emit = defineEmits<{
     </div>
 
     <div v-else class="flex-1 overflow-y-auto p-2">
-      <div class="mb-3 flex items-center gap-2 px-2 py-2">
+      <div v-if="collection === 'agent'" class="mb-3 flex items-center gap-2 px-2 py-2">
+        <button
+          class="rounded-md p-1 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
+          title="Back to agents"
+          @click="emit('navigateBack')"
+        >
+          <ChevronLeft class="h-5 w-5" />
+        </button>
+        <div class="min-w-0">
+          <span class="block truncate text-sm font-medium text-slate-800">{{ currentAgent?.name ?? 'Agent' }}</span>
+          <span class="block truncate font-mono text-xs text-slate-400">{{ currentAgentId }}</span>
+        </div>
+      </div>
+
+      <div v-else class="mb-3 flex items-center gap-2 px-2 py-2">
         <button
           class="rounded-md p-1 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
           title="Back to home"
@@ -106,7 +125,26 @@ const emit = defineEmits<{
         </button>
       </div>
 
-      <div v-if="collection === 'agents'" class="space-y-1">
+      <div v-if="collection === 'agent'" class="space-y-1">
+        <button
+          class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors"
+          :class="currentAgentPage === 'chat' ? 'bg-blue-50 font-medium text-blue-700 shadow-sm ring-1 ring-blue-500/20' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'"
+          @click="emit('navigateAgentPage', 'chat')"
+        >
+          <MessageCircle class="h-4 w-4" />
+          Chat
+        </button>
+        <button
+          class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors"
+          :class="currentAgentPage === 'management' ? 'bg-blue-50 font-medium text-blue-700 shadow-sm ring-1 ring-blue-500/20' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'"
+          @click="emit('navigateAgentPage', 'management')"
+        >
+          <Settings class="h-4 w-4" />
+          Management
+        </button>
+      </div>
+
+      <div v-else-if="collection === 'agents'" class="space-y-1">
         <div v-if="agentsLoading" class="flex flex-col items-center justify-center space-y-2 p-4 text-xs text-slate-400"><Loader2 class="h-6 w-6 animate-spin" /><span>Loading agents...</span></div>
         <div v-else-if="agentsError" class="flex flex-col items-center justify-center space-y-2 p-4 text-center text-xs text-red-500"><AlertCircle class="h-6 w-6" /><span>Failed to load agents<br>{{ agentsError }}</span></div>
         <div v-else-if="agents.length === 0" class="p-4 text-center text-sm text-slate-400">No agents available.</div>

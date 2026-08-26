@@ -17,6 +17,7 @@
 
 import { createRouter, createWebHistory } from 'vue-router';
 import AgentChatContainer from '../components/chat/AgentChatContainer.vue';
+import AgentManagement from '../components/agent/AgentManagement.vue';
 import ChannelDetailsContainer from '../components/channel/ChannelDetailsContainer.vue';
 import CollectionLanding from '../components/layout/CollectionLanding.vue';
 import PersonalityDetailsContainer from '../components/personality/PersonalityDetailsContainer.vue';
@@ -47,6 +48,13 @@ const router = createRouter({
       path: '/agents/:agentId/chat',
       name: 'agent-chat',
       component: AgentChatContainer,
+      props: (route) => ({ agentId: route.params.agentId }),
+      meta: { collection: 'agents' },
+    },
+    {
+      path: '/agents/:agentId/management',
+      name: 'agent-management',
+      component: AgentManagement,
       props: (route) => ({ agentId: route.params.agentId }),
       meta: { collection: 'agents' },
     },

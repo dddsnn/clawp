@@ -24,13 +24,14 @@ const breadcrumbs = computed<Breadcrumb[]>(() => {
   switch (route.name) {
     case 'agents':
       return [{ label: 'Agents' }];
-    case 'agent-chat': {
+    case 'agent-chat':
+    case 'agent-management': {
       const agentId = String(route.params.agentId);
       const agent = agents.value.find((candidate) => candidate.id === agentId);
       return [
         { label: 'Agents', to: { name: 'agents' } },
         { label: agent?.name ?? 'Agent', detail: ` (${agentId})`, to: { name: 'agent', params: { agentId } } },
-        { label: 'Chat' },
+        { label: route.name === 'agent-chat' ? 'Chat' : 'Management' },
       ];
     }
     case 'personalities':
