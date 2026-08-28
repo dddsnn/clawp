@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+import asyncio
 import collections.abc as cl_abc
 import functools as ft
 import logging
@@ -30,6 +31,7 @@ import fastmcp.server.providers.proxy
 import fastmcp.tools
 import fastmcp.tools.tool_transform as tool_tf
 import mcp.types
+import ruamel.yaml
 
 from .. import agent as agt
 from .. import file
@@ -163,6 +165,9 @@ class ClawpMcpServer(fastmcp.FastMCP):
 
 
 class FileSystemMcpServer(fastmcp.FastMCP):
+    CONFIG_FILE_PATH = pathlib.Path(".clawp_save_actions.yaml")
+    """Config file relative to agent's HOME."""
+
     def __init__(
         self,
         agent_workspace: pathlib.Path,
@@ -180,17 +185,10 @@ class FileSystemMcpServer(fastmcp.FastMCP):
         """
         super().__init__("File system MCP server")
         self._logger = logging.getLogger(type(self).__name__)
-        self._agent_workspace = agent_workspace
+        self._agent_workspace = agent_workspace.resolve()
         self._exec_shell = exec_shell
         self._filesystem_proxy = self._make_filesystem_proxy()
         self.mount(self._filesystem_proxy)
-        self._save_actions = {
-            ".py": [
-                "uv run --quiet ruff format --exit-non-zero-on-format",
-                "uv run --quiet ruff check",
-                "uv run --quiet basedpyright",
-            ]
-        }
 
     def _make_filesystem_proxy(
         self,
@@ -206,12 +204,12 @@ class FileSystemMcpServer(fastmcp.FastMCP):
         transport = fastmcp.client.transports.StdioTransport(
             command="rust-mcp-filesystem",
             args=["--enable-roots", "--allow-write"],
-            env={"HOME": str(self._agent_workspace.resolve())},
+            env={"HOME": str(self._agent_workspace)},
         )
         client_factory = ft.partial(
             fastmcp.Client,
             transport,
-            roots=[f"file://{self._agent_workspace.resolve()}"],
+            roots=[f"file://{self._agent_workspace}"],
         )
         return fastmcp.server.providers.proxy.FastMCPProxy(
             client_factory=client_factory
@@ -281,9 +279,15 @@ class FileSystemMcpServer(fastmcp.FastMCP):
 
     async def _apply_save_actions(self, path: pathlib.Path) -> str:
         """Apply save actions and return concatenated output."""
-        save_actions = self._save_actions.get(path.suffix, [])
+        try:
+            config = await asyncio.to_thread(self._load_config)
+        except Exception as e:
+            self._logger.exception(
+                "Error loading config. Agent will be notified on next load."
+            )
+            return f"\nError loading save action config:\n{e}"
         outputs = []
-        for save_action in save_actions:
+        for save_action in config.save_actions.get(path.suffix, []):
             shell_result = await self._exec_shell(
                 f"{save_action} {path.name}", str(path.parent)
             )
@@ -301,6 +305,11 @@ class FileSystemMcpServer(fastmcp.FastMCP):
         if not outputs:
             return ""
         return "\n" + "\n".join(outputs)
+
+    def _load_config(self) -> mdl.SaveActionConfig:
+        yaml = ruamel.yaml.YAML()
+        config_dict = yaml.load(self._agent_workspace / self.CONFIG_FILE_PATH)
+        return mdl.SaveActionConfig.model_validate(config_dict)
 
     def _append_text_to_tool_result(
         self, tool_result: fastmcp.tools.ToolResult, text: str
