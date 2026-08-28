@@ -18,6 +18,7 @@
 # pyright: reportImportCycles=false
 
 import collections.abc as cl_abc
+import contextlib
 import dataclasses as dc
 import logging
 import typing as t
@@ -185,7 +186,7 @@ class Client:
             config, agent, extra_env_getter
         )
         self._filesystem_server = builtin.FileSystemMcpServer(
-            agent.workspace_dir
+            agent.workspace_dir, self._shell_server.shell
         )
         server.mount(self._clawp_server, namespace="clawp")
         server.mount(self._shell_server)
@@ -193,18 +194,20 @@ class Client:
         self._client = fastmcp.Client(
             server, timeout=config.tools.client_timeout.total("seconds")
         )
+        self._exit_stack = contextlib.AsyncExitStack()
         self._tools = None
         self._session_transaction = None
 
     async def __aenter__(self):
-        await self._shell_server.__aenter__()
-        await self._client.__aenter__()
+        await self._exit_stack.__aenter__()
+        await self._exit_stack.enter_async_context(self._shell_server)
+        await self._exit_stack.enter_async_context(self._filesystem_server)
+        await self._exit_stack.enter_async_context(self._client)
         self._tools = {t.name: t for t in await self._client.list_tools()}
         return self
 
     async def __aexit__(self, *args):
-        await self._client.__aexit__(*args)
-        await self._shell_server.__aexit__(*args)
+        await self._exit_stack.__aexit__(*args)
         self._tools = None
         return False
 
