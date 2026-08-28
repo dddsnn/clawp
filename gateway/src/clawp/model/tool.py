@@ -42,3 +42,28 @@ class SaveActionConfig(base.BaseModel):
         t.Annotated[str, pyd.StringConstraints(pattern=r"^\.[^.\s]+$")],
         list[str],
     ]
+
+
+ToolCollection = t.Literal["*"] | list[str]
+
+
+class ToolSpecification(base.BaseModel):
+    """
+    A specification of which tools should be given to an agent.
+    """
+
+    include: ToolCollection
+    exclude: ToolCollection
+
+    @pyd.model_validator(mode="after")
+    def check_for_contradictions(self) -> t.Self:
+        if self.include == "*" and self.exclude == "*":
+            raise ValueError("can't both include and exclude all tools")
+        if "*" in (self.include, self.exclude):
+            return self
+        intersection = set(self.include) & set(self.exclude)
+        if intersection:
+            raise ValueError(
+                f"can't both include and exclude tools {intersection}"
+            )
+        return self

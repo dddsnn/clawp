@@ -21,7 +21,7 @@ import pydantic as pyd
 import whenever as we
 import yarl
 
-from . import base
+from . import base, tool
 from . import channel as chan
 from . import message as msg
 
@@ -91,6 +91,7 @@ class AgentState(base.BaseModel):
     active_chat: chan.ChatDescriptor
     web_ui_channel: WebUiChannelState
     agent_channel: AgentChannelState
+    tools: tool.ToolSpecification
 
 
 class GatewayState(base.BaseModel):

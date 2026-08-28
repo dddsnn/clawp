@@ -313,6 +313,11 @@ export type UserInputMessage = z.infer<typeof UserInputMessageSchema>;
 
 // --- Agent Types ---
 
+export const ToolSpecification = z.object({
+  include: z.union([z.literal('*'), z.array(z.string())]),
+  exclude: z.union([z.literal('*'), z.array(z.string())]),
+});
+
 export const AgentInformationSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
@@ -328,6 +333,7 @@ export const AgentPersonalityFileSchema = z.object({
 export const AgentPersonalitySchema = z.object({
   name: z.string(),
   personality_files: z.array(AgentPersonalityFileSchema),
+  tools: ToolSpecification,
 });
 
 export const AgentPersonalityWithFileContentsSchema = AgentPersonalitySchema.extend({

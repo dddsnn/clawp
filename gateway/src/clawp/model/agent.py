@@ -21,7 +21,7 @@ import uuid
 
 import pydantic as pyd
 
-from . import base
+from . import base, tool
 
 
 class AgentPersonalityFile(base.BaseModel):
@@ -32,6 +32,7 @@ class AgentPersonalityFile(base.BaseModel):
 class AgentPersonality(base.BaseModel):
     name: str
     personality_files: list[AgentPersonalityFile]
+    tools: tool.ToolSpecification
 
 
 class AgentPersonalityWithFileContents(AgentPersonality):
@@ -53,7 +54,9 @@ class AgentPersonalityWithFileContents(AgentPersonality):
 
     def get_personality(self) -> AgentPersonality:
         return AgentPersonality(
-            name=self.name, personality_files=self.personality_files
+            name=self.name,
+            personality_files=self.personality_files,
+            tools=self.tools,
         )
 
 

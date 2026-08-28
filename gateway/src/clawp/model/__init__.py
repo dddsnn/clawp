@@ -124,4 +124,4 @@ from .state import (
     GithubEventReadMarker,
     WebUiChannelState,
 )
-from .tool import SaveActionConfig, ShellResult
+from .tool import SaveActionConfig, ShellResult, ToolSpecification

@@ -1595,6 +1595,7 @@ class AgentRepository:
             active_chat=mdl.WebUiChatDescriptor(chat_id=""),
             web_ui_channel=mdl.WebUiChannelState(),
             agent_channel=mdl.AgentChannelState(),
+            tools=personality_with_contents.tools,
         )
         self._agent_state_file(agent_base_dir).write_text(
             agent_state.model_dump_json()
