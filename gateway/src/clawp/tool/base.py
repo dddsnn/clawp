@@ -178,15 +178,18 @@ class Client:
         self._logger = logging.getLogger(type(self).__name__)
         self._complex_metadata_registry = ComplexToolResultMetadataRegistry()
         server = fastmcp.FastMCP(name="Clawp MCP server")
-        self._shell_server = shell.SandboxShellMcpServer(
-            config, agent, extra_env_getter
-        )
         self._clawp_server = builtin.ClawpMcpServer(
             agent, self._complex_metadata_registry
         )
-        server.mount(builtin.make_filesystem_proxy(agent.workspace_dir))
+        self._shell_server = shell.SandboxShellMcpServer(
+            config, agent, extra_env_getter
+        )
+        self._filesystem_server = builtin.FileSystemMcpServer(
+            agent.workspace_dir
+        )
         server.mount(self._clawp_server, namespace="clawp")
         server.mount(self._shell_server)
+        server.mount(self._filesystem_server)
         self._client = fastmcp.Client(
             server, timeout=config.tools.client_timeout.total("seconds")
         )
