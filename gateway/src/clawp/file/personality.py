@@ -32,10 +32,14 @@ async def list_personalities() -> list[str]:
     """List the names of all available agent personalities."""
 
     def list_personalities(personalities_dir: pathlib.Path):
-        return sorted(
-            file.name.removesuffix(".yaml")
-            for file in personalities_dir.glob("*.yaml")
-        )
+        personalities = []
+        for dir in personalities_dir.iterdir():
+            if not dir.is_dir():
+                raise RuntimeError(
+                    f"found non-directory {dir} in personalities directory"
+                )
+            personalities.append(dir.name)
+        return sorted(personalities)
 
     return await asyncio.to_thread(
         base.do_with_resource_dir, "personalities", list_personalities
@@ -47,11 +51,13 @@ async def read_personality(name: str) -> mdl.AgentPersonality:
 
     def read_yaml(personalities_dir: pathlib.Path):
         yaml = ruamel.yaml.YAML()
-        file_path = personalities_dir / f"{name}.yaml"
+        file_path = personalities_dir / name / "manifest.yaml"
         try:
             return yaml.load(file_path)
         except FileNotFoundError:
-            raise PersonalityNotFoundError(f"personality {name} doesn't exist")
+            raise PersonalityNotFoundError(
+                f"personality {name} doesn't exist or is missing its manifest"
+            )
 
     personality_dict = await asyncio.to_thread(
         base.do_with_resource_dir, "personalities", read_yaml
