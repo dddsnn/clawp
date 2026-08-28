@@ -1,0 +1,10 @@
+# Configuration for file save actions (after write_file/edit_file). save_actions
+# maps a file extension (e.g. .py) to a list of commands that should be run for
+# that file type. Each command is run from the file's directory using your own
+# shell with the file name as only further argument. If it exits with something
+# other than 0, stderr and stdout are appended to the tool response.
+save_actions:
+  .py:
+    - "uv run --quiet ruff format --exit-non-zero-on-format"
+    - "uv run --quiet ruff check"
+    - "uv run --quiet basedpyright"

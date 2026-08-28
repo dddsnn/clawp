@@ -18,6 +18,7 @@
 # pyright: reportImportCycles=false,reportUnusedImport=false
 # ruff: noqa: F401
 
+from .base import read_file
 from .personality import (
     PersonalityNotFoundError,
     list_personalities,

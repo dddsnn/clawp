@@ -846,6 +846,12 @@ class Agent:
                 msg.SystemMessage,
                 await file.render_file_content(self.workspace_dir, pf.path),
             )
+        # Show the agent config files for internal tools.
+        for file_path in [tool.FileSystemMcpServer.CONFIG_FILE_PATH]:
+            await tx.append_internal_message(
+                msg.SystemMessage,
+                await file.render_file_content(self.workspace_dir, file_path),
+            )
         # Tell the agent that this is a new session.
         await self._append_session_start_messages(tx, compaction_summary)
 
@@ -1610,4 +1616,7 @@ class AgentRepository:
                 # File shouldn't exist.
                 continue
             (workspace_dir / pf.path).write_text(file_content)
+        for file_path in [tool.FileSystemMcpServer.CONFIG_FILE_PATH]:
+            file_content = await file.read_file("config_files", file_path)
+            (workspace_dir / file_path).write_text(file_content)
         return agent_base_dir

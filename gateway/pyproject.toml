@@ -50,7 +50,12 @@ source = "https://github.com/dddsnn/clawp"
 clawp = "clawp:run"
 
 [tool.setuptools.package-data]
-clawp = ["file/message_templates/**/*", "file/personalities/**/*"]
+clawp = [
+    "file/config_files/**/*",
+    "file/config_files/**/.*",
+    "file/message_templates/**/*",
+    "file/personalities/**/*",
+]
 
 [tool.uv]
 compile-bytecode = true
