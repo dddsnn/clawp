@@ -177,16 +177,17 @@ class Client:
             called on every execution of the shell tool.
         """
         self._logger = logging.getLogger(type(self).__name__)
+        self._agent = agent
         self._complex_metadata_registry = ComplexToolResultMetadataRegistry()
         server = fastmcp.FastMCP(name="Clawp MCP server")
         self._clawp_server = builtin.ClawpMcpServer(
-            agent, self._complex_metadata_registry
+            self._agent, self._complex_metadata_registry
         )
         self._shell_server = shell.SandboxShellMcpServer(
-            config, agent, extra_env_getter
+            config, self._agent, extra_env_getter
         )
         self._filesystem_server = builtin.FileSystemMcpServer(
-            agent.workspace_dir, self._shell_server.shell
+            self._agent.workspace_dir, self._shell_server.shell
         )
         server.mount(self._clawp_server, namespace="clawp")
         server.mount(self._shell_server)
@@ -203,13 +204,43 @@ class Client:
         await self._exit_stack.enter_async_context(self._shell_server)
         await self._exit_stack.enter_async_context(self._filesystem_server)
         await self._exit_stack.enter_async_context(self._client)
-        self._tools = {t.name: t for t in await self._client.list_tools()}
+        available_tools = await self._client.list_tools()
+        self._warn_if_any_unknown_tools(available_tools)
+        self._tools = {
+            t.name: t for t in available_tools if self._tool_is_allowed(t)
+        }
         return self
 
     async def __aexit__(self, *args):
         await self._exit_stack.__aexit__(*args)
         self._tools = None
         return False
+
+    def _warn_if_any_unknown_tools(
+        self, available_tools: list[mcp.Tool]
+    ) -> None:
+        available_tool_names = {t.name for t in available_tools}
+        configured_tools = set()
+        if self._agent.state.tools.exclude != "*":
+            configured_tools |= set(self._agent.state.tools.exclude)
+        if self._agent.state.tools.include != "*":
+            configured_tools |= set(self._agent.state.tools.include)
+        unknown_tools = configured_tools - available_tool_names
+        if unknown_tools:
+            self._logger.warning(
+                f"Found unknown tools configured: {unknown_tools}."
+            )
+
+    def _tool_is_allowed(self, tool: mcp.Tool) -> bool:
+        if (
+            self._agent.state.tools.exclude == "*"
+            or tool.name in self._agent.state.tools.exclude
+        ):
+            return False
+        return (
+            self._agent.state.tools.include == "*"
+            or tool.name in self._agent.state.tools.include
+        )
 
     def set_session_transaction(
         self, tx: agt.SessionTransaction | None
