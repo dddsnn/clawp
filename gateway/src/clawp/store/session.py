@@ -30,12 +30,12 @@ from .. import model as mdl
 from . import base
 
 
-class MessageStore:
+class SessionsStore:
     """
-    Persistent store for an agent's messages using JSONL files.
+    Persistent store for all of an agent's sessions using JSONL files.
 
     The store uses a directory tree that mirrors the domain hierarchy:
-    <base_dir>/sessions/<session_seq>.jsonl
+    <base_dir>/<session_seq>/messages.jsonl
 
     Each JSONL file starts with a header line containing the format version
     and session metadata, followed by one JSON object per message.
@@ -45,7 +45,7 @@ class MessageStore:
     asyncio.to_thread() to avoid blocking the event loop. The store assumes it
     owns its base_dir and has exclusive access to the files.
 
-    MessageStore is an asynchronous context manager that takes control of the
+    SessionsStore is an asynchronous context manager that takes control of the
     base_dir. When the context manager enters, it locks the directory (so only
     one instance may be active at any one time for this base directory) and
     checks base_dir for consistency. If it contains files with an older format,
@@ -89,7 +89,9 @@ class MessageStore:
     async def _close_ios(self):
         close_tasks = set()
         for session_seq, io in self._open_ios.items():
-            self._logger.debug(f"Closing {self._session_path(session_seq)}.")
+            self._logger.debug(
+                f"Closing {self._message_file_path(session_seq)}."
+            )
             close_tasks.add(asyncio.create_task(io.close()))
         if close_tasks:
             _, pending = await asyncio.wait(close_tasks, timeout=10)
@@ -99,11 +101,11 @@ class MessageStore:
                 )
         self._open_ios.clear()
 
-    def _sessions_dir(self) -> pathlib.Path:
-        return self._base_dir / "sessions"
+    def _session_dir(self, session_seq: int) -> pathlib.Path:
+        return self._base_dir / str(session_seq)
 
-    def _session_path(self, session_seq: int) -> pathlib.Path:
-        return self._sessions_dir() / f"{session_seq}.jsonl"
+    def _message_file_path(self, session_seq: int) -> pathlib.Path:
+        return self._session_dir(session_seq) / "messages.jsonl"
 
     async def append_message(
         self, session_seq: int, message: msg.Message[msg.MessageMetadata]
@@ -114,7 +116,7 @@ class MessageStore:
         The message will be serialized as JSON using its model property. If the
         session file doesn't exist yet, it is created first. If a session file
         needs to be created but now all previous sessions exist a
-        MessageStoreFormatError is raised.
+        StoreFormatError is raised.
         """
         async with self._open_ios_lock:
             io = self._get_io(session_seq)
@@ -129,8 +131,8 @@ class MessageStore:
             io = self._open_ios[session_seq]
         except KeyError:
             io = base.JsonlIO(
-                self._session_path(session_seq),
-                pyd.TypeAdapter[mdl.Message](mdl.Message),
+                self._message_file_path(session_seq),
+                pyd.TypeAdapter(mdl.Message),
             )
             self._open_ios[session_seq] = io
         return io
@@ -138,21 +140,23 @@ class MessageStore:
     async def _ensure_session_file(
         self, session_seq: int, io: base.JsonlIO[mdl.Message]
     ):
-        path = self._session_path(session_seq)
+        dir = self._session_dir(session_seq)
         for seq in range(session_seq):
-            if not path.with_name(f"{seq}.jsonl").exists():
+            if not (dir.parent / str(seq)).is_dir():
                 raise base.StoreFormatError(
-                    f"can't create session file {path}, because previous "
-                    f"session {seq} doesn't exist"
+                    f"can't create session file in directory {dir}, because "
+                    f"previous session {seq} doesn't exist"
                 )
         header = {
             "version": self.VERSION,
             "session_seq": session_seq,
         }
-        if not path.parent.exists():
-            self._logger.info(f"Creating sessions directory {path.parent}.")
+        if not dir.exists():
+            self._logger.info(f"Creating sessions directory {dir}.")
         await io.create(header)
-        self._logger.info(f"Created new session file {path}.")
+        self._logger.info(
+            f"Created new session file {self._message_file_path(session_seq)}."
+        )
 
     async def read_session_messages(
         self, session_seq: int
@@ -164,8 +168,8 @@ class MessageStore:
         (which has its own format) and parses each line as a message. If the
         session file doesn't exist, returns an empty list.
 
-        Raises a MessageStoreFormatError if any line doesn't parse to a message
-        (that includes empty lines).
+        Raises a StoreFormatError if any line doesn't parse to a message (that
+        includes empty lines).
         """
         io = self._get_io(session_seq)
         try:
@@ -180,24 +184,22 @@ class MessageStore:
         Returns the sequence number of the active session. This is 0 if there
         are no sessions with messages yet.
         """
-        sessions_dir = self._sessions_dir()
-        if not sessions_dir.exists():
+        if not self._base_dir.exists():
             return 0
         seqs = set()
-        for entry in sessions_dir.iterdir():
-            if not entry.is_file():
+        for entry in self._base_dir.iterdir():
+            if not entry.is_dir():
                 self._logger.warning(
-                    "Unexpected directory in sessions directory "
-                    f"{sessions_dir}."
+                    "Unexpected non_directory in sessions directory "
+                    f"{self._base_dir}."
                 )
                 continue
             try:
-                assert entry.name.endswith(".jsonl")
-                seqs.add(int(entry.name.removesuffix(".jsonl")))
+                seqs.add(int(entry.name))
             except Exception:
                 self._logger.warning(
-                    f"Unexpected file {entry} in sessions directory "
-                    f"{sessions_dir}.",
+                    f"Unexpected directory {entry} in sessions directory "
+                    f"{self._base_dir}.",
                     exc_info=True,
                 )
                 continue
@@ -208,11 +210,9 @@ class MessageStore:
             )
         return active_session_seq
 
-    def get_session_message_store(
-        self, session_seq: int
-    ) -> SessionMessageStore:
-        """Get a message store specific to a session."""
-        return SessionMessageStore(session_seq, self)
+    def for_session(self, session_seq: int) -> SessionStore:
+        """Get a store specific to a session."""
+        return SessionStore(session_seq, self)
 
     async def _ensure_valid_store_format(self) -> None:
         """
@@ -226,7 +226,7 @@ class MessageStore:
           file name
         - all session files have the same version number
         - the session files' version number is not greater than
-          MessageStore.VERSION
+          SessionsStore.VERSION
 
         Additionally, in each session directory the following must hold:
 
@@ -237,17 +237,17 @@ class MessageStore:
         previous version, they are upgraded to the current one using the
         functions in the _upgraders dictionary.
 
-        If any inconsistencies are found, a MessageStoreFormatError is raised.
+        If any inconsistencies are found, a StoreFormatError is raised.
         """
-        if not self._sessions_dir().exists():
+        if not self._base_dir.exists():
             self._logger.info(
-                f"Sessions directory {self._sessions_dir()} doesn't exist "
+                f"Sessions directory {self._base_dir} doesn't exist "
                 "yet, creating it."
             )
-            self._sessions_dir().mkdir(parents=True, exist_ok=True)
+            self._base_dir.mkdir(parents=True, exist_ok=True)
         session_file_versions = set()
         prev_seq = None
-        for seq, _ in self._list_all_session_files():
+        for seq in self._list_all_session_seqs():
             if prev_seq is None and seq != 0:
                 raise base.StoreFormatError(
                     "session sequence numbers don't start at 0"
@@ -261,7 +261,7 @@ class MessageStore:
             session_file_versions.add(session_file_version)
         if len(session_file_versions) > 1:
             raise base.StoreFormatError(
-                "inconsistent message store with "
+                "inconsistent session store with "
                 f"{len(session_file_versions)} different versions"
             )
         version_on_disk = next(iter(session_file_versions), self.VERSION)
@@ -280,9 +280,10 @@ class MessageStore:
             # Re-validate with upgrader if already current just to ensure all
             # jsonl lines parse.
             if version_on_disk == self.VERSION:
-                for seq, file in list(self._list_all_session_files()):
+                for seq in list(self._list_all_session_seqs()):
                     io = base.JsonlIO(
-                        file, pyd.TypeAdapter[mdl.Message](mdl.Message)
+                        self._message_file_path(seq),
+                        pyd.TypeAdapter[mdl.Message](mdl.Message),
                     )
                     await io.upgrade_and_validate(self._upgraders)
             self._logger.debug(
@@ -290,19 +291,21 @@ class MessageStore:
                 f"{self.VERSION}."
             )
 
-    def _list_all_session_files(
-        self,
-    ) -> cl_abc.Generator[tuple[int, pathlib.Path]]:
+    def _list_all_session_seqs(self) -> cl_abc.Generator[int]:
         for seq in range(self.get_active_session_seq() + 1):
-            session_file = self._session_path(seq)
-            if session_file.is_file():
-                yield seq, session_file
+            session_dir = self._session_dir(seq)
+            if session_dir.is_dir():
+                yield seq
             elif seq != 0:
-                self._logger.warning(f"Missing session file {session_file}.")
+                self._logger.warning(
+                    f"Missing session diretory {session_dir}."
+                )
 
     async def _ensure_valid_session_format(self, seq: int):
-        path = self._session_path(seq)
-        io = base.JsonlIO(path, pyd.TypeAdapter[mdl.Message](mdl.Message))
+        message_file = self._message_file_path(seq)
+        io = base.JsonlIO(
+            message_file, pyd.TypeAdapter[mdl.Message](mdl.Message)
+        )
         try:
             header_dict = await io.header
             assert isinstance(header_dict["session_seq"], int)
@@ -310,8 +313,8 @@ class MessageStore:
             raise base.StoreFormatError("invalid header format") from e
         if seq != header_dict["session_seq"]:
             raise base.StoreFormatError(
-                f"inconsistent session file {path}: directory suggests "
-                f"session {seq}, but file header says "
+                f"inconsistent session message file {message_file}: directory "
+                f"suggests session {seq}, but file header says "
                 f"{header_dict['session_seq']}"
             )
         return header_dict["version"]
@@ -338,9 +341,12 @@ class MessageStore:
         await asyncio.to_thread(
             shutil.copytree, self._base_dir, backup_directory
         )
-        for _, file in list(self._list_all_session_files()):
-            assert file.is_file()
-            io = base.JsonlIO(file, pyd.TypeAdapter[mdl.Message](mdl.Message))
+        for seq in list(self._list_all_session_seqs()):
+            message_file = self._message_file_path(seq)
+            assert message_file.is_file()
+            io = base.JsonlIO(
+                message_file, pyd.TypeAdapter[mdl.Message](mdl.Message)
+            )
             await io.upgrade_and_validate(self._upgraders)
 
     _upgraders: dict[int, t.Callable[[pathlib.Path], None]] = {}  # noqa: RUF012
@@ -356,28 +362,30 @@ class MessageStore:
         assert version_number in _upgraders
 
 
-class SessionMessageStore:
+class SessionStore:
     """
     Persistent store for session messages.
 
-    This is a wrapper around MessageStore which makes the underlying methods
-    available for one specific session.
+    This is just a wrapper around SessionsStore which makes the underlying
+    methods available for one specific session.
     """
 
-    def __init__(self, session_seq: int, message_store: MessageStore) -> None:
+    def __init__(
+        self, session_seq: int, sessions_store: SessionsStore
+    ) -> None:
         self._session_seq = session_seq
-        self._message_store = message_store
+        self._sessions_store = sessions_store
 
     async def append_message(
         self, message: msg.Message[msg.MessageMetadata]
     ) -> None:
-        return await self._message_store.append_message(
+        return await self._sessions_store.append_message(
             self._session_seq, message
         )
 
     async def read_session_messages(
         self,
     ) -> list[msg.Message[msg.MessageMetadata]]:
-        return await self._message_store.read_session_messages(
+        return await self._sessions_store.read_session_messages(
             self._session_seq
         )

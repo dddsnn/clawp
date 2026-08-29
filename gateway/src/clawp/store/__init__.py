@@ -20,4 +20,4 @@
 
 from .base import JsonlIO, StoreConcurrentError, StoreError, StoreFormatError
 from .memory import JsonlMemoryStore, MemoryStore
-from .session import MessageStore, SessionMessageStore
+from .session import SessionsStore, SessionStore

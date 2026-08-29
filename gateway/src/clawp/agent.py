@@ -245,7 +245,7 @@ class Session:
         session_seq: int,
         *,
         model_config: mdl.ModelConfig,
-        message_store: store.SessionMessageStore,
+        sessions_store: store.SessionStore,
         message_sender: chan.MessageSender,
         provider: prov.Provider,
         mcp_client: tool.Client,
@@ -254,7 +254,7 @@ class Session:
         self._logger = logging.getLogger(type(self).__name__)
         self._session_seq = session_seq
         self._model_config = model_config
-        self._message_store = message_store
+        self._sessions_store = sessions_store
         self._message_sender = message_sender
         self._provider = provider
         self._mcp_client = mcp_client
@@ -289,7 +289,7 @@ class Session:
                 "Ignoring call to load(), since we're already loaded."
             )
             return
-        self._messages = await self._message_store.read_session_messages()
+        self._messages = await self._sessions_store.read_session_messages()
         self._is_loaded = True
 
     async def transaction(self) -> SessionTransaction:
@@ -395,7 +395,7 @@ class Session:
         await self._publisher.append(message)
         await message.wait_finalized()
         try:
-            await self._message_store.append_message(message)
+            await self._sessions_store.append_message(message)
         except Exception:
             self._logger.exception(
                 "Error storing message in persistent store. The message was "
@@ -663,7 +663,7 @@ class Agent:
     changed for a compaction or change in system message, a new session is
     started.
 
-    An agent is an asynchronous context manager that manages its MessageStore
+    An agent is an asynchronous context manager that manages its SessionsStore
     to persist messages in its session, manages its MCP client, and ensures
     sessions are properly opened and closed.
     """
@@ -677,7 +677,7 @@ class Agent:
         *,
         config: mdl.GatewayConfig,
         workspace_dir: pathlib.Path,
-        message_store: store.MessageStore,
+        sessions_store: store.SessionsStore,
         memory_store: store.MemoryStore,
         channels: list[chan.Channel],
         provider: prov.Provider,
@@ -688,7 +688,7 @@ class Agent:
         self._agent_information = agent_information
         self._agent_state = agent_state
         self._workspace_dir = workspace_dir
-        self._message_store = message_store
+        self._sessions_store = sessions_store
         self.memory_store = memory_store
         self._mcp_client = tool.Client(
             config=config,
@@ -760,7 +760,7 @@ class Agent:
         return f"<Agent {self.information.name} ({self.information.id})>"
 
     async def __aenter__(self) -> t.Self:
-        await self._message_store.__aenter__()
+        await self._sessions_store.__aenter__()
         await self._mcp_client.__aenter__()
         await self._channel_router.__aenter__()
         await self._load_sessions()
@@ -791,7 +791,7 @@ class Agent:
             self._logger.exception("Error closing channel router.")
         try:
             async with asyncio.timeout(10):
-                await self._message_store.__aexit__(*args)
+                await self._sessions_store.__aexit__(*args)
         except Exception:
             self._logger.exception("Error shutting down message store.")
         try:
@@ -804,7 +804,7 @@ class Agent:
     async def _load_sessions(self):
         async with self._active_session_lock:
             assert len(self._sessions) == 0
-            active_session_seq = self._message_store.get_active_session_seq()
+            active_session_seq = self._sessions_store.get_active_session_seq()
             for i in range(active_session_seq + 1):
                 self._sessions.append(self._make_session(i))
                 await self._sessions[-1].load()
@@ -818,12 +818,10 @@ class Agent:
                     await self._append_session_init_messages_locked(tx)
 
     def _make_session(self, session_seq: int) -> Session:
-        message_store = self._message_store.get_session_message_store(
-            session_seq
-        )
+        sessions_store = self._sessions_store.for_session(session_seq)
         return self._session_factory(
             session_seq,
-            message_store=message_store,
+            sessions_store=sessions_store,
             active_chat=self.state.active_chat,
         )
 
@@ -1332,7 +1330,7 @@ class Agent:
             await self._sessions[-1].__aexit__(None, None, None)
             self._sessions.append(
                 self._make_session(
-                    self._message_store.get_active_session_seq() + 1
+                    self._sessions_store.get_active_session_seq() + 1
                 )
             )
             self._logger.debug("Starting new session.")
@@ -1444,10 +1442,10 @@ class AgentRepository:
         workspace_dir = self._workspace_dir(dir)
         if not self._workspace_dir(dir).is_dir():
             raise ValueError(f"missing workspace directory {workspace_dir}")
-        message_store_dir = self._message_store_dir(dir)
-        if not message_store_dir.is_dir():
-            raise ValueError(f"missing message store {message_store_dir}")
-        message_store = store.MessageStore(message_store_dir)
+        sessions_store_dir = self._sessions_store_dir(dir)
+        if not sessions_store_dir.is_dir():
+            raise ValueError(f"missing message store {sessions_store_dir}")
+        sessions_store = store.SessionsStore(sessions_store_dir)
         memory_store_dir = self._memory_store_dir(dir)
         if not memory_store_dir.is_dir():
             raise ValueError(f"missing memory store {memory_store_dir}")
@@ -1481,7 +1479,7 @@ class AgentRepository:
             agent_state,
             config=self._config,
             workspace_dir=workspace_dir,
-            message_store=message_store,
+            sessions_store=sessions_store,
             memory_store=memory_store,
             channels=channels,
             provider=self._provider,
@@ -1526,8 +1524,10 @@ class AgentRepository:
     def _workspace_dir(self, agent_base_dir: pathlib.Path) -> pathlib.Path:
         return agent_base_dir / "workspace"
 
-    def _message_store_dir(self, agent_base_dir: pathlib.Path) -> pathlib.Path:
-        return agent_base_dir / "message_store"
+    def _sessions_store_dir(
+        self, agent_base_dir: pathlib.Path
+    ) -> pathlib.Path:
+        return agent_base_dir / "sessions"
 
     def _memory_store_dir(self, agent_base_dir: pathlib.Path) -> pathlib.Path:
         return agent_base_dir / "memory_store"
@@ -1601,7 +1601,7 @@ class AgentRepository:
             agent_state.model_dump_json()
         )
         self._logger.info(f"Created new agent state {agent_state}.")
-        self._message_store_dir(agent_base_dir).mkdir(
+        self._sessions_store_dir(agent_base_dir).mkdir(
             parents=True, exist_ok=True
         )
         self._memory_store_dir(agent_base_dir).mkdir(
