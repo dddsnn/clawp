@@ -289,7 +289,7 @@ class Session:
                 "Ignoring call to load(), since we're already loaded."
             )
             return
-        self._messages = await self._sessions_store.read_session_messages()
+        _, self._messages = await self._sessions_store.load_or_create()
         self._is_loaded = True
 
     async def transaction(self) -> SessionTransaction:

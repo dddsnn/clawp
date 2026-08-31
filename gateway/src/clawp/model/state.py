@@ -101,3 +101,7 @@ class GatewayState(base.BaseModel):
         default_factory=dict
     )
     """State of Github accounts."""
+
+
+class SessionState(base.BaseModel):
+    """Persistent state pertaining to a session."""

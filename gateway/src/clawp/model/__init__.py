@@ -122,6 +122,7 @@ from .state import (
     GatewayState,
     GithubChannelState,
     GithubEventReadMarker,
+    SessionState,
     WebUiChannelState,
 )
 from .tool import SaveActionConfig, ShellResult, ToolSpecification
