@@ -30,3 +30,7 @@ Iso8601Millis = t.Annotated[
 
 class BaseModel(pyd.BaseModel):
     pass
+
+
+class FrozenBaseModel(pyd.BaseModel, frozen=True):
+    pass

@@ -20,9 +20,9 @@ import collections.abc as cl_abc
 import logging
 
 from .. import agent as agt
+from .. import file, util
 from .. import message as msg
 from .. import model as mdl
-from .. import util
 
 
 class ChannelError(Exception):
@@ -54,7 +54,7 @@ class MessageSender(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
 
-class Channel(MessageSender, metaclass=abc.ABCMeta):
+class Channel(MessageSender, file.InfoProvider, metaclass=abc.ABCMeta):
     """
     A communication channel.
 

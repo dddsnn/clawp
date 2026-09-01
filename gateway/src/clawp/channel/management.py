@@ -18,13 +18,14 @@
 import asyncio
 import collections.abc as cl_abc
 import dataclasses as dc
+import itertools as it
 import logging
 import typing as t
 
 from .. import agent as agt
+from .. import file, util
 from .. import message as msg
 from .. import model as mdl
-from .. import util
 from . import base, builtin, github, matrix
 
 
@@ -44,7 +45,7 @@ class SendError(Exception):
     """Raised when a message could not be sent."""
 
 
-class ChannelRouter(base.MessageSender):
+class ChannelRouter(base.MessageSender, file.InfoProvider):
     """
     A router for all of an agent's channels.
 
@@ -260,6 +261,12 @@ class ChannelRouter(base.MessageSender):
         async for message in self._publisher.subscribe():
             assert isinstance(message, mdl.IncomingMessage)
             yield message.chat
+
+    @property
+    def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
+        return frozenset(
+            it.chain(*[c.info_message_specs for c in self.channels.values()])
+        )
 
 
 @dc.dataclass

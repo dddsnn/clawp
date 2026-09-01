@@ -1443,3 +1443,7 @@ class GithubChannel(base.Channel):
                 event.event.body,
             )
         ]
+
+    @property
+    def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
+        return frozenset([mdl.InfoMessageSpecTutorial(topic="channel_github")])

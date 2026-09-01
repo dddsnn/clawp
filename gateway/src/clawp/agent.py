@@ -247,6 +247,7 @@ class Session:
         model_config: mdl.ModelConfig,
         sessions_store: store.SessionStore,
         message_sender: chan.MessageSender,
+        info_manager: file.InfoManager,
         provider: prov.Provider,
         mcp_client: tool.Client,
         active_chat: mdl.ChatDescriptor,
@@ -256,10 +257,12 @@ class Session:
         self._model_config = model_config
         self._sessions_store = sessions_store
         self._message_sender = message_sender
+        self._info_manager = info_manager
         self._provider = provider
         self._mcp_client = mcp_client
         self._active_chat = active_chat
         self._is_loaded = False
+        self._state: mdl.SessionState = None  # pyright: ignore[reportAttributeAccessIssue]
         self._messages = []
         self._publisher = util.Publisher()
         self._active_transaction = None
@@ -289,7 +292,10 @@ class Session:
                 "Ignoring call to load(), since we're already loaded."
             )
             return
-        _, self._messages = await self._sessions_store.load_or_create()
+        (
+            self._state,
+            self._messages,
+        ) = await self._sessions_store.load_or_create()
         self._is_loaded = True
 
     async def transaction(self) -> SessionTransaction:
@@ -374,7 +380,11 @@ class Session:
             msg.SystemMessage, content=message_content
         )
 
-    async def _append_message(self, message: msg.Message[msg.MessageMetadata]):
+    async def _append_message(
+        self,
+        message: msg.Message[msg.MessageMetadata],
+        add_info_messages: bool = True,
+    ):
         """
         Append a message.
 
@@ -388,6 +398,8 @@ class Session:
         exists in transient storage and has started visibly streaming, but
         hasn't been persisted.
         """
+        if add_info_messages:
+            await self._append_missing_info_messages()
         self._messages.append(message)
         # First, publish the message, so clients streaming it can get it before
         # it has fully arrived. Only then append it to the message store, which
@@ -402,6 +414,17 @@ class Session:
                 "added and is being processed in memory, but will likely not "
                 "be present when reloading from the persistent store."
             )
+
+    async def _append_missing_info_messages(self):
+        for info_message in await self._info_manager.missing_messages(
+            self._state
+        ):
+            await self._append_internal_message(
+                info_message.message_type,
+                info_message.content,
+                add_info_messages=False,
+            )
+            self._state.info_messages_shown.add(info_message.spec)
 
     async def _request_responses(self) -> None:
         """
@@ -559,6 +582,7 @@ class Session:
         self,
         message_class: type[msg.InternalMessage],
         content: str,
+        add_info_messages: bool = True,
         **kwargs,
     ) -> None:
         """
@@ -580,7 +604,9 @@ class Session:
             content=content,
             **kwargs,
         )
-        await self._append_message(message)
+        await self._append_message(
+            message, add_info_messages=add_info_messages
+        )
 
     async def _append_agent_message(
         self, message_parts: util.StreamableList[msg.AgentMessagePart]
@@ -649,7 +675,7 @@ class Session:
             )
 
 
-class Agent:
+class Agent(file.InfoProvider):
     """
     An agent.
 
@@ -700,6 +726,7 @@ class Agent:
             Session,
             model_config=config.openrouter.model,
             message_sender=self._channel_router,
+            info_manager=file.InfoManager(self),
             provider=provider,
             mcp_client=self._mcp_client,
         )
@@ -828,8 +855,6 @@ class Agent:
     async def _append_session_init_messages_locked(
         self, tx: SessionTransaction, compaction_summary: str | None = None
     ) -> None:
-        async for message in self._onboarding_messages():
-            await tx.append_internal_message(msg.DeveloperMessage, message)
         # Tell the agent about available channels.
         for channel in self._channel_router.channels.values():
             if channel.type == "system":
@@ -852,29 +877,6 @@ class Agent:
             )
         # Tell the agent that this is a new session.
         await self._append_session_start_messages(tx, compaction_summary)
-
-    async def _onboarding_messages(self) -> cl_abc.AsyncGenerator[str]:
-        """
-        Read all tutorials.
-
-        Go through all tutorial messages in a sensible order for agent
-        onboarding.
-        """
-        yield await file.render_message_template("init_system.txt")
-        tutorial_topics = [
-            "tutorials",
-            "system_sessions",
-            "system_system_messages",
-            "system_channels_chats",
-            "channel_web_ui",
-            "channel_agent",
-            "channel_github",
-            "channel_matrix",
-            "channel_system",
-            "system_workspace_memory",
-        ]
-        for topic in tutorial_topics:
-            yield await file.render_tutorial(topic)
 
     async def _append_channel_status_message_locked(
         self, channel: chan.Channel, tx: SessionTransaction
@@ -1341,6 +1343,28 @@ class Agent:
                 )
             self._logger.debug("Setting new session notification.")
             self._new_session_condition.notify_all()
+
+    @property
+    def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
+        tutorial_topics = [
+            "tutorials",
+            "system_sessions",
+            "system_system_messages",
+            "system_channels_chats",
+            "system_workspace_memory",
+        ]
+        onboarding_specs = frozenset(
+            [mdl.InfoMessageSpecInit()]
+            + [
+                mdl.InfoMessageSpecTutorial(topic=topic)
+                for topic in tutorial_topics
+            ]
+        )
+        sub_specs = [
+            provider.info_message_specs
+            for provider in (self._channel_router, self._mcp_client)
+        ]
+        return onboarding_specs | frozenset(it.chain(*sub_specs))
 
 
 class AgentRepository:

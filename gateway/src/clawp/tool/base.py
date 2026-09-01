@@ -31,6 +31,7 @@ import mcp.types
 import pydantic as pyd
 import whenever as we
 
+from .. import file
 from .. import model as mdl
 from . import builtin, shell
 
@@ -160,7 +161,7 @@ class ClientSessionTransactionContext:
         return await self._client.call_tool(name, *args, **kwargs)
 
 
-class Client:
+class Client(file.InfoProvider):
     """A client providing tools via MCP servers."""
 
     def __init__(
@@ -297,3 +298,7 @@ class Client:
             )
         except KeyError:
             return ToolResult(raw_result=result, content_string=content_string)
+
+    @property
+    def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
+        return frozenset()

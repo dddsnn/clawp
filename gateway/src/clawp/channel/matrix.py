@@ -199,3 +199,7 @@ class MatrixChannel(base.Channel):
         return self.RoomMessageEvent(
             room=room, event=event, incoming_message=incoming_message
         )
+
+    @property
+    def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
+        return frozenset([mdl.InfoMessageSpecTutorial(topic="channel_matrix")])

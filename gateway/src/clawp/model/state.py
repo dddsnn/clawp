@@ -15,6 +15,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+import pathlib
+import typing as t
 import uuid
 
 import pydantic as pyd
@@ -103,5 +105,34 @@ class GatewayState(base.BaseModel):
     """State of Github accounts."""
 
 
+class InfoMessageSpec[Type: t.Literal["init", "tutorial", "file_content"]](
+    base.FrozenBaseModel, frozen=True
+):
+    type: Type
+
+
+class InfoMessageSpecInit(InfoMessageSpec[t.Literal["init"]], frozen=True):
+    type: t.Literal["init"] = "init"
+
+
+class InfoMessageSpecTutorial(
+    InfoMessageSpec[t.Literal["tutorial"]], frozen=True
+):
+    type: t.Literal["tutorial"] = "tutorial"
+    topic: str
+
+
+class InfoMessageSpecFileContent(
+    InfoMessageSpec[t.Literal["file_content"]], frozen=True
+):
+    type: t.Literal["file_content"] = "file_content"
+    file_path: pathlib.Path
+
+
 class SessionState(base.BaseModel):
     """Persistent state pertaining to a session."""
+
+    info_messages_shown: set[InfoMessageSpec[t.Any]] = pyd.Field(
+        default_factory=set
+    )
+    """The set of info messages that has already been shown in the session."""

@@ -122,6 +122,10 @@ from .state import (
     GatewayState,
     GithubChannelState,
     GithubEventReadMarker,
+    InfoMessageSpec,
+    InfoMessageSpecFileContent,
+    InfoMessageSpecInit,
+    InfoMessageSpecTutorial,
     SessionState,
     WebUiChannelState,
 )

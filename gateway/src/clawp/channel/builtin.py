@@ -99,6 +99,10 @@ class SystemChannel(base.Channel):
         self._received_messages = []
         return result
 
+    @property
+    def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
+        return frozenset([mdl.InfoMessageSpecTutorial(topic="channel_system")])
+
 
 class WebUiChannel(base.Channel):
     """
@@ -268,6 +272,10 @@ class WebUiChannel(base.Channel):
         message = mdl.UserMessage(metadata=metadata, content=content)
         await self._append_message(message)
         await self._publisher.append(self._make_incoming_message(message))
+
+    @property
+    def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
+        return frozenset([mdl.InfoMessageSpecTutorial(topic="channel_web_ui")])
 
 
 class AgentChannel(base.Channel):
@@ -523,3 +531,7 @@ class AgentChannel(base.Channel):
         )
         await self._append_message(sender.information.id, user_message)
         await self._publisher.append(self._make_incoming_message(user_message))
+
+    @property
+    def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
+        return frozenset([mdl.InfoMessageSpecTutorial(topic="channel_agent")])
