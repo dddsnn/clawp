@@ -394,6 +394,10 @@ class Session:
         persistent storage. The message is guaranteed to be finalized when this
         returns.
 
+        If add_info_messages is True, ensures that any info messages the agent
+        should know about are part of the session. Any that are missing are
+        appended before handling the current message.
+
         Cancelling this coroutine may lead to a state in which the message
         exists in transient storage and has started visibly streaming, but
         hasn't been persisted.
@@ -416,6 +420,10 @@ class Session:
             )
 
     async def _append_missing_info_messages(self):
+        """
+        TODO+++++++++++++++
+        """
+        # TODO log if new info messages were injected++++++++++++
         for info_message in await self._info_manager.missing_messages(
             self._state
         ):
@@ -852,6 +860,7 @@ class Agent(file.InfoProvider):
             active_chat=self.state.active_chat,
         )
 
+    # REFACTOR+++++++++++++++++++++
     async def _append_session_init_messages_locked(
         self, tx: SessionTransaction, compaction_summary: str | None = None
     ) -> None:
@@ -860,16 +869,22 @@ class Agent(file.InfoProvider):
             if channel.type == "system":
                 continue
             await self._append_channel_status_message_locked(channel, tx)
+        # TODO also as info message++++++++
         # Tell the agent about their workspace and personality files.
         await tx.append_internal_message(
             msg.SystemMessage, await file.render_workspace_info(self)
         )
+        # TODO also as info message++++++++
         for pf in self.information.personality.personality_files:
             await tx.append_internal_message(
                 msg.SystemMessage,
                 await file.render_file_content(self.workspace_dir, pf.path),
             )
+        # TODO also as info message++++++++
         # Show the agent config files for internal tools.
+        # REFACTOR++++++++++++++++++++++++++++++++
+        # TODO instead of hardcoding the files, have tools specify which files
+        # they use, then show only those+++++++++
         for file_path in [tool.FileSystemMcpServer.CONFIG_FILE_PATH]:
             await tx.append_internal_message(
                 msg.SystemMessage,
@@ -1585,6 +1600,7 @@ class AgentRepository:
             raise
         return self._agents[agent.information.id]
 
+    # REFACTOR sync io in async+++++++++++++
     async def _initialize_agent_files(
         self, agent_id, agent_name, personality_name
     ):
@@ -1641,6 +1657,8 @@ class AgentRepository:
                 # File shouldn't exist.
                 continue
             (workspace_dir / pf.path).write_text(file_content)
+        # TODO instead of hardcoding the files, have tools specify which files
+        # should be copied, then copy only those of available tools+++++++++
         for file_path in [tool.FileSystemMcpServer.CONFIG_FILE_PATH]:
             file_content = await file.read_file("config_files", file_path)
             (workspace_dir / file_path).write_text(file_content)

@@ -27,6 +27,9 @@ if t.TYPE_CHECKING:
     from .. import channel as chan
     from .. import message as msg
 
+# TODO go through templates and config files and distribute what gets required from where. split up tutorials if necessary+++++++
+# REFACTOR and shorten some tutorial names++++++++++
+
 
 class Template:
     def __init__(self, template_string: str) -> None:

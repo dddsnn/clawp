@@ -17,6 +17,7 @@
 
 import abc
 import dataclasses as dc
+import logging
 import typing as t
 
 from .. import message as msg
@@ -31,6 +32,9 @@ class InfoProvider(abc.ABC):
     @property
     @abc.abstractmethod
     def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
+        """
+        TODO++++++++++++++
+        """
         raise NotImplementedError
 
 
@@ -41,34 +45,77 @@ class InfoMessage:
     content: str
 
 
+# REFACTOR name?+++++++++++++
 class InfoManager:
+    """
+    TODO++++++++++++++
+    """
+
+    _TUTORIAL_ORDER = (
+        "tutorials",
+        "system_sessions",
+        "system_system_messages",
+        "system_channels_chats",
+        "channel_web_ui",
+        "channel_agent",
+        "channel_github",
+        "channel_matrix",
+        "channel_system",
+        "system_workspace_memory",
+    )
+
     def __init__(self, agent: agt.Agent) -> None:
+        self._logger = logging.getLogger(type(self).__name__)
         self._agent = agent
 
+    # REFACTOR+++++++++++++++
     async def missing_messages(
         self, session_state: mdl.SessionState
     ) -> list[InfoMessage]:
+        """
+        TODO++++++++++++++
+        """
         required_specs = self._agent.info_message_specs
         missing_specs = required_specs - session_state.info_messages_shown
-        messages = []
-        for spec in missing_specs:
-            if isinstance(spec, mdl.InfoMessageSpecInit):
-                message_type = msg.DeveloperMessage
-                content = await template.render_message_template(
-                    "init_system.txt"
+        missing_specs = sorted(missing_specs, key=self._message_order)
+        return [await self._make_message_from_spec(s) for s in missing_specs]
+
+    # TODO sort specs+++++++++++
+    def _message_order(self, spec: mdl.InfoMessageSpec[t.Any]):
+        if isinstance(spec, mdl.InfoMessageSpecInit):
+            # Init message at the very top.
+            return (0, 0)
+        elif isinstance(spec, mdl.InfoMessageSpecTutorial):
+            # Tutorials next, according to their order.
+            try:
+                index = self._TUTORIAL_ORDER.index(spec.topic)
+            except ValueError:
+                self._logger.warning(
+                    f"Unknown tutorial topic {spec.topic}, appending to the "
+                    "end."
                 )
-            elif isinstance(spec, mdl.InfoMessageSpecTutorial):
-                message_type = msg.DeveloperMessage
-                content = await template.render_tutorial(spec.topic)
-            else:
-                assert isinstance(spec, mdl.InfoMessageSpecFileContent)
-                message_type = msg.SystemMessage
-                content = await template.render_file_content(
-                    self._agent.workspace_dir, spec.file_path
-                )
-            messages.append(
-                InfoMessage(
-                    spec=spec, message_type=message_type, content=content
-                )
+                index = float("inf")
+            return (1, index)
+        return (2, 0)
+
+    async def _make_message_from_spec(
+        self, spec: mdl.InfoMessageSpec[t.Any]
+    ) -> InfoMessage:
+        if isinstance(spec, mdl.InfoMessageSpecInit):
+            message_type = msg.DeveloperMessage
+            content = await template.render_message_template("init_system.txt")
+        elif isinstance(spec, mdl.InfoMessageSpecTutorial):
+            message_type = msg.DeveloperMessage
+            content = await template.render_tutorial(spec.topic)
+        else:
+            assert isinstance(spec, mdl.InfoMessageSpecFileContent)
+            message_type = msg.SystemMessage
+            content = await template.render_file_content(
+                self._agent.workspace_dir, spec.file_path
             )
-        return messages
+        return InfoMessage(
+            spec=spec, message_type=message_type, content=content
+        )
+
+    # TODO warn if unsure where to put msg in ordering+++++++++++
+    # TODO for ordering of files: hint what kind of file it is (personality vs. config vs. anything else)

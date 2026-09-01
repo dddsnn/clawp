@@ -108,6 +108,10 @@ class GatewayState(base.BaseModel):
 class InfoMessageSpec[Type: t.Literal["init", "tutorial", "file_content"]](
     base.FrozenBaseModel, frozen=True
 ):
+    """
+    TODO+++++++++++++
+    """
+
     type: Type
 
 

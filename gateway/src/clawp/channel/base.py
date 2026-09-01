@@ -54,6 +54,7 @@ class MessageSender(metaclass=abc.ABCMeta):
         raise NotImplementedError
 
 
+# TODO required tools for channels, e.g. shell for github (forbid assigning channel if agent doesn't have tools)+++++++++++
 class Channel(MessageSender, file.InfoProvider, metaclass=abc.ABCMeta):
     """
     A communication channel.

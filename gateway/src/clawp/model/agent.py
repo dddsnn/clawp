@@ -33,6 +33,7 @@ class AgentPersonality(base.BaseModel):
     name: str
     personality_files: list[AgentPersonalityFile]
     tools: tool.ToolSpecification
+    # TODO info provider, add personality files as file messages++++++++++
 
 
 class AgentPersonalityWithFileContents(AgentPersonality):

@@ -210,6 +210,24 @@ class Client(file.InfoProvider):
         self._tools = {
             t.name: t for t in available_tools if self._tool_is_allowed(t)
         }
+        # self._logger.info("tools:")
+        # for tool_name in self._tools:
+        #     self._logger.info(tool_name)
+        # self._logger.info(self._tools["write_file"])
+        # self._logger.info(self._tools["edit_file"])
+        # res = await self.call_tool(
+        #     "shell",
+        #     {"command": "git clone https://github.com/dddsnn/clawp.git"},
+        # )
+        # res = await self.call_tool(
+        #     "shell",
+        #     {"command": "uv sync --all-extras", "cwd": "~/clawp/gateway"},
+        # )
+        # res = await self.call_tool(
+        #     "write_file",
+        #     {"path": "~/clawp/gateway/a.py", "content": "def f():\n a=1"},
+        # )
+        # self._logger.info(f"res: {res}")
         return self
 
     async def __aexit__(self, *args):
@@ -301,4 +319,5 @@ class Client(file.InfoProvider):
 
     @property
     def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
+        # TODO++++++++++++++++++++++++++++++++++++++++++++++++
         return frozenset()
