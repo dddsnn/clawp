@@ -108,16 +108,35 @@ class GatewayState(base.BaseModel):
 class InfoMessageSpec[Type: t.Literal["init", "tutorial", "file_content"]](
     base.FrozenBaseModel, frozen=True
 ):
+    """
+    Base info message specification.
+
+    An InfoMessageSpec specifies an information message that should be shown to
+    the agent. It doesn't necessarily contain the message itself.
+    """
+
     type: Type
 
 
 class InfoMessageSpecInit(InfoMessageSpec[t.Literal["init"]], frozen=True):
+    """
+    Init info message specification.
+
+    This is just a marker class for the fixed init message.
+    """
+
     type: t.Literal["init"] = "init"
 
 
 class InfoMessageSpecTutorial(
     InfoMessageSpec[t.Literal["tutorial"]], frozen=True
 ):
+    """
+    Tutorial message specification.
+
+    This specifies the tutorial with the given topic.
+    """
+
     type: t.Literal["tutorial"] = "tutorial"
     topic: str
 
@@ -125,8 +144,28 @@ class InfoMessageSpecTutorial(
 class InfoMessageSpecFileContent(
     InfoMessageSpec[t.Literal["file_content"]], frozen=True
 ):
+    """
+    Specification for an info message displaying file content.
+
+    The info message specified by this shows the content of a file in the
+    agent's workspace.
+    """
+
     type: t.Literal["file_content"] = "file_content"
     file_path: pathlib.Path
+
+
+class InfoMessageSpecPersonalityFileContent(
+    InfoMessageSpecFileContent, frozen=True
+):
+    """
+    Specification for an info message showing a personality file.
+
+    This specifies file content, with the addition that personalitiy files have
+    an order in which they should be displayed.
+    """
+
+    index: int
 
 
 class SessionState(base.BaseModel):

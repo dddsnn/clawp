@@ -15,9 +15,21 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+import abc
 import asyncio
 import importlib.resources
 import pathlib
+import typing as t
+
+if t.TYPE_CHECKING:
+    from .. import model as mdl
+
+
+class InfoProvider(abc.ABC):
+    @property
+    @abc.abstractmethod
+    def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
+        raise NotImplementedError
 
 
 def do_with_resource_dir(resource_name: str, function):

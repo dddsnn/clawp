@@ -864,11 +864,6 @@ class Agent(file.InfoProvider):
         await tx.append_internal_message(
             msg.SystemMessage, await file.render_workspace_info(self)
         )
-        for pf in self.information.personality.personality_files:
-            await tx.append_internal_message(
-                msg.SystemMessage,
-                await file.render_file_content(self.workspace_dir, pf.path),
-            )
         # Show the agent config files for internal tools.
         for file_path in [tool.FileSystemMcpServer.CONFIG_FILE_PATH]:
             await tx.append_internal_message(
@@ -1362,7 +1357,11 @@ class Agent(file.InfoProvider):
         )
         sub_specs = [
             provider.info_message_specs
-            for provider in (self._channel_router, self._mcp_client)
+            for provider in (
+                self.information.personality,
+                self._channel_router,
+                self._mcp_client,
+            )
         ]
         return onboarding_specs | frozenset(it.chain(*sub_specs))
 

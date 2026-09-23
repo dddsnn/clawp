@@ -125,6 +125,7 @@ from .state import (
     InfoMessageSpec,
     InfoMessageSpecFileContent,
     InfoMessageSpecInit,
+    InfoMessageSpecPersonalityFileContent,
     InfoMessageSpecTutorial,
     SessionState,
     WebUiChannelState,

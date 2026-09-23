@@ -15,7 +15,6 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
-import abc
 import dataclasses as dc
 import logging
 import typing as t
@@ -26,13 +25,6 @@ from . import template
 
 if t.TYPE_CHECKING:
     from .. import agent as agt
-
-
-class InfoProvider(abc.ABC):
-    @property
-    @abc.abstractmethod
-    def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
-        raise NotImplementedError
 
 
 @dc.dataclass
@@ -83,13 +75,16 @@ class InfoManager:
                 )
                 index = float("inf")
             return (1, index)
+        elif isinstance(spec, mdl.InfoMessageSpecPersonalityFileContent):
+            # Content of personality files next, according to their order.
+            return (2, spec.index)
         elif isinstance(spec, mdl.InfoMessageSpecFileContent):
-            # Content of files last.
-            return (2, 0)
+            # Content of other files last.
+            return (3, 0)
         self._logger.warning(
             f"Unable to place info spec {spec} in order, appending to the end."
         )
-        return (3, 0)
+        return (4, 0)
 
     async def _make_message_from_spec(
         self, spec: mdl.InfoMessageSpec[t.Any]

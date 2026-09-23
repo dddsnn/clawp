@@ -21,6 +21,8 @@ import uuid
 
 import pydantic as pyd
 
+from .. import file
+from .. import model as mdl
 from . import base, tool
 
 
@@ -29,10 +31,23 @@ class AgentPersonalityFile(base.BaseModel):
     description: str
 
 
-class AgentPersonality(base.BaseModel):
+class AgentPersonality(base.BaseModel, file.InfoProvider):
     name: str
     personality_files: list[AgentPersonalityFile]
     tools: tool.ToolSpecification
+
+    @property
+    def info_message_specs(
+        self,
+    ) -> frozenset[mdl.InfoMessageSpecPersonalityFileContent]:
+        specs = []
+        for i, pf in enumerate(self.personality_files):
+            specs.append(
+                mdl.InfoMessageSpecPersonalityFileContent(
+                    file_path=pf.path, index=i
+                )
+            )
+        return frozenset(specs)
 
 
 class AgentPersonalityWithFileContents(AgentPersonality):
