@@ -29,6 +29,9 @@ class InfoProvider(abc.ABC):
     @property
     @abc.abstractmethod
     def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
+        """
+        TODO++++++++++++++
+        """
         raise NotImplementedError
 
 

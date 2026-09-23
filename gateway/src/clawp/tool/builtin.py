@@ -164,6 +164,7 @@ class ClawpMcpServer(fastmcp.FastMCP):
         return [memory async for memory in memory_iter]
 
 
+# TODO configure in ctor whether save actions should be enabled++++++++++++
 class FileSystemMcpServer(fastmcp.FastMCP):
     CONFIG_FILE_PATH = pathlib.Path(".clawp_save_actions.yaml")
     """Config file relative to agent's HOME."""
