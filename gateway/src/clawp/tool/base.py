@@ -17,10 +17,11 @@
 
 # pyright: reportImportCycles=false
 
+import abc
 import collections.abc as cl_abc
-import contextlib
 import dataclasses as dc
 import logging
+import pathlib
 import typing as t
 import uuid
 
@@ -31,12 +32,9 @@ import mcp.types
 import pydantic as pyd
 import whenever as we
 
-from .. import file
-from .. import model as mdl
-from . import builtin, shell
-
 if t.TYPE_CHECKING:
     from .. import agent as agt
+    from . import client as clt
 
 Iso8601Instant = t.Annotated[
     we.Instant,
@@ -44,6 +42,32 @@ Iso8601Instant = t.Annotated[
         description="An ISO 8601 timestamp", examples=["2026-06-14T17:53:00Z"]
     ),
 ]
+
+
+class McpServer(fastmcp.FastMCP, metaclass=abc.ABCMeta):
+    """
+    Base MCP server that is used by an agent.
+
+    This is a thin subclass around FastMCP that can declare config file paths
+    relative to the agent's workspace that are necessary for certain tools.
+    """
+
+    def __init__(self, name: str):
+        super().__init__(name)
+
+    @abc.abstractmethod
+    def config_file_paths(
+        self, enabled_tools: cl_abc.Collection[str]
+    ) -> frozenset[pathlib.Path]:
+        """
+        Config files that are required for this server.
+
+        Given a collection of tools that are enabled, returns a set of file
+        paths relative to the agent's workspace that need to exist for the
+        server to work correctly. These files must exist in the config_files
+        resource of the file module.
+        """
+        raise NotImplementedError
 
 
 class ComplexToolResultMetadataRegistry:
@@ -145,7 +169,7 @@ class ClientSessionTransactionContext:
     which sets and unsets a session transaction on the client.
     """
 
-    def __init__(self, client: Client, tx: agt.SessionTransaction) -> None:
+    def __init__(self, client: clt.Client, tx: agt.SessionTransaction) -> None:
         self._client = client
         self._tx = tx
 
@@ -159,146 +183,3 @@ class ClientSessionTransactionContext:
 
     async def call_tool(self, name: str, *args, **kwargs) -> ToolResult:
         return await self._client.call_tool(name, *args, **kwargs)
-
-
-class Client(file.InfoProvider):
-    """A client providing tools via MCP servers."""
-
-    def __init__(
-        self,
-        config: mdl.GatewayConfig,
-        agent: agt.Agent,
-        extra_env_getter: cl_abc.Callable[
-            [], cl_abc.Awaitable[dict[str, str]]
-        ],
-    ):
-        """
-        :param extra_env_getter: A coroutine function returning a dictionary of
-            additional environment variables for the shell tool. It will be
-            called on every execution of the shell tool.
-        """
-        self._logger = logging.getLogger(type(self).__name__)
-        self._agent = agent
-        self._complex_metadata_registry = ComplexToolResultMetadataRegistry()
-        server = fastmcp.FastMCP(name="Clawp MCP server")
-        self._clawp_server = builtin.ClawpMcpServer(
-            self._agent, self._complex_metadata_registry
-        )
-        self._shell_server = shell.SandboxShellMcpServer(
-            config, self._agent, extra_env_getter
-        )
-        self._filesystem_server = builtin.FileSystemMcpServer(
-            self._agent.workspace_dir, self._shell_server.shell
-        )
-        server.mount(self._clawp_server, namespace="clawp")
-        server.mount(self._shell_server)
-        server.mount(self._filesystem_server)
-        self._client = fastmcp.Client(
-            server, timeout=config.tools.client_timeout.total("seconds")
-        )
-        self._exit_stack = contextlib.AsyncExitStack()
-        self._tools = None
-        self._session_transaction = None
-
-    async def __aenter__(self):
-        await self._exit_stack.__aenter__()
-        await self._exit_stack.enter_async_context(self._shell_server)
-        await self._exit_stack.enter_async_context(self._filesystem_server)
-        await self._exit_stack.enter_async_context(self._client)
-        available_tools = await self._client.list_tools()
-        self._warn_if_any_unknown_tools(available_tools)
-        self._tools = {
-            t.name: t for t in available_tools if self._tool_is_allowed(t)
-        }
-        return self
-
-    async def __aexit__(self, *args):
-        await self._exit_stack.__aexit__(*args)
-        self._tools = None
-        return False
-
-    def _warn_if_any_unknown_tools(
-        self, available_tools: list[mcp.Tool]
-    ) -> None:
-        available_tool_names = {t.name for t in available_tools}
-        configured_tools = set()
-        if self._agent.state.tools.exclude != "*":
-            configured_tools |= set(self._agent.state.tools.exclude)
-        if self._agent.state.tools.include != "*":
-            configured_tools |= set(self._agent.state.tools.include)
-        unknown_tools = configured_tools - available_tool_names
-        if unknown_tools:
-            self._logger.warning(
-                f"Found unknown tools configured: {unknown_tools}."
-            )
-
-    def _tool_is_allowed(self, tool: mcp.Tool) -> bool:
-        if (
-            self._agent.state.tools.exclude == "*"
-            or tool.name in self._agent.state.tools.exclude
-        ):
-            return False
-        return (
-            self._agent.state.tools.include == "*"
-            or tool.name in self._agent.state.tools.include
-        )
-
-    def set_session_transaction(
-        self, tx: agt.SessionTransaction | None
-    ) -> None:
-        if self._session_transaction and tx:
-            raise RuntimeError("session transaction is already set")
-        self._clawp_server.set_session_transaction(tx)
-        self._session_transaction = tx
-
-    def with_session_transaction(
-        self, tx: agt.SessionTransaction
-    ) -> ClientSessionTransactionContext:
-        """
-        Set a session transaction.
-
-        Returns a context manager that sets the session transaction on the
-        client. The context manager also acts as a proxy to the client.
-        """
-        return ClientSessionTransactionContext(self, tx)
-
-    @property
-    def tools(self) -> dict[str, mcp.types.Tool]:
-        if self._tools is None:
-            raise ValueError("client not initialized")
-        return self._tools
-
-    async def call_tool(self, name: str, *args, **kwargs) -> ToolResult:
-        assert self._tools is not None
-        if name not in self._tools:
-            raise ValueError(f"unknown tool {name}")
-        result = await self._client.call_tool(name, *args, **kwargs)
-        return self._wrap_result(result)
-
-    def _wrap_result(
-        self, result: fastmcp.client.client.CallToolResult
-    ) -> ToolResult:
-        content_string = ""
-        for block in result.content:
-            if not isinstance(block, mcp.types.TextContent):
-                self._logger.warning(
-                    f"Ignoring non-text content block {block}."
-                )
-                continue
-            content_string += block.text
-        complex_metadata = self._complex_metadata_registry.pop_for_result(
-            result
-        )
-        try:
-            session_operation = complex_metadata["session_operation"]
-            return SessionOperationToolResult(
-                raw_result=result,
-                content_string=content_string,
-                operation=session_operation,
-            )
-        except KeyError:
-            return ToolResult(raw_result=result, content_string=content_string)
-
-    @property
-    def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
-        return frozenset()

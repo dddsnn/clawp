@@ -22,16 +22,16 @@ import shlex
 import typing as t
 
 import fabric
-import fastmcp
 import pydantic as pyd
 
 from .. import model as mdl
+from . import base
 
 if t.TYPE_CHECKING:
     from .. import agent as agt
 
 
-class SandboxShellMcpServer(fastmcp.FastMCP):
+class SandboxShellMcpServer(base.McpServer):
     """
     MCP server providing a shell tool running in a sandbox.
 
@@ -177,3 +177,8 @@ class SandboxShellMcpServer(fastmcp.FastMCP):
             exit_code=result.exited,
             shell=result.shell,
         )
+
+    def config_file_paths(
+        self, enabled_tools: cl_abc.Collection[str]
+    ) -> frozenset[pathlib.Path]:
+        return frozenset()

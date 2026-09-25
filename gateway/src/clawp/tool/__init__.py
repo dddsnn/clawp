@@ -19,9 +19,9 @@
 # ruff: noqa: F401
 
 from .base import (
-    Client,
     ClientSessionTransactionContext,
     SessionOperationToolResult,
     ToolResult,
 )
 from .builtin import FileSystemMcpServer
+from .client import Client

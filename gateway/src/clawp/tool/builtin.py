@@ -39,7 +39,7 @@ from .. import model as mdl
 from . import base
 
 
-class ClawpMcpServer(fastmcp.FastMCP):
+class ClawpMcpServer(base.McpServer):
     """MCP server providing tools to interact with Clawp itself."""
 
     def __init__(
@@ -163,8 +163,13 @@ class ClawpMcpServer(fastmcp.FastMCP):
         )
         return [memory async for memory in memory_iter]
 
+    def config_file_paths(
+        self, enabled_tools: cl_abc.Collection[str]
+    ) -> frozenset[pathlib.Path]:
+        return frozenset()
 
-class FileSystemMcpServer(fastmcp.FastMCP):
+
+class FileSystemMcpServer(base.McpServer):
     CONFIG_FILE_PATH = pathlib.Path(".clawp_save_actions.yaml")
     """Config file relative to agent's HOME."""
 
@@ -333,3 +338,8 @@ class FileSystemMcpServer(fastmcp.FastMCP):
             tool_result.content.append(
                 mcp.types.TextContent(type="text", text=text)
             )
+
+    def config_file_paths(
+        self, enabled_tools: cl_abc.Collection[str]
+    ) -> frozenset[pathlib.Path]:
+        return frozenset([self.CONFIG_FILE_PATH])
