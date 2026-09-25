@@ -65,8 +65,8 @@ class SandboxShellMcpServer(base.McpServer):
 
     def __init__(
         self,
-        config: mdl.GatewayConfig,
         agent: agt.Agent,
+        config: mdl.GatewayConfig,
         extra_env_getter: cl_abc.Callable[
             [], cl_abc.Awaitable[dict[str, str]]
         ],
@@ -76,9 +76,8 @@ class SandboxShellMcpServer(base.McpServer):
             additional environment variables to set. It will be called on every
             execution.
         """
-        super().__init__("Shell MCP server")
+        super().__init__("Shell MCP server", agent)
         self._config = config
-        self._agent = agent
         self._conn = fabric.Connection(
             host=config.tools.shell.ssh.host,
             port=config.tools.shell.ssh.port,

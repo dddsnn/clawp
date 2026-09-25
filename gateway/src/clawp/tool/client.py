@@ -60,10 +60,10 @@ class Client(file.InfoProvider):
             self._agent, self._complex_metadata_registry
         )
         self._shell_server = shell.SandboxShellMcpServer(
-            config, self._agent, extra_env_getter
+            self._agent, config, extra_env_getter
         )
         self._filesystem_server = builtin.FileSystemMcpServer(
-            self._agent.workspace_dir, self._shell_server.shell
+            self._agent, self._shell_server.shell
         )
         server.mount(self._clawp_server, namespace="clawp")
         server.mount(self._shell_server)

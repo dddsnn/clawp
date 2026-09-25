@@ -52,8 +52,9 @@ class McpServer(fastmcp.FastMCP, metaclass=abc.ABCMeta):
     relative to the agent's workspace that are necessary for certain tools.
     """
 
-    def __init__(self, name: str):
+    def __init__(self, name: str, agent: agt.Agent):
         super().__init__(name)
+        self._agent = agent
 
     @abc.abstractmethod
     def config_file_paths(

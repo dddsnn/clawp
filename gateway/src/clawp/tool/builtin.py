@@ -47,9 +47,8 @@ class ClawpMcpServer(base.McpServer):
         agent: agt.Agent,
         complex_metadata_registry: base.ComplexToolResultMetadataRegistry,
     ):
-        super().__init__("Clawp system MCP server")
+        super().__init__("Clawp system MCP server", agent)
         self._logger = logging.getLogger(type(self).__name__)
-        self._agent = agent
         self._complex_metadata_registry = complex_metadata_registry
         self._session_transaction = None
         self.add_tool(self.list_tutorial_topics)
@@ -175,7 +174,7 @@ class FileSystemMcpServer(base.McpServer):
 
     def __init__(
         self,
-        agent_workspace: pathlib.Path,
+        agent: agt.Agent,
         exec_shell: cl_abc.Callable[
             [str, str], cl_abc.Awaitable[mdl.ShellResult]
         ],
@@ -197,12 +196,15 @@ class FileSystemMcpServer(base.McpServer):
         exits with something other than 0, its output (stderr and stdout) is
         appended to the tool response.
         """
-        super().__init__("File system MCP server")
+        super().__init__("File system MCP server", agent)
         self._logger = logging.getLogger(type(self).__name__)
-        self._agent_workspace = agent_workspace.resolve()
         self._exec_shell = exec_shell
         self._filesystem_proxy = self._make_filesystem_proxy()
         self.mount(self._filesystem_proxy)
+
+    @property
+    def _agent_workspace(self) -> pathlib.Path:
+        return self._agent.workspace_dir.resolve()
 
     def _make_filesystem_proxy(
         self,
