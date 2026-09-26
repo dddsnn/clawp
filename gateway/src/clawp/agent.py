@@ -48,6 +48,14 @@ class CompactionError(RuntimeError):
     """Raised when there is an error compacting an agent's session."""
 
 
+class MissingToolError(Exception):
+    """Raised when an agent is missing required tools."""
+
+    def __init__(self, message: str, missing_tools: frozenset[str]) -> None:
+        super().__init__(message)
+        self.missing_tools = missing_tools
+
+
 @dc.dataclass
 class MessageInSession:
     message: msg.Message[msg.MessageMetadata]
@@ -1240,6 +1248,12 @@ class Agent(file.InfoProvider):
         """
         if channel.id is None:
             raise ValueError("can't add channels without ID")
+        missing_tools = channel.required_tools - set(self._mcp_client.tools)
+        if missing_tools:
+            raise MissingToolError(
+                f"agent is missing required tools {missing_tools}",
+                missing_tools,
+            )
         async with self._locked_transaction() as tx:
             if channel.type in self.state.claimed_channels:
                 raise ValueError(

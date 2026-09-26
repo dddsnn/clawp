@@ -16,16 +16,13 @@
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 import logging
-import typing as t
 
 import fastapi
 
+from .. import agent as agt
 from .. import channel as chan
 from .. import model as mdl
 from . import dependency as dep
-
-if t.TYPE_CHECKING:
-    from .. import agent as agt
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +128,14 @@ async def assign_channel(
         raise fastapi.HTTPException(
             status_code=409, detail="Channel has already been assigned."
         )
-    await agent.add_channel(channel_status.channel)
+    try:
+        await agent.add_channel(channel_status.channel)
+    except agt.MissingToolError as e:
+        raise fastapi.HTTPException(
+            status_code=460,
+            detail="The agent is missing tools required to use this channel: "
+            f"{e.missing_tools}.",
+        )
     return mdl.ChannelInformation(
         type=channel_status.channel.type,
         id=channel_status.channel.id,

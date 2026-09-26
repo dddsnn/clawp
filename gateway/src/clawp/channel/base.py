@@ -110,6 +110,13 @@ class Channel(MessageSender, file.InfoProvider, metaclass=abc.ABCMeta):
         """
         return {}
 
+    @property
+    def required_tools(self) -> frozenset[str]:
+        """
+        Tools required by this channel.
+        """
+        return frozenset()
+
     @abc.abstractmethod
     async def get_chat_descriptor(self, chat_id: str) -> mdl.ChatDescriptor:
         """

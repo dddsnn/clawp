@@ -733,6 +733,10 @@ class GithubChannel(base.Channel):
             "GIT_CONFIG_VALUE_2": shlex.quote(self._config.agent_email),
         }
 
+    @property
+    def required_tools(self) -> frozenset[str]:
+        return frozenset(["shell"])
+
     async def get_chat_descriptor(
         self, chat_id: str
     ) -> mdl.GithubChatDescriptor:
