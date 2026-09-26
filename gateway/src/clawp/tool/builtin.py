@@ -162,11 +162,6 @@ class ClawpMcpServer(base.McpServer):
         )
         return [memory async for memory in memory_iter]
 
-    def config_file_paths(
-        self, enabled_tools: cl_abc.Collection[str]
-    ) -> frozenset[pathlib.Path]:
-        return frozenset()
-
 
 class FileSystemMcpServer(base.McpServer):
     SAVE_ACTIONS_CONFIG_FILE_PATH = pathlib.Path(".clawp_save_actions.yaml")
@@ -362,9 +357,8 @@ class FileSystemMcpServer(base.McpServer):
                 mcp.types.TextContent(type="text", text=text)
             )
 
-    def config_file_paths(
-        self, enabled_tools: cl_abc.Collection[str]
-    ) -> frozenset[pathlib.Path]:
+    @property
+    def config_file_paths(self) -> frozenset[pathlib.Path]:
         if self._save_actions_enabled_for_tools:
             return frozenset([self.SAVE_ACTIONS_CONFIG_FILE_PATH])
         return frozenset()

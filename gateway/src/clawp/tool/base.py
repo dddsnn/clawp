@@ -15,9 +15,6 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
-# pyright: reportImportCycles=false
-
-import abc
 import collections.abc as cl_abc
 import dataclasses as dc
 import logging
@@ -32,6 +29,9 @@ import mcp.types
 import pydantic as pyd
 import whenever as we
 
+from .. import file
+from .. import model as mdl
+
 if t.TYPE_CHECKING:
     from .. import agent as agt
     from . import client as clt
@@ -44,22 +44,25 @@ Iso8601Instant = t.Annotated[
 ]
 
 
-class McpServer(fastmcp.FastMCP, metaclass=abc.ABCMeta):
+class McpServer(fastmcp.FastMCP, file.InfoProvider):
     """
     Base MCP server that is used by an agent.
 
-    This is a thin subclass around FastMCP that can declare config file paths
-    relative to the agent's workspace that are necessary for certain tools.
+    This is a thin subclass around FastMCP. It can declare config file paths
+    relative to the agent's workspace that are necessary for certain tools. By
+    declaring them it signals that they need to be created if they don't exist,
+    and that their content should be provided to the agent in an info message.
+
+    Additionally, it can declare other info messages, e.g. tutorials for
+    specific tools.
     """
 
     def __init__(self, name: str, agent: agt.Agent):
         super().__init__(name)
         self._agent = agent
 
-    @abc.abstractmethod
-    def config_file_paths(
-        self, enabled_tools: cl_abc.Collection[str]
-    ) -> frozenset[pathlib.Path]:
+    @property
+    def config_file_paths(self) -> frozenset[pathlib.Path]:
         """
         Config files that are required for this server.
 
@@ -68,7 +71,11 @@ class McpServer(fastmcp.FastMCP, metaclass=abc.ABCMeta):
         server to work correctly. These files must exist in the config_files
         resource of the file module.
         """
-        raise NotImplementedError
+        return frozenset()
+
+    @property
+    def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
+        return frozenset()
 
 
 class ComplexToolResultMetadataRegistry:

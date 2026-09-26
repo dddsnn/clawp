@@ -17,7 +17,6 @@
 
 import collections.abc as cl_abc
 import contextlib
-import itertools as it
 import logging
 import pathlib
 import typing as t
@@ -82,6 +81,26 @@ class Client(file.InfoProvider):
         self._exit_stack = contextlib.AsyncExitStack()
         self._tools = None
         self._session_transaction = None
+
+    @property
+    def _servers(self) -> frozenset[base.McpServer]:
+        return frozenset(
+            [
+                self._clawp_server,
+                self._filesystem_server,
+                self._shell_server,
+            ]
+        )
+
+    @property
+    def _config_file_paths(self) -> frozenset[pathlib.Path]:
+        return frozenset(
+            [
+                path
+                for server in self._servers
+                for path in server.config_file_paths
+            ]
+        )
 
     async def __aenter__(self):
         await self._exit_stack.__aenter__()
@@ -162,24 +181,17 @@ class Client(file.InfoProvider):
         return self._tools
 
     @property
-    def _config_file_paths(self) -> frozenset[pathlib.Path]:
-        servers = [
-            self._clawp_server,
-            self._filesystem_server,
-            self._shell_server,
-        ]
-        return frozenset(
-            it.chain(*[s.config_file_paths(self.tools) for s in servers])
-        )
-
-    @property
     def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
-        return frozenset(
-            [
-                mdl.InfoMessageSpecFileContent(file_path=p)
-                for p in self._config_file_paths
-            ]
-        )
+        file_specs = [
+            mdl.InfoMessageSpecFileContent(file_path=path)
+            for path in self._config_file_paths
+        ]
+        other_specs = [
+            spec
+            for server in self._servers
+            for spec in server.info_message_specs
+        ]
+        return frozenset(file_specs + other_specs)
 
     async def _ensure_config_files_exist(self):
         for file_path in self._config_file_paths:

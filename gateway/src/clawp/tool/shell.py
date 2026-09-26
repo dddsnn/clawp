@@ -176,8 +176,3 @@ class SandboxShellMcpServer(base.McpServer):
             exit_code=result.exited,
             shell=result.shell,
         )
-
-    def config_file_paths(
-        self, enabled_tools: cl_abc.Collection[str]
-    ) -> frozenset[pathlib.Path]:
-        return frozenset()
