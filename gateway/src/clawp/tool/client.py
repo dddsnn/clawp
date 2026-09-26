@@ -81,10 +81,11 @@ class Client(file.InfoProvider):
         await self._exit_stack.enter_async_context(self._filesystem_server)
         await self._exit_stack.enter_async_context(self._client)
         available_tools = await self._client.list_tools()
-        self._warn_if_any_unknown_tools(available_tools)
+        self._warn_if_unavailable_tools_required(available_tools)
         self._tools = {
             t.name: t for t in available_tools if self._tool_is_allowed(t)
         }
+        self._warn_if_options_for_unavailable_tools()
         await self._ensure_config_files_exist()
         return self
 
@@ -93,7 +94,7 @@ class Client(file.InfoProvider):
         self._tools = None
         return False
 
-    def _warn_if_any_unknown_tools(
+    def _warn_if_unavailable_tools_required(
         self, available_tools: list[mcp.Tool]
     ) -> None:
         available_tool_names = {t.name for t in available_tools}
@@ -107,6 +108,14 @@ class Client(file.InfoProvider):
             self._logger.warning(
                 f"Found unknown tools configured: {unknown_tools}."
             )
+
+    def _warn_if_options_for_unavailable_tools(self):
+        for tool_name, options in self._agent.state.tools.options.items():
+            if tool_name not in self.tools:
+                self._logger.warning(
+                    "Agent state specifies options for unavailable tool "
+                    f"{tool_name}: {options}."
+                )
 
     def _tool_is_allowed(self, tool: mcp.Tool) -> bool:
         if (

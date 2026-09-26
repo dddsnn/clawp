@@ -169,8 +169,8 @@ class ClawpMcpServer(base.McpServer):
 
 
 class FileSystemMcpServer(base.McpServer):
-    CONFIG_FILE_PATH = pathlib.Path(".clawp_save_actions.yaml")
-    """Config file relative to agent's HOME."""
+    SAVE_ACTIONS_CONFIG_FILE_PATH = pathlib.Path(".clawp_save_actions.yaml")
+    """Config file for save actions relative to agent's HOME."""
 
     def __init__(
         self,
@@ -200,6 +200,7 @@ class FileSystemMcpServer(base.McpServer):
         self._logger = logging.getLogger(type(self).__name__)
         self._exec_shell = exec_shell
         self._filesystem_proxy = self._make_filesystem_proxy()
+        self._save_actions_enabled_for_tools = set()
         self.mount(self._filesystem_proxy)
 
     @property
@@ -232,12 +233,26 @@ class FileSystemMcpServer(base.McpServer):
         )
 
     async def __aenter__(self) -> t.Self:
-        await self._wrap_tool("write_file", self._wrap_write_file)
-        await self._wrap_tool("edit_file", self._wrap_edit_file)
+        await self._wrap_tools_with_save_actions()
         return self
 
     async def __aexit__(self, *_) -> t.Literal[False]:
         return False
+
+    async def _wrap_tools_with_save_actions(self):
+        for tool_name, wrapper in [
+            ("write_file", self._wrap_write_file),
+            ("edit_file", self._wrap_edit_file),
+        ]:
+            try:
+                tool_options = self._agent.state.tools.options[tool_name]
+                enable_save_actions = tool_options["enable_save_actions"]
+            except KeyError:
+                # Default: no save actions.
+                enable_save_actions = False
+            if enable_save_actions:
+                await self._wrap_tool(tool_name, wrapper)
+                self._save_actions_enabled_for_tools.add(tool_name)
 
     async def _wrap_tool(
         self,
@@ -324,7 +339,9 @@ class FileSystemMcpServer(base.McpServer):
 
     def _load_config(self) -> mdl.SaveActionConfig:
         yaml = ruamel.yaml.YAML()
-        config_dict = yaml.load(self._agent_workspace / self.CONFIG_FILE_PATH)
+        config_dict = yaml.load(
+            self._agent_workspace / self.SAVE_ACTIONS_CONFIG_FILE_PATH
+        )
         return mdl.SaveActionConfig.model_validate(config_dict)
 
     def _append_text_to_tool_result(
@@ -344,4 +361,6 @@ class FileSystemMcpServer(base.McpServer):
     def config_file_paths(
         self, enabled_tools: cl_abc.Collection[str]
     ) -> frozenset[pathlib.Path]:
-        return frozenset([self.CONFIG_FILE_PATH])
+        if self._save_actions_enabled_for_tools:
+            return frozenset([self.SAVE_ACTIONS_CONFIG_FILE_PATH])
+        return frozenset()

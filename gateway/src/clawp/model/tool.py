@@ -49,11 +49,15 @@ ToolCollection = t.Literal["*"] | list[str]
 
 class ToolSpecification(base.BaseModel):
     """
-    A specification of which tools should be given to an agent.
+    A specification of tools for an agent.
+
+    Specifies which tools should be given to an agent and any options for them.
     """
 
     include: ToolCollection
     exclude: ToolCollection
+    options: dict[str, dict[str, t.Any]]
+    """Dictionary that maps tool names to free-form options for the tool."""
 
     @pyd.model_validator(mode="after")
     def check_for_contradictions(self) -> t.Self:
