@@ -26,9 +26,17 @@ if t.TYPE_CHECKING:
 
 
 class InfoProvider(abc.ABC):
+    """
+    Abstract provider of informational messages.
+
+    Components implementing this interface specify information messages that
+    should be shown to the agent, e.g. tutorials describing their features.
+    """
+
     @property
     @abc.abstractmethod
     def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
+        """Specs for info messages that should be shown to the agent."""
         raise NotImplementedError
 
 

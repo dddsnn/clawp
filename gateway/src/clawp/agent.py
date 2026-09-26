@@ -394,6 +394,10 @@ class Session:
         persistent storage. The message is guaranteed to be finalized when this
         returns.
 
+        If add_info_messages is True, ensures that any info messages the agent
+        should know about are part of the session. Any that are missing are
+        appended before handling the current message.
+
         Cancelling this coroutine may lead to a state in which the message
         exists in transient storage and has started visibly streaming, but
         hasn't been persisted.
@@ -416,9 +420,20 @@ class Session:
             )
 
     async def _append_missing_info_messages(self):
-        for info_message in await self._info_manager.missing_messages(
-            self._state
-        ):
+        """
+        Append any missing info messages.
+
+        Queries the info manager with the current state to see if there are any
+        info messages the agent should have seen that aren't yet present in the
+        current session and appends them.
+        """
+        missing = await self._info_manager.missing_messages(self._state)
+        if missing:
+            self._logger.info(
+                f"Appending {len(missing)} missing info messages to the "
+                "agent's session."
+            )
+        for info_message in missing:
             await self._append_internal_message(
                 info_message.message_type,
                 info_message.content,

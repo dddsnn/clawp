@@ -35,7 +35,15 @@ if t.TYPE_CHECKING:
 
 
 class Client(file.InfoProvider):
-    """A client providing tools via MCP servers."""
+    """
+    A client providing tools via MCP servers.
+
+    The client provides access to a number of underlying MCP servers. It is a
+    context manager that starts those servers on __aenter__(). Additionally, it
+    ensures that any config files required by the servers exist. If not, the
+    default config file is copied to the agent's workspace from the file
+    module.
+    """
 
     def __init__(
         self,

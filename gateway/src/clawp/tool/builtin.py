@@ -187,14 +187,18 @@ class FileSystemMcpServer(base.McpServer):
         feature to only allow access to the agent's workspace. HOME is set to
         the agent's workspace so ~ expands intuitively.
 
-        For the file-writing tools write_file and edit_file, optional save
-        actions are executed after writing. These are defined in a config file
-        in the agent's home directory (under the agent's control). The config
-        file maps file extensions to a list of commands to be run with the
-        agent's own shell. Each command is run from the directory containing
-        the file and given the file name as additional argument. If the command
-        exits with something other than 0, its output (stderr and stdout) is
-        appended to the tool response.
+        The file-writing tools write_file and edit_file have an optional save
+        actions feature. This must be enabled explicitly in the tool options by
+        explicitly setting `enable_save_actions: true`, separately for
+        write_file and edit_file.
+
+        Save actions are executed after writing. They are defined in a config
+        file in the agent's home directory (under the agent's control). The
+        config file maps file extensions to a list of commands to be run with
+        the agent's own shell. Each command is run from the directory
+        containing the file and given the file name as additional argument. If
+        the command exits with something other than 0, its output (stderr and
+        stdout) is appended to the tool response.
         """
         super().__init__("File system MCP server", agent)
         self._logger = logging.getLogger(type(self).__name__)

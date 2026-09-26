@@ -35,6 +35,16 @@ class InfoMessage:
 
 
 class InfoManager:
+    """
+    Manager of information messages.
+
+    The InfoManager looks at the agent and its current session state and
+    figures out if there are any information messages that should be shown to
+    the agent but aren't present in the current session yet. Any of them are
+    returned via missing_messages() in the order in which they should be
+    presented to the agent.
+    """
+
     _TUTORIAL_ORDER = (
         "tutorials",
         "system_sessions",
@@ -55,6 +65,12 @@ class InfoManager:
     async def missing_messages(
         self, session_state: mdl.SessionState
     ) -> list[InfoMessage]:
+        """
+        Get missing info messages.
+
+        Returns a list of info messages that should be shown to the agent, in
+        the order in which they should be shown.
+        """
         required_specs = self._agent.info_message_specs
         missing_specs = required_specs - session_state.info_messages_shown
         missing_specs = sorted(missing_specs, key=self._message_order)
