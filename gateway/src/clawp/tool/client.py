@@ -107,6 +107,15 @@ class Client(file.InfoProvider):
         await self._exit_stack.enter_async_context(self._shell_server)
         await self._exit_stack.enter_async_context(self._filesystem_server)
         await self._exit_stack.enter_async_context(self._client)
+        await self._set_up_tools()
+        return self
+
+    async def __aexit__(self, *args):
+        await self._exit_stack.__aexit__(*args)
+        self._tools = None
+        return False
+
+    async def _set_up_tools(self):
         available_tools = await self._client.list_tools()
         self._warn_if_unavailable_tools_required(available_tools)
         self._tools = {
@@ -114,12 +123,8 @@ class Client(file.InfoProvider):
         }
         self._warn_if_options_for_unavailable_tools()
         await self._ensure_config_files_exist()
-        return self
-
-    async def __aexit__(self, *args):
-        await self._exit_stack.__aexit__(*args)
-        self._tools = None
-        return False
+        for server in self._servers:
+            server.check_tool_config()
 
     def _warn_if_unavailable_tools_required(
         self, available_tools: list[mcp.Tool]

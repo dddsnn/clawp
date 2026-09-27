@@ -59,6 +59,7 @@ class McpServer(fastmcp.FastMCP, file.InfoProvider):
 
     def __init__(self, name: str, agent: agt.Agent):
         super().__init__(name)
+        self._logger = logging.getLogger(type(self).__name__)
         self._agent = agent
 
     @property
@@ -76,6 +77,14 @@ class McpServer(fastmcp.FastMCP, file.InfoProvider):
     @property
     def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
         return frozenset()
+
+    def check_tool_config(self) -> None:
+        """
+        Check whether the config of tools makes sense.
+
+        The server will log warnings or raise exceptions if the setup seems to
+        not make sense, e.g. if critical tools are missing.
+        """
 
 
 class ComplexToolResultMetadataRegistry:

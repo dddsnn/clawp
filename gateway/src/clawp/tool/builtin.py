@@ -18,7 +18,6 @@
 import asyncio
 import collections.abc as cl_abc
 import functools as ft
-import logging
 import pathlib
 import typing as t
 
@@ -48,7 +47,6 @@ class ClawpMcpServer(base.McpServer):
         complex_metadata_registry: base.ComplexToolResultMetadataRegistry,
     ):
         super().__init__("Clawp system MCP server", agent)
-        self._logger = logging.getLogger(type(self).__name__)
         self._complex_metadata_registry = complex_metadata_registry
         self._session_transaction = None
         self.add_tool(self.list_tutorial_topics)
@@ -56,6 +54,25 @@ class ClawpMcpServer(base.McpServer):
         self.add_tool(self.switch_chat)
         self.add_tool(self.log_memory)
         self.add_tool(self.search_memory)
+
+    def check_tool_config(self) -> None:
+        required_tools = [
+            "list_tutorial_topics",
+            "read_tutorial",
+            "switch_chat",
+        ]
+        if any(t not in self._agent.enabled_tools for t in required_tools):
+            self._logger.warning(
+                f"Required tools {required_tools} are not all enabled. The "
+                "agent will struggle."
+            )
+        log_memory_enabled = "log_memory" in self._agent.enabled_tools
+        search_memory_enabled = "search_memory" in self._agent.enabled_tools
+        if log_memory_enabled != search_memory_enabled:
+            self._logger.warning(
+                "The agent only has one of the tools to log/search memory. "
+                "This doesn't make sense, they should have both or neither."
+            )
 
     @property
     def session_transaction(self) -> agt.SessionTransaction:
@@ -202,7 +219,6 @@ class FileSystemMcpServer(base.McpServer):
         stdout) is appended to the tool response.
         """
         super().__init__("File system MCP server", agent)
-        self._logger = logging.getLogger(type(self).__name__)
         self._exec_shell = exec_shell
         self._filesystem_proxy = self._make_filesystem_proxy()
         self._save_actions_enabled_for_tools = set()
@@ -244,18 +260,29 @@ class FileSystemMcpServer(base.McpServer):
     async def __aexit__(self, *_) -> t.Literal[False]:
         return False
 
+    def check_tool_config(self) -> None:
+        enabled_for_write = self._save_action_enabled_for("write_file")
+        enabled_for_edit = self._save_action_enabled_for("edit_file")
+        if enabled_for_write != enabled_for_edit:
+            self._logger.warning(
+                "Save actions are enabled for one of write_file/edit_file, "
+                "but not both. This is valid, but might confuse the agent."
+            )
+
+    def _save_action_enabled_for(self, tool_name: str) -> bool:
+        try:
+            tool_options = self._agent.state.tools.options[tool_name]
+            return tool_options["enable_save_actions"]
+        except KeyError:
+            # Default: no save actions.
+            return False
+
     async def _wrap_tools_with_save_actions(self):
         for tool_name, wrapper in [
             ("write_file", self._wrap_write_file),
             ("edit_file", self._wrap_edit_file),
         ]:
-            try:
-                tool_options = self._agent.state.tools.options[tool_name]
-                enable_save_actions = tool_options["enable_save_actions"]
-            except KeyError:
-                # Default: no save actions.
-                enable_save_actions = False
-            if enable_save_actions:
+            if self._save_action_enabled_for(tool_name):
                 await self._wrap_tool(tool_name, wrapper)
                 self._save_actions_enabled_for_tools.add(tool_name)
 
