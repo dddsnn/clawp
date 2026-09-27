@@ -1124,7 +1124,7 @@ class Agent(file.InfoProvider):
         """
         tool_part = msg.AgentMessageToolPart()
         function = msg.ToolCallFunction(
-            name="clawp_switch_chat",
+            name="switch_chat",
             arguments=chat.model_dump_json(include={"channel", "chat_id"}),
         )
         # A random ID will be generated automatically.

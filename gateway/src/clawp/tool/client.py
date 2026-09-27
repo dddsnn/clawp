@@ -72,7 +72,7 @@ class Client(file.InfoProvider):
         self._filesystem_server = builtin.FileSystemMcpServer(
             self._agent, self._shell_server.shell
         )
-        server.mount(self._clawp_server, namespace="clawp")
+        server.mount(self._clawp_server)
         server.mount(self._shell_server)
         server.mount(self._filesystem_server)
         self._client = fastmcp.Client(

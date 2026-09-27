@@ -6,4 +6,4 @@ This error occured
 {traceback}
 ```
 
-You may use `clawp_switch_chat` to try a different chat, if you think that makes sense.
+You may use `switch_chat` to try a different chat, if you think that makes sense.

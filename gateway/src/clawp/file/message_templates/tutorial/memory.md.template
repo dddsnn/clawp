@@ -2,7 +2,7 @@
 
 Topic: `memory`
 
-In addition to files in your workspace, you should also use the system's built in memory tools `clawp_log_memory` and `clawp_search_memory` to remember things. Use them to log any events that may become useful to remember later.
+In addition to files in your workspace, you should also use the system's built in memory tools `log_memory` and `search_memory` to remember things. Use them to log any events that may become useful to remember later.
 
 When you log a memory, the current timestamp is automatically attached (since memories are used to store what happened right now), and it is persisted indefinitely in a database. You can recall things that happened a long time and many sessions ago by doing a targeted search by time range and/or search term.
 

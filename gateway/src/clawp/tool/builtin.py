@@ -132,7 +132,7 @@ class ClawpMcpServer(base.McpServer):
         Log a memory.
 
         The memory is persisted with the current time and can later be found
-        via clawp_search_memory.
+        via search_memory.
         """
         await self._agent.memory_store.log_memory(content)
 
@@ -164,7 +164,7 @@ class ClawpMcpServer(base.McpServer):
 
     @property
     def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
-        if "clawp_log_memory" in self._agent.enabled_tools:
+        if "log_memory" in self._agent.enabled_tools:
             return frozenset([mdl.InfoMessageSpecTutorial(topic="memory")])
         return frozenset()
 
