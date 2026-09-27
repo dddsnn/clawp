@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
+import asyncio
 import collections.abc as cl_abc
 import contextlib
 import logging
@@ -201,7 +202,7 @@ class Client(file.InfoProvider):
     async def _ensure_config_files_exist(self):
         for file_path in self._config_file_paths:
             file_in_workspace = self._agent.workspace_dir / file_path
-            if file_in_workspace.exists():
+            if await asyncio.to_thread(file_in_workspace.exists):
                 continue
             self._logger.info(
                 f"{self._agent} is missing config file {file_path}, "
@@ -209,7 +210,9 @@ class Client(file.InfoProvider):
             )
             try:
                 file_content = await file.read_file("config_files", file_path)
-                file_in_workspace.write_text(file_content)
+                await asyncio.to_thread(
+                    file_in_workspace.write_text, file_content
+                )
             except Exception as e:
                 raise RuntimeError(
                     f"Error installing default config file {file_path}, tool "

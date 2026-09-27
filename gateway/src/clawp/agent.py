@@ -1612,8 +1612,8 @@ class AgentRepository:
         return self._agents[agent.information.id]
 
     async def _initialize_agent_files(
-        self, agent_id, agent_name, personality_name
-    ):
+        self, agent_id: uuid.UUID, agent_name: str, personality_name: str
+    ) -> pathlib.Path:
         try:
             personality_with_contents = (
                 await file.read_personality_with_file_contents(
@@ -1626,6 +1626,19 @@ class AgentRepository:
             raise ValueError(
                 f"can't use personality {personality_name}"
             ) from e
+        return await asyncio.to_thread(
+            self._initialize_agent_files_sync,
+            agent_id,
+            agent_name,
+            personality_with_contents,
+        )
+
+    def _initialize_agent_files_sync(
+        self,
+        agent_id: uuid.UUID,
+        agent_name: str,
+        personality: mdl.AgentPersonalityWithFileContents,
+    ) -> pathlib.Path:
         self._logger.info(f"Setting up files for new agent {agent_id}.")
         agent_base_dir = self._base_dir / str(agent_id)
         if agent_base_dir.exists():
@@ -1636,7 +1649,7 @@ class AgentRepository:
         agent_information = mdl.AgentInformation(
             id=agent_id,
             name=agent_name,
-            personality=personality_with_contents.get_personality(),
+            personality=personality.get_personality(),
         )
         self._agent_information_file(agent_base_dir).write_text(
             agent_information.model_dump_json()
@@ -1645,7 +1658,7 @@ class AgentRepository:
             active_chat=mdl.WebUiChatDescriptor(chat_id=""),
             web_ui_channel=mdl.WebUiChannelState(),
             agent_channel=mdl.AgentChannelState(),
-            tools=personality_with_contents.tools,
+            tools=personality.tools,
         )
         self._agent_state_file(agent_base_dir).write_text(
             agent_state.model_dump_json()
@@ -1659,10 +1672,8 @@ class AgentRepository:
         )
         workspace_dir = self._workspace_dir(agent_base_dir)
         workspace_dir.mkdir(parents=True, exist_ok=True)
-        for pf in personality_with_contents.personality_files:
-            file_content = personality_with_contents.personality_file_contents[
-                pf.path
-            ]
+        for pf in personality.personality_files:
+            file_content = personality.personality_file_contents[pf.path]
             if file_content is None:
                 # File shouldn't exist.
                 continue
