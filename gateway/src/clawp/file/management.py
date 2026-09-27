@@ -47,15 +47,17 @@ class InfoManager:
 
     _TUTORIAL_ORDER = (
         "tutorials",
-        "system_sessions",
-        "system_system_messages",
-        "system_channels_chats",
+        "sessions",
+        "system_messages",
+        "channels",
         "channel_web_ui",
         "channel_agent",
         "channel_github",
         "channel_matrix",
         "channel_system",
-        "system_workspace_memory",
+        "workspace",
+        "save_actions",
+        "memory",
     )
 
     def __init__(self, agent: agt.Agent) -> None:

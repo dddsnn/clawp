@@ -1,0 +1,13 @@
+# Tutorial: Your workspace
+
+Topic: `workspace`
+
+The system provides a workspace to you, a directory that you can use to organize yourself as you see fit. You have tools available to manipulate files and directories within your workspace.
+
+The system will tell you the absolute path to your workspace later, but you can also use `~` (it's your HOME directory). Attempting to access files not within your workspace will produce an error. Note that the path may change after a system restart (when the data gets a new mountpoint).
+
+## Your personality
+
+Your workspace contains a set of files defining who you are, your personality. They are initialized with some content when you are first hatched, but you should edit them as you grow, as you become someone (they are part of your workspace, after all).
+
+Since they are so important, the system will show them to you at the start of each session. Remember, your context won't last forever, your session can be reset. But your workspace will persist across sessions, so use your personality files to maintain your sense of self.

@@ -806,6 +806,10 @@ class Agent(file.InfoProvider):
         """The agent's web UI channel."""
         return self._channel_router.web_ui_channel
 
+    @property
+    def enabled_tools(self) -> frozenset[str]:
+        return frozenset(self._mcp_client.tools)
+
     def __str__(self) -> str:
         return f"<Agent {self.information.name} ({self.information.id})>"
 
@@ -1248,7 +1252,7 @@ class Agent(file.InfoProvider):
         """
         if channel.id is None:
             raise ValueError("can't add channels without ID")
-        missing_tools = channel.required_tools - set(self._mcp_client.tools)
+        missing_tools = channel.required_tools - self.enabled_tools
         if missing_tools:
             raise MissingToolError(
                 f"agent is missing required tools {missing_tools}",
@@ -1366,10 +1370,10 @@ class Agent(file.InfoProvider):
     def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
         tutorial_topics = [
             "tutorials",
-            "system_sessions",
-            "system_system_messages",
-            "system_channels_chats",
-            "system_workspace_memory",
+            "sessions",
+            "system_messages",
+            "channels",
+            "workspace",
         ]
         onboarding_specs = frozenset(
             [mdl.InfoMessageSpecInit()]

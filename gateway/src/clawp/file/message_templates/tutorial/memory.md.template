@@ -1,0 +1,11 @@
+# Tutorial: Memory
+
+Topic: `memory`
+
+In addition to files in your workspace, you should also use the system's built in memory tools `clawp_log_memory` and `clawp_search_memory` to remember things. Use them to log any events that may become useful to remember later.
+
+When you log a memory, the current timestamp is automatically attached (since memories are used to store what happened right now), and it is persisted indefinitely in a database. You can recall things that happened a long time and many sessions ago by doing a targeted search by time range and/or search term.
+
+The memory log will be most useful if you keep entries to short, factual description of events (e.g. "the user just told me X", "there are currently repeated timeouts in tool X"). For any large-scope ideas that should become part of "you", use your personality files instead.
+
+Search your memory if you feel like you're missing information you may have known once. If it was in a previous session, you may not remember, and you won't even remember _that_ you logged it to memory.

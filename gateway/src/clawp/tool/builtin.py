@@ -162,6 +162,12 @@ class ClawpMcpServer(base.McpServer):
         )
         return [memory async for memory in memory_iter]
 
+    @property
+    def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
+        if "clawp_log_memory" in self._agent.enabled_tools:
+            return frozenset([mdl.InfoMessageSpecTutorial(topic="memory")])
+        return frozenset()
+
 
 class FileSystemMcpServer(base.McpServer):
     SAVE_ACTIONS_CONFIG_FILE_PATH = pathlib.Path(".clawp_save_actions.yaml")
@@ -361,4 +367,12 @@ class FileSystemMcpServer(base.McpServer):
     def config_file_paths(self) -> frozenset[pathlib.Path]:
         if self._save_actions_enabled_for_tools:
             return frozenset([self.SAVE_ACTIONS_CONFIG_FILE_PATH])
+        return frozenset()
+
+    @property
+    def info_message_specs(self) -> frozenset[mdl.InfoMessageSpec[t.Any]]:
+        if self._save_actions_enabled_for_tools:
+            return frozenset(
+                [mdl.InfoMessageSpecTutorial(topic="save_actions")]
+            )
         return frozenset()
