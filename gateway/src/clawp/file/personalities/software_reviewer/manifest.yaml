@@ -1,0 +1,16 @@
+name: software_reviewer
+personality_files:
+  - path: "AGENTS.md"
+    description: "Your core skillset and profession"
+  - path: "TEAM.md"
+    description: "How you work together with your team"
+tools:
+  include: "*"
+  exclude:
+    - "log_memory"
+    - "search_memory"
+  options:
+    write_file:
+      enable_save_actions: true
+    edit_file:
+      enable_save_actions: true
