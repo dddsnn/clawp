@@ -69,15 +69,17 @@ and enters them in dependency order:
 1. Load or initialize gateway state.
 2. Construct the configured external `ChannelPool`.
 3. Start the shared OpenRouter provider.
-4. discover and start persisted agents in `AgentRepository`.
+4. Discover and start persisted agents in `AgentRepository`.
 5. Start Uvicorn through `Api`.
 6. Wait for `SIGTERM`.
 
 An `AsyncExitStack` unwinds runtime components in reverse order. The state
-manager is deliberately entered outside that stack so it exits last and writes
-`gateway_state.json` after other components have stopped mutating shared state.
-Each repository agent similarly owns the lifecycle of its store, tools,
-channels, active session, and unread-message task.
+manager is a separate context manager entered after the stack, so it exits
+first and writes `gateway_state.json` before the stack stops the API, agent
+repository, and provider. This prioritizes persisting global state even if a
+later component has trouble shutting down. Each repository agent similarly
+owns the lifecycle of its store, tools, channels, active session, and
+unread-message task.
 
 ## Agent aggregate and persistence
 
