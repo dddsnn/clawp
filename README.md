@@ -24,7 +24,9 @@ with clawp. If not, see <https://www.gnu.org/licenses/>.
 ## Gateway
 
 The gateway is the backend component of the system. It runs the agents and
-provides a REST API to interact with them.
+provides a REST API to interact with them. See the
+[gateway architecture overview](docs/gateway-architecture.md) for its runtime
+components, data flow, and persistence model.
 
 ### Installing and running
 
