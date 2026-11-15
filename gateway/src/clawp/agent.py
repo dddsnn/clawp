@@ -357,14 +357,13 @@ class Session:
         agent.
         """
         message = incoming_message.message
-        if isinstance(message, mdl.UserMessage):
+        if isinstance(message, mdl.UserChatMessage):
             await self._add_metadata_for_user_message(message)
             message = msg.UserMessage(
                 msg.ChatMessageMetadata.from_model(message.metadata),
                 content=message.content,
             )
         else:
-            assert isinstance(message, mdl.SystemMessage)
             message = msg.SystemMessage(
                 msg.InternalMessageMetadata(time=message.metadata.time),
                 content=message.content,
@@ -372,7 +371,7 @@ class Session:
         await self._append_message(message)
 
     async def _add_metadata_for_user_message(
-        self, user_message: mdl.UserMessage
+        self, user_message: mdl.UserChatMessage
     ):
         message_content = await file.render_message_template(
             "message_metadata.txt",

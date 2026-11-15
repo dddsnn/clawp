@@ -237,7 +237,7 @@ class WebUiChannel(base.Channel):
         return incoming_messages
 
     def _make_incoming_message(
-        self, message: mdl.UserMessage | mdl.AgentMessage
+        self, message: mdl.UserMessage
     ) -> mdl.IncomingMessage:
         return mdl.IncomingMessage(chat=message.metadata.chat, message=message)
 
@@ -469,7 +469,7 @@ class AgentChannel(base.Channel):
         return incoming_messages
 
     def _make_incoming_message(
-        self, message: mdl.UserMessage | mdl.AgentMessage
+        self, message: mdl.UserMessage
     ) -> mdl.IncomingMessage:
         return mdl.IncomingMessage(chat=message.metadata.chat, message=message)
 

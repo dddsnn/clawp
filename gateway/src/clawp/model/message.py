@@ -152,15 +152,17 @@ class BaseChatMessage[
     """Message that arrives via channels/chats."""
 
 
-class GithubChatMessage(
-    BaseChatMessage[ChatMessageRole, GithubChatMessageMetadata]
+class BaseUserChatMessage[MetadataType: ChatMessageMetadata](
+    BaseMessage[t.Literal["user"], MetadataType]
 ):
     pass
 
 
-class MatrixChatMessage(
-    BaseChatMessage[ChatMessageRole, MatrixChatMessageMetadata]
-):
+class GithubChatMessage(BaseUserChatMessage[GithubChatMessageMetadata]):
+    pass
+
+
+class MatrixChatMessage(BaseUserChatMessage[MatrixChatMessageMetadata]):
     pass
 
 
@@ -183,7 +185,7 @@ class ToolMessage(InternalMessage[t.Literal["tool"]]):
     tool_call_id: str
 
 
-class UserMessage(BaseChatMessage[t.Literal["user"], ChatMessageMetadata]):
+class UserMessage(BaseUserChatMessage[ChatMessageMetadata]):
     """Message sent by the user."""
 
     role: t.Literal["user"] = "user"
@@ -220,9 +222,8 @@ class AgentMessage(BaseChatMessage[t.Literal["agent"], ChatMessageMetadata]):
     errors: list[AgentMessageError]
 
 
-ChatMessage = (
-    AgentMessage | GithubChatMessage | MatrixChatMessage | UserMessage
-)
+UserChatMessage = GithubChatMessage | MatrixChatMessage | UserMessage
+ChatMessage = UserChatMessage | AgentMessage
 NonStreamableMessage = t.Annotated[
     DeveloperMessage | SystemMessage | ToolMessage | UserMessage,
     pyd.Field(discriminator="role"),
@@ -271,7 +272,7 @@ class IncomingMessage(base.BaseModel):
     """An unread message in a channel."""
 
     chat: chan.ChatDescriptor
-    message: ChatMessage | SystemMessage
+    message: UserChatMessage | SystemMessage
 
 
 class BaseStreamingMessageMarker[MarkerType](base.BaseModel):

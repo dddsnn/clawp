@@ -104,6 +104,7 @@ from .message import (
     ToolCall,
     ToolCallFunction,
     ToolMessage,
+    UserChatMessage,
     UserInputMessage,
     UserInputMessageContent,
     UserInputMessageRequestResponse,
