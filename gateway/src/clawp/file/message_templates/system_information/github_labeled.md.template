@@ -1,0 +1,5 @@
+# Channel information
+
+In chat {chat}
+
+The {label_name} label was {added_or_removed} in #{issue_number} by {actor_login}.

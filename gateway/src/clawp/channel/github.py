@@ -547,6 +547,9 @@ class GithubChannel(base.Channel):
             "committed": await file.read_message_template(
                 "system_information/github_committed.md"
             ),
+            "labeled": await file.read_message_template(
+                "system_information/github_labeled.md"
+            ),
             "merged": await file.read_message_template(
                 "system_information/github_merged.md"
             ),
@@ -1435,6 +1438,22 @@ class GithubChannel(base.Channel):
                 issue_number=event.issue.number,
                 committer_name=event.event.committer_name,
                 committer_email=event.event.committer_email,
+            )
+            return [self._make_system_message(chat, event.time, content)]
+        elif isinstance(event.event, TimelineEventLabeling):
+            if event.event.label_name == self.agent_assigned_label:
+                # A label was changed, but it was the agent's (un-)assignment.
+                # There's a separate notification for that.
+                return []
+            added_or_removed = (
+                "added" if event.event.event == "labeled" else "removed"
+            )
+            content = self._message_templates["labeled"].render(
+                chat=chat.model_dump_json(),
+                issue_number=event.issue.number,
+                actor_login=event.event.actor_login,
+                label_name=event.event.label_name,
+                added_or_removed=added_or_removed,
             )
             return [self._make_system_message(chat, event.time, content)]
         assert isinstance(event.event, TimelineEventCommented)
