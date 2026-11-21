@@ -46,6 +46,7 @@ contracts between these parts.
 | `config.py`, `model/config.py` | YAML loading, validation, secret resolution, derived paths |
 | `state.py`, `model/state.py` | Gateway-wide and agent/session mutable state |
 | `agent/agent.py` | Agent lifecycle, channel coordination, session continuity, compaction |
+| `agent/error.py` | Agent-related exception classes |
 | `agent/session.py` | Session context, transactions, streaming, provider/tool response loop |
 | `agent/repository.py` | Agent discovery, construction, hatching, and repository lifecycle |
 | `message.py` | Runtime and streaming message objects |

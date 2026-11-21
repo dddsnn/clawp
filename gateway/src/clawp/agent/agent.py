@@ -30,26 +30,11 @@ from .. import channel as chan
 from .. import file, store, tool, util
 from .. import message as msg
 from .. import model as mdl
+from . import error as err
 from . import session as sess
 
 if t.TYPE_CHECKING:
     from .. import provider as prov
-
-
-class ChatSwitchError(RuntimeError):
-    """Raised when there is an error switching chat."""
-
-
-class CompactionError(RuntimeError):
-    """Raised when there is an error compacting an agent's session."""
-
-
-class MissingToolError(Exception):
-    """Raised when an agent is missing required tools."""
-
-    def __init__(self, message: str, missing_tools: frozenset[str]) -> None:
-        super().__init__(message)
-        self.missing_tools = missing_tools
 
 
 class Agent(file.InfoProvider):
@@ -133,7 +118,7 @@ class Agent(file.InfoProvider):
         if tx.active_chat == chat:
             raise ValueError("new chat is the same as the current one")
         if chat.channel == "system":
-            raise ChatSwitchError("cannot switch to the system channel")
+            raise err.ChatSwitchError("cannot switch to the system channel")
         # Switch the active chat in the transaction first, since that may raise
         # an exception if we're not allowed to switch the chat.
         tx.active_chat = chat
@@ -616,7 +601,7 @@ class Agent(file.InfoProvider):
             raise ValueError("can't add channels without ID")
         missing_tools = channel.required_tools - self.enabled_tools
         if missing_tools:
-            raise MissingToolError(
+            raise err.MissingToolError(
                 f"agent is missing required tools {missing_tools}",
                 missing_tools,
             )
@@ -664,10 +649,10 @@ class Agent(file.InfoProvider):
                     compaction_summary = (
                         await self._request_compaction_summary_locked(tx)
                     )
-                except CompactionError:
+                except err.CompactionError:
                     raise
                 except Exception as e:
-                    raise CompactionError(
+                    raise err.CompactionError(
                         "error getting compaction summary from agent"
                     ) from e
             await self._start_new_session_locked(compaction_summary)
@@ -703,7 +688,7 @@ class Agent(file.InfoProvider):
                 "Your last message contained no content. Please provide a "
                 "compaction summary.",
             )
-        raise CompactionError(
+        raise err.CompactionError(
             "agent provided no compaction summary after "
             f"{self.MAX_REQUEST_COMPACTION_SUMMARY_ATTEMPTS} attempts"
         )

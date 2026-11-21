@@ -18,6 +18,7 @@
 # pyright: reportImportCycles=false,reportUnusedImport=false
 # ruff: noqa: F401
 
-from .agent import Agent, ChatSwitchError, MissingToolError
+from .agent import Agent
+from .error import ChatSwitchError, MissingToolError
 from .repository import AgentRepository
 from .session import MessageInSession, SessionTransaction
