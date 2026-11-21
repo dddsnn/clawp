@@ -45,7 +45,9 @@ contracts between these parts.
 | `main.py` | Process bootstrap, lifecycle ordering, signal-based shutdown |
 | `config.py`, `model/config.py` | YAML loading, validation, secret resolution, derived paths |
 | `state.py`, `model/state.py` | Gateway-wide and agent/session mutable state |
-| `agent.py` | Agent repository, agent lifecycle, sessions, response loop, compaction |
+| `agent/agent.py` | Agent lifecycle, channel coordination, session continuity, compaction |
+| `agent/session.py` | Session context, transactions, streaming, provider/tool response loop |
+| `agent/repository.py` | Agent discovery, construction, hatching, and repository lifecycle |
 | `message.py` | Runtime and streaming message objects |
 | `provider.py` | LLM-provider boundary and OpenRouter stream translation |
 | `channel/` | Channel contract, account pool, per-agent routing, channel adapters |
