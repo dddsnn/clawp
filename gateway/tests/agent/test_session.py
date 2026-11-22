@@ -16,6 +16,7 @@
 # along with clawp. If not, see <https://www.gnu.org/licenses/>.
 
 import contextlib
+import itertools as it
 from unittest.mock import AsyncMock, Mock
 
 import mcp.types
@@ -109,6 +110,14 @@ def lookup_call():
     )
 
 
+def equivalent_message(left: mdl.Message | None, right: mdl.Message | None):
+    if left is None or right is None:
+        return False
+    # Persistence truncates timestamps to milliseconds; compare their serialized
+    # representation rather than the higher-precision in-memory instants.
+    return left.model_dump(mode="json") == right.model_dump(mode="json")
+
+
 class TestSession:
     @pytest.fixture
     def provider(self):
@@ -149,7 +158,7 @@ class TestSession:
             yield session
 
     async def test_append_user_message_prepends_metadata_without_responding(
-        self, session, sessions_store, provider, sender
+        self, session, provider, sender
     ):
         chat = mdl.WebUiChatDescriptor(chat_id="")
         metadata = mdl.WebUiChatMessageMetadata(
@@ -188,12 +197,6 @@ class TestSession:
         assert await messages[1].message.model == mdl.UserMessage(
             metadata=metadata, content="hello"
         )
-        _, persisted = await sessions_store.load_or_create(0)
-        assert [
-            (await m.model).model_dump(mode="json") for m in persisted
-        ] == [
-            (await m.message.model).model_dump(mode="json") for m in messages
-        ]
         assert provider.requests == []
         assert sender.sent == []
 
@@ -216,6 +219,36 @@ class TestSession:
         assert session.num_messages == 1
         assert await next(session.messages()).message.model == message
         assert provider.requests == []
+
+    @pytest.mark.parametrize("role", ["user", "system"])
+    async def test_append_incoming_message_serializes_messages_in_order(
+        self, session, sessions_store, role
+    ):
+        chat = mdl.WebUiChatDescriptor(chat_id="")
+        time = we.Instant.from_utc(2026, 1, 1, nanosecond=123456789)
+        if role == "user":
+            message = mdl.UserMessage(
+                metadata=mdl.WebUiChatMessageMetadata(chat=chat, time=time),
+                content="hello",
+            )
+        else:
+            message = mdl.SystemMessage(
+                metadata=mdl.InternalMessageMetadata(time=time),
+                content="channel available",
+            )
+        async with await session.transaction() as tx:
+            await tx.append_incoming_message(
+                mdl.IncomingMessage(chat=chat, message=message)
+            )
+
+        _, persisted = await sessions_store.load_or_create(0)
+        persisted_models = [await m.model for m in persisted]
+        messages = [await m.message.model for m in session.messages()]
+        assert messages
+        assert all(
+            equivalent_message(p, m)
+            for p, m in it.zip_longest(persisted_models, messages)
+        )
 
     @pytest.mark.parametrize("content", ["hello", "", None])
     async def test_response_is_finalized_and_stored_but_only_content_is_sent(
@@ -245,9 +278,7 @@ class TestSession:
         assert model.content == (content or "")
         assert sender.sent == ([model] if content else [])
         _, persisted = await sessions_store.load_or_create(0)
-        assert (await persisted[-1].model).model_dump(mode="json") == (
-            model.model_dump(mode="json")
-        )
+        assert equivalent_message(await persisted[-1].model, model)
 
     @pytest.mark.parametrize("fails", [False, True])
     async def test_tool_result_is_correlated_and_in_next_provider_context(
