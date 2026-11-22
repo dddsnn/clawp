@@ -19,12 +19,10 @@ import dataclasses as dc
 import logging
 import typing as t
 
+from .. import agent as agt
 from .. import message as msg
 from .. import model as mdl
 from . import template
-
-if t.TYPE_CHECKING:
-    from .. import agent as agt
 
 
 @dc.dataclass
